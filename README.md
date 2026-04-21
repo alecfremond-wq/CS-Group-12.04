@@ -1,0 +1,137 @@
+# CookTogether 🍳
+
+**Group 12.04 — FCS/BWL · Grundlagen und Methoden der Informatik (HSG, FS26)**
+
+A Streamlit web app that helps students cook more enjoyably: personalised
+recipes, pantry-aware suggestions, weekly meal planning, nutrition analytics
+and ML-powered recommendations.
+
+---
+
+## Quick start
+
+```bash
+# 1. clone (you already have the repo)
+git clone <repo-url>
+cd CS-Groupe-Project
+
+# 2. create & activate a virtual environment
+python -m venv .venv
+source .venv/bin/activate         # macOS / Linux
+# .venv\Scripts\activate          # Windows PowerShell
+
+# 3. install dependencies
+pip install -r requirements.txt
+
+# 4. run the app
+streamlit run app.py
+```
+
+The first start creates `data/cooktogether.db` automatically from
+`data/schema.sql` — nothing else to set up.
+
+## Project structure
+
+```
+CS-Groupe-Project/
+├── app.py                      # Streamlit entrypoint (home page)
+├── pages/                      # one file per feature — edit freely without conflicts
+│   ├── 1_Onboarding.py
+│   ├── 2_Recipes.py
+│   ├── 3_Pantry.py
+│   ├── 4_Meal_Planner.py
+│   ├── 5_Nutrition_Analytics.py
+│   ├── 6_World_Map.py
+│   └── 7_Recommendations.py
+├── src/
+│   ├── data/
+│   │   ├── api_client.py       # TheMealDB API wrapper
+│   │   └── database.py         # SQLite helpers (init_db, query_df, execute)
+│   ├── models/
+│   │   └── recommender.py      # ML recommender (scikit-learn)
+│   ├── components/
+│   │   └── ui.py               # shared UI helpers (page_header, empty_state)
+│   └── utils/
+│       └── session.py          # session_state init + require_profile()
+├── data/
+│   ├── schema.sql              # DB schema — edit here, not in database.py
+│   └── cooktogether.db         # generated at runtime (gitignored)
+├── assets/                     # images, logos
+├── tests/                      # (optional) pytest tests
+├── docs/
+│   ├── CONTRIBUTING.md         # git workflow — READ THIS
+│   └── CONTRIBUTION_MATRIX.md  # REQUIRED deliverable — keep up to date!
+├── .streamlit/
+│   ├── config.toml
+│   └── secrets.toml.example    # copy to secrets.toml for API keys
+├── requirements.txt
+└── .gitignore
+```
+
+## Mapping features → grading requirements
+
+The course grades 8 requirements (see `FCS-BWL-GroupProject.pdf` in the
+`Group Project` folder). Here's which part of the code covers which:
+
+| # | Requirement                               | Where it lives                                |
+|---|-------------------------------------------|-----------------------------------------------|
+| 1 | Problem clearly formulated                | `README.md`, video pitch                      |
+| 2 | Data via API **and/or** database          | `src/data/api_client.py`, `src/data/database.py` |
+| 3 | Useful data visualisation                 | `pages/5_Nutrition_Analytics.py`, `pages/6_World_Map.py`, `pages/4_Meal_Planner.py` |
+| 4 | User interactions                         | `pages/1_Onboarding.py`, `pages/3_Pantry.py`, `pages/2_Recipes.py`, `pages/4_Meal_Planner.py` |
+| 5 | Machine learning                          | `src/models/recommender.py`, `pages/7_Recommendations.py` |
+| 6 | Well-commented source code                | every file — docstrings + inline notes        |
+| 7 | Contribution documented                   | `docs/CONTRIBUTION_MATRIX.md`                 |
+| 8 | 4-minute demo video                       | produced in week 11                           |
+
+## Team split (5 people)
+
+Each member owns **one page file** + one chunk of `src/`. Because pages are
+isolated, you can all push at the same time without stepping on each other.
+
+| Member | Page file                            | Shared module                  |
+|--------|--------------------------------------|--------------------------------|
+| TM1    | `pages/1_Onboarding.py`              | `src/data/database.py` (+ schema) |
+| TM2    | `pages/2_Recipes.py`, `pages/3_Pantry.py` | `src/data/api_client.py`        |
+| TM3    | `pages/4_Meal_Planner.py`            | `src/components/ui.py`         |
+| TM4    | `pages/5_Nutrition_Analytics.py`, `pages/6_World_Map.py` | —  |
+| TM5    | `pages/7_Recommendations.py`         | `src/models/recommender.py`    |
+
+Fill in the real names at tomorrow's meeting and update `CONTRIBUTION_MATRIX.md`.
+
+## Next steps (MVP → final)
+
+The MVP scaffolded here runs end-to-end with placeholder data. Before the
+final submission on **14.05.2026**, each owner should:
+
+1. replace the demo data in their page with real DB queries (`query_df(...)`);
+2. wire user actions (form submits, button clicks) to `execute(...)` calls;
+3. add at least one Plotly/Streamlit chart per page where it adds value;
+4. keep docstrings and inline comments up to date for Req. 6;
+5. update `docs/CONTRIBUTION_MATRIX.md` at the end of each work session.
+
+## Useful commands
+
+```bash
+# Start the app
+streamlit run app.py
+
+# Format code (optional but nice)
+pip install black
+black .
+
+# Run tests (when we add them)
+pip install pytest
+pytest
+```
+
+## Troubleshooting
+
+* **`ModuleNotFoundError: streamlit`** → activate your venv, re-run `pip install -r requirements.txt`.
+* **`sqlite3.OperationalError: no such table`** → delete `data/cooktogether.db` and restart; `init_db()` will recreate it.
+* **API errors in Recipes** → TheMealDB occasionally rate-limits. Just retry.
+
+## License & references
+
+For educational use in FCS/BWL FS26. Any external code, images or datasets
+must be credited in `docs/REFERENCES.md` (create it when you add anything).

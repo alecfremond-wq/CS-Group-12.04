@@ -1,0 +1,17 @@
+# Core
+streamlit>=1.32
+pandas>=2.1
+numpy>=1.26
+
+# Visualization
+plotly>=5.18
+pydeck>=0.8
+
+# API / HTTP
+requests>=2.31
+
+# Machine learning
+scikit-learn>=1.4
+
+# Optional: nicer dataframes / utils
+python-dateutil>=2.8

@@ -1,0 +1,41 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+env/
+
+# --- Streamlit ---
+.streamlit/secrets.toml
+
+# --- Environment / secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Local database (keep schema.sql, ignore data file) ---
+data/*.db
+data/*.db-journal
+data/*.sqlite
+data/*.sqlite3
+
+# --- IDE / OS ---
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# --- Testing / coverage ---
+.pytest_cache/
+.coverage
+htmlcov/
+
+# --- Jupyter ---
+.ipynb_checkpoints/
