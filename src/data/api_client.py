@@ -95,3 +95,39 @@ def filter_by_cuisine(cuisine):
 
     except requests.RequestException:
         return []
+
+
+@st.cache_data(ttl=60 * 60)
+def search_spoonacular(query="", vegetarian=False, vegan=False,
+                       gluten_free=False, dairy_free=False):
+    """Search Spoonacular for recipes, filtered by the user diet profile."""
+    try:
+        diet = None
+        if vegan:
+            diet = "vegan"
+        elif vegetarian:
+            diet = "vegetarian"
+        intolerances = []
+        if gluten_free:
+            intolerances.append("gluten")
+        if dairy_free:
+            intolerances.append("dairy")
+        params = {
+            "apiKey": st.secrets["SPOONACULAR_API_KEY"],
+            "query": query,
+            "number": 10,
+            "addRecipeInformation": True,
+        }
+        if diet:
+            params["diet"] = diet
+        if intolerances:
+            params["intolerances"] = ",".join(intolerances)
+        resp = requests.get("https://api.spoonacular.com/recipes/complexSearch", params=params, timeout=10)
+        resp.raise_for_status()
+        results = []
+        for r in resp.json().get("results", []):
+            results.append({"strMeal": r.get("title", ""), "strMealThumb": r.get("image", ""), "strArea": "International", "strCategory": r.get("dishTypes", [""])[0].title() if r.get("dishTypes") else "—", "strInstructions": r.get("summary", ""), "source": "spoonacular"})
+        return results
+    except Exception as exc:
+        st.warning(f"Spoonacular unavailable: {exc}")
+        return []
