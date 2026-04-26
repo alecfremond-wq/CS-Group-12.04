@@ -53,365 +53,419 @@ st.caption("⚠️  Demo data — owner: wire up real cooking_history in Sprint 
 
 --------------------------------
 st.subheader ("Nutrition facts for the past 7 days")
-import { useState, useEffect } from "react";
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
+import dash
+from dash import dcc, html, Input, Output, State
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
-// ─── Mock recipe data (replace with your Spoonacular API calls) ───────────────
-const RECIPES = [
-  { id: 1, title: "Spaghetti Carbonara", calories: 620, protein: 28, carbs: 72, fat: 24, emoji: "🍝" },
-  { id: 2, title: "Grilled Chicken Salad", calories: 380, protein: 42, carbs: 18, fat: 14, emoji: "🥗" },
-  { id: 3, title: "Avocado Toast", calories: 290, protein: 9, carbs: 34, fat: 16, emoji: "🥑" },
-  { id: 4, title: "Greek Yogurt Parfait", calories: 240, protein: 18, carbs: 32, fat: 5, emoji: "🫙" },
-  { id: 5, title: "Beef Tacos (x2)", calories: 540, protein: 31, carbs: 46, fat: 22, emoji: "🌮" },
-  { id: 6, title: "Veggie Stir Fry", calories: 310, protein: 12, carbs: 52, fat: 8, emoji: "🥦" },
-  { id: 7, title: "Banana Oat Smoothie", calories: 185, protein: 7, carbs: 38, fat: 3, emoji: "🍌" },
-  { id: 8, title: "Salmon & Quinoa", calories: 490, protein: 44, carbs: 38, fat: 15, emoji: "🐟" },
-  { id: 9, title: "Margherita Pizza (2 slices)", calories: 560, protein: 22, carbs: 68, fat: 18, emoji: "🍕" },
-  { id: 10, title: "Lentil Soup", calories: 280, protein: 16, carbs: 44, fat: 4, emoji: "🍲" },
-];
+# ─────────────────────────────────────────────────────────────
+# DATA — replace with your real backend data
+# ─────────────────────────────────────────────────────────────
+GOAL = 2000  # daily calorie goal (kcal)
 
-const DAILY_GOAL = 2000;
+days = [
+    {"label": "Mon", "total": 1840, "meals": [{"name": "Breakfast", "kcal": 420}, {"name": "Lunch", "kcal": 680}, {"name": "Snacks", "kcal": 210}, {"name": "Dinner", "kcal": 530}]},
+    {"label": "Tue", "total": 2210, "meals": [{"name": "Breakfast", "kcal": 510}, {"name": "Lunch", "kcal": 750}, {"name": "Snacks", "kcal": 380}, {"name": "Dinner", "kcal": 570}]},
+    {"label": "Wed", "total": 1760, "meals": [{"name": "Breakfast", "kcal": 390}, {"name": "Lunch", "kcal": 620}, {"name": "Snacks", "kcal": 150}, {"name": "Dinner", "kcal": 600}]},
+    {"label": "Thu", "total": 2450, "meals": [{"name": "Breakfast", "kcal": 640}, {"name": "Lunch", "kcal": 820}, {"name": "Snacks", "kcal": 430}, {"name": "Dinner", "kcal": 560}]},
+    {"label": "Fri", "total": 1980, "meals": [{"name": "Breakfast", "kcal": 470}, {"name": "Lunch", "kcal": 700}, {"name": "Snacks", "kcal": 280}, {"name": "Dinner", "kcal": 530}]},
+    {"label": "Sat", "total": 2330, "meals": [{"name": "Breakfast", "kcal": 590}, {"name": "Lunch", "kcal": 780}, {"name": "Snacks", "kcal": 410}, {"name": "Dinner", "kcal": 550}]},
+    {"label": "Sun", "total": 1650, "meals": [{"name": "Breakfast", "kcal": 350}, {"name": "Lunch", "kcal": 580}, {"name": "Snacks", "kcal": 190}, {"name": "Dinner", "kcal": 530}]},
+]
 
-// Generate last 7 days
-const getLast7Days = () => {
-  const days = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    days.push({
-      date: d.toISOString().split("T")[0],
-      label: i === 0 ? "Today" : d.toLocaleDateString("en-US", { weekday: "short" }),
-      meals: [],
-    });
-  }
-  return days;
-};
+# ─────────────────────────────────────────────────────────────
+# HELPERS
+# ─────────────────────────────────────────────────────────────
+def bar_color(total):
+    if total > GOAL + 150:  return "#E24B4A"   # over
+    if total < GOAL - 150:  return "#378ADD"   # under
+    return "#5AAF32"                            # on target
 
-// Seed some initial data
-const seedData = (days) => {
-  const seeded = days.map((d, i) => ({ ...d, meals: [...d.meals] }));
-  seeded[0].meals = [RECIPES[2], RECIPES[6]];
-  seeded[1].meals = [RECIPES[0], RECIPES[3]];
-  seeded[2].meals = [RECIPES[7], RECIPES[4]];
-  seeded[3].meals = [RECIPES[1], RECIPES[9]];
-  seeded[4].meals = [RECIPES[5], RECIPES[3]];
-  seeded[5].meals = [RECIPES[8], RECIPES[2], RECIPES[6]];
-  return seeded;
-};
-
-const CustomTooltip = ({ active, payload, label }) => {
-  if (active && payload && payload.length) {
-    const cal = payload[0].value;
-    const pct = Math.round((cal / DAILY_GOAL) * 100);
-    return (
-      <div style={{
-        background: "#0f0f14",
-        border: "1px solid #2a2a3a",
-        borderRadius: "12px",
-        padding: "12px 16px",
-        boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-      }}>
-        <p style={{ color: "#8b8ba0", fontSize: "11px", margin: "0 0 4px", textTransform: "uppercase", letterSpacing: "0.1em" }}>{label}</p>
-        <p style={{ color: "#f0e6ff", fontSize: "22px", fontWeight: "700", margin: "0 0 2px", fontFamily: "'DM Serif Display', serif" }}>
-          {cal.toLocaleString()} <span style={{ fontSize: "13px", color: "#a78bfa" }}>kcal</span>
-        </p>
-        <p style={{ color: cal > DAILY_GOAL ? "#f87171" : "#34d399", fontSize: "12px", margin: 0 }}>
-          {pct}% of daily goal
-        </p>
-      </div>
-    );
-  }
-  return null;
-};
-
-export default function CalorieTracker() {
-  const [days, setDays] = useState(() => seedData(getLast7Days()));
-  const [selectedDay, setSelectedDay] = useState(6); // today
-  const [showPicker, setShowPicker] = useState(false);
-  const [search, setSearch] = useState("");
-  const [added, setAdded] = useState(null);
-
-  const chartData = days.map((d) => ({
-    label: d.label,
-    calories: d.meals.reduce((s, m) => s + m.calories, 0),
-  }));
-
-  const todayCalories = chartData[selectedDay]?.calories ?? 0;
-  const todayMeals = days[selectedDay]?.meals ?? [];
-  const filtered = RECIPES.filter((r) =>
-    r.title.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const addMeal = (recipe) => {
-    setDays((prev) => {
-      const next = prev.map((d, i) =>
-        i === selectedDay ? { ...d, meals: [...d.meals, recipe] } : d
-      );
-      return next;
-    });
-    setAdded(recipe.id);
-    setTimeout(() => setAdded(null), 1200);
-  };
-
-  const removeMeal = (mealIndex) => {
-    setDays((prev) =>
-      prev.map((d, i) =>
-        i === selectedDay
-          ? { ...d, meals: d.meals.filter((_, j) => j !== mealIndex) }
-          : d
-      )
-    );
-  };
-
-  const deficit = DAILY_GOAL - todayCalories;
-  const fillPct = Math.min((todayCalories / DAILY_GOAL) * 100, 100);
-
-  return (
-    <div style={{
-      minHeight: "100vh",
-      background: "#080810",
-      fontFamily: "'DM Sans', sans-serif",
-      color: "#e2e2f0",
-      padding: "32px 20px",
-    }}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
-
-      <style>{`
-        * { box-sizing: border-box; }
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #2a2a3a; border-radius: 4px; }
-        .day-pill { cursor: pointer; transition: all 0.2s; }
-        .day-pill:hover { background: #1e1e2e !important; }
-        .recipe-row { transition: all 0.15s; cursor: pointer; }
-        .recipe-row:hover { background: #1a1a28 !important; }
-        .remove-btn { opacity: 0; transition: opacity 0.15s; }
-        .meal-item:hover .remove-btn { opacity: 1; }
-        @keyframes pop { 0%{transform:scale(0.9);opacity:0} 60%{transform:scale(1.05)} 100%{transform:scale(1);opacity:1} }
-        .pop { animation: pop 0.3s ease forwards; }
-        @keyframes slideUp { from{transform:translateY(10px);opacity:0} to{transform:translateY(0);opacity:1} }
-        .slide-up { animation: slideUp 0.4s ease forwards; }
-      `}</style>
-
-      <div style={{ maxWidth: "860px", margin: "0 auto" }}>
-
-        {/* Header */}
-        <div style={{ marginBottom: "36px" }}>
-          <p style={{ color: "#6b6b82", fontSize: "13px", letterSpacing: "0.15em", textTransform: "uppercase", margin: "0 0 6px" }}>Weekly Overview</p>
-          <h1 style={{ fontFamily: "'DM Serif Display', serif", fontSize: "clamp(28px,5vw,42px)", margin: 0, background: "linear-gradient(135deg,#e2d9ff,#a78bfa)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-            Calorie Tracker
-          </h1>
-        </div>
-
-        {/* Chart Card */}
-        <div style={{ background: "#0f0f1a", borderRadius: "20px", border: "1px solid #1e1e30", padding: "28px 24px 16px", marginBottom: "24px" }} className="slide-up">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "8px" }}>
-            <div>
-              <p style={{ margin: 0, color: "#6b6b82", fontSize: "12px", textTransform: "uppercase", letterSpacing: "0.1em" }}>7-Day Calories</p>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "6px", background: "#1a1a28", padding: "6px 12px", borderRadius: "8px" }}>
-              <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#f87171" }} />
-              <span style={{ fontSize: "12px", color: "#8b8ba0" }}>Goal: {DAILY_GOAL.toLocaleString()} kcal</span>
-            </div>
-          </div>
-
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={chartData} margin={{ top: 5, right: 5, bottom: 0, left: -20 }}
-              onClick={(e) => { if (e?.activeTooltipIndex !== undefined) setSelectedDay(e.activeTooltipIndex); }}>
-              <defs>
-                <linearGradient id="calGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#a78bfa" stopOpacity={0.4} />
-                  <stop offset="100%" stopColor="#a78bfa" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e1e30" vertical={false} />
-              <XAxis dataKey="label" tick={{ fill: "#6b6b82", fontSize: 12 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: "#6b6b82", fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip content={<CustomTooltip />} cursor={{ stroke: "#a78bfa", strokeWidth: 1, strokeDasharray: "4 4" }} />
-              <ReferenceLine y={DAILY_GOAL} stroke="#f87171" strokeDasharray="5 5" strokeOpacity={0.5} />
-              <Area type="monotone" dataKey="calories" stroke="#a78bfa" strokeWidth={2.5}
-                fill="url(#calGrad)" dot={(props) => {
-                  const isSelected = props.index === selectedDay;
-                  return <circle key={props.index} cx={props.cx} cy={props.cy} r={isSelected ? 6 : 4}
-                    fill={isSelected ? "#a78bfa" : "#1e1e30"} stroke="#a78bfa" strokeWidth={2} style={{ cursor: "pointer" }} />;
-                }} activeDot={{ r: 7, fill: "#a78bfa", stroke: "#fff", strokeWidth: 2 }} />
-            </AreaChart>
-          </ResponsiveContainer>
-
-          {/* Day pills */}
-          <div style={{ display: "flex", gap: "8px", marginTop: "16px", justifyContent: "space-between" }}>
-            {days.map((d, i) => {
-              const cal = chartData[i]?.calories ?? 0;
-              const over = cal > DAILY_GOAL;
-              return (
-                <div key={d.date} className="day-pill" onClick={() => setSelectedDay(i)}
-                  style={{
-                    flex: 1, textAlign: "center", padding: "8px 4px", borderRadius: "10px", cursor: "pointer",
-                    background: selectedDay === i ? "#1e1530" : "transparent",
-                    border: selectedDay === i ? "1px solid #a78bfa44" : "1px solid transparent",
-                  }}>
-                  <div style={{ fontSize: "11px", color: selectedDay === i ? "#a78bfa" : "#6b6b82", fontWeight: selectedDay === i ? "600" : "400" }}>{d.label}</div>
-                  <div style={{ fontSize: "11px", color: over ? "#f87171" : "#34d399", marginTop: "2px" }}>
-                    {cal > 0 ? `${(cal / 1000).toFixed(1)}k` : "–"}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Bottom row */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
-
-          {/* Today's Stats */}
-          <div style={{ background: "#0f0f1a", borderRadius: "20px", border: "1px solid #1e1e30", padding: "24px" }}>
-            <p style={{ margin: "0 0 16px", color: "#6b6b82", fontSize: "12px", textTransform: "uppercase", letterSpacing: "0.1em" }}>
-              {days[selectedDay]?.label ?? ""}
-            </p>
-            <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: "48px", lineHeight: 1, marginBottom: "4px", color: todayCalories > DAILY_GOAL ? "#f87171" : "#e2d9ff" }}>
-              {todayCalories.toLocaleString()}
-            </div>
-            <div style={{ color: "#6b6b82", fontSize: "13px", marginBottom: "20px" }}>kcal consumed</div>
-
-            {/* Progress bar */}
-            <div style={{ background: "#1a1a28", borderRadius: "999px", height: "6px", overflow: "hidden", marginBottom: "8px" }}>
-              <div style={{
-                height: "100%", borderRadius: "999px", transition: "width 0.5s ease",
-                width: `${fillPct}%`,
-                background: todayCalories > DAILY_GOAL
-                  ? "linear-gradient(90deg,#f87171,#fb923c)"
-                  : "linear-gradient(90deg,#a78bfa,#60a5fa)",
-              }} />
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "#6b6b82" }}>
-              <span>0</span>
-              <span style={{ color: deficit < 0 ? "#f87171" : "#34d399" }}>
-                {deficit < 0 ? `${Math.abs(deficit)} over` : `${deficit} left`}
-              </span>
-              <span>{DAILY_GOAL.toLocaleString()}</span>
-            </div>
-
-            {/* Macros */}
-            {todayMeals.length > 0 && (
-              <div style={{ display: "flex", gap: "8px", marginTop: "16px" }}>
-                {[
-                  { label: "Protein", val: todayMeals.reduce((s, m) => s + m.protein, 0), color: "#60a5fa", unit: "g" },
-                  { label: "Carbs", val: todayMeals.reduce((s, m) => s + m.carbs, 0), color: "#fbbf24", unit: "g" },
-                  { label: "Fat", val: todayMeals.reduce((s, m) => s + m.fat, 0), color: "#f472b6", unit: "g" },
-                ].map((m) => (
-                  <div key={m.label} style={{ flex: 1, background: "#1a1a28", borderRadius: "10px", padding: "10px 8px", textAlign: "center" }}>
-                    <div style={{ color: m.color, fontWeight: "600", fontSize: "16px" }}>{m.val}{m.unit}</div>
-                    <div style={{ color: "#6b6b82", fontSize: "10px", marginTop: "2px" }}>{m.label}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Meals logged */}
-          <div style={{ background: "#0f0f1a", borderRadius: "20px", border: "1px solid #1e1e30", padding: "24px", display: "flex", flexDirection: "column" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-              <p style={{ margin: 0, color: "#6b6b82", fontSize: "12px", textTransform: "uppercase", letterSpacing: "0.1em" }}>Meals Logged</p>
-              {selectedDay === 6 && (
-                <button onClick={() => setShowPicker(true)} style={{
-                  background: "linear-gradient(135deg,#7c3aed,#4f46e5)", border: "none", borderRadius: "8px",
-                  color: "#fff", fontSize: "12px", fontWeight: "600", padding: "6px 14px", cursor: "pointer",
-                  fontFamily: "'DM Sans', sans-serif",
-                }}>+ Add</button>
-              )}
-            </div>
-
-            <div style={{ flex: 1, overflowY: "auto", maxHeight: "220px", display: "flex", flexDirection: "column", gap: "8px" }}>
-              {todayMeals.length === 0 ? (
-                <div style={{ textAlign: "center", color: "#3a3a50", padding: "32px 0", fontSize: "13px" }}>
-                  No meals logged yet
-                </div>
-              ) : todayMeals.map((meal, i) => (
-                <div key={i} className="meal-item" style={{
-                  display: "flex", alignItems: "center", gap: "10px",
-                  background: "#131320", borderRadius: "10px", padding: "10px 12px",
-                  border: "1px solid #1e1e30",
-                }}>
-                  <span style={{ fontSize: "20px" }}>{meal.emoji}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: "13px", fontWeight: "500", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{meal.title}</div>
-                    <div style={{ fontSize: "11px", color: "#6b6b82" }}>{meal.calories} kcal</div>
-                  </div>
-                  {selectedDay === 6 && (
-                    <button className="remove-btn" onClick={() => removeMeal(i)} style={{
-                      background: "none", border: "none", color: "#f87171", cursor: "pointer", fontSize: "16px", padding: "2px 4px", lineHeight: 1,
-                    }}>×</button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Recipe Picker Modal */}
-        {showPicker && (
-          <div onClick={() => setShowPicker(false)} style={{
-            position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(6px)",
-            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: "20px",
-          }}>
-            <div onClick={(e) => e.stopPropagation()} className="pop" style={{
-              background: "#0f0f1a", border: "1px solid #2a2a3a", borderRadius: "24px",
-              width: "100%", maxWidth: "460px", maxHeight: "80vh", display: "flex", flexDirection: "column",
-              overflow: "hidden",
-            }}>
-              <div style={{ padding: "24px 24px 16px", borderBottom: "1px solid #1e1e30" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-                  <h2 style={{ margin: 0, fontFamily: "'DM Serif Display', serif", fontSize: "22px" }}>Log a Meal</h2>
-                  <button onClick={() => setShowPicker(false)} style={{ background: "#1a1a28", border: "none", borderRadius: "50%", width: "32px", height: "32px", color: "#8b8ba0", fontSize: "18px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
-                </div>
-                <input
-                  autoFocus
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search recipes…"
-                  style={{
-                    width: "100%", background: "#1a1a28", border: "1px solid #2a2a3a", borderRadius: "12px",
-                    color: "#e2e2f0", fontSize: "14px", padding: "12px 16px", outline: "none",
-                    fontFamily: "'DM Sans', sans-serif",
-                  }}
-                />
-              </div>
-              <div style={{ overflowY: "auto", padding: "12px" }}>
-                {filtered.map((r) => (
-                  <div key={r.id} className="recipe-row" onClick={() => { addMeal(r); }}
-                    style={{
-                      display: "flex", alignItems: "center", gap: "12px",
-                      padding: "12px", borderRadius: "12px", marginBottom: "4px",
-                      background: added === r.id ? "#1e1530" : "transparent",
-                      border: added === r.id ? "1px solid #a78bfa44" : "1px solid transparent",
-                    }}>
-                    <span style={{ fontSize: "24px", flexShrink: 0 }}>{r.emoji}</span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: "14px", fontWeight: "500", marginBottom: "2px" }}>{r.title}</div>
-                      <div style={{ display: "flex", gap: "10px" }}>
-                        <span style={{ fontSize: "11px", color: "#a78bfa" }}>{r.calories} kcal</span>
-                        <span style={{ fontSize: "11px", color: "#6b6b82" }}>P:{r.protein}g · C:{r.carbs}g · F:{r.fat}g</span>
-                      </div>
-                    </div>
-                    <div style={{
-                      width: "28px", height: "28px", borderRadius: "50%", flexShrink: 0,
-                      background: added === r.id ? "#7c3aed" : "#1a1a28",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: "14px", transition: "all 0.2s",
-                    }}>
-                      {added === r.id ? "✓" : "+"}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-      </div>
-    </div>
-  );
+MEAL_COLORS = {
+    "Breakfast": "#F4A522",
+    "Lunch":     "#378ADD",
+    "Snacks":    "#9B6FD8",
+    "Dinner":    "#5AAF32",
 }
+
+totals = [d["total"] for d in days]
+labels = [d["label"] for d in days]
+colors = [bar_color(t) for t in totals]
+avg    = round(sum(totals) / len(totals))
+best   = min(days, key=lambda d: abs(d["total"] - GOAL))
+on_goal_count = sum(1 for t in totals if GOAL - 150 <= t <= GOAL + 150)
+weekly_total  = sum(totals)
+
+# ─────────────────────────────────────────────────────────────
+# APP
+# ─────────────────────────────────────────────────────────────
+app = dash.Dash(__name__, title="Weekly Calorie Tracker")
+
+FONT = "'DM Sans', 'Segoe UI', sans-serif"
+
+# Google Fonts import via index_string
+app.index_string = """
+<!DOCTYPE html>
+<html>
+<head>
+  {%metas%}
+  <title>{%title%}</title>
+  {%favicon%}
+  {%css%}
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0f0f0d;
+      min-height: 100vh;
+      font-family: 'DM Sans', 'Segoe UI', sans-serif;
+      color: #f0ede8;
+    }
+    .metric-card {
+      background: #1a1a17;
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 14px;
+      padding: 18px 22px;
+      flex: 1;
+      min-width: 160px;
+    }
+    .metric-label {
+      font-size: 12px;
+      color: #888780;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .metric-value {
+      font-size: 22px;
+      font-weight: 600;
+      color: #f0ede8;
+    }
+    .metric-sub {
+      font-size: 12px;
+      color: #5f5e5a;
+      margin-top: 2px;
+    }
+    .day-pill {
+      background: #1a1a17;
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 50px;
+      padding: 8px 18px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      color: #888780;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .day-pill:hover { border-color: rgba(255,255,255,0.2); color: #f0ede8; }
+    .day-pill.selected {
+      background: #378ADD22;
+      border-color: #378ADD;
+      color: #378ADD;
+    }
+    .section-title {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #5f5e5a;
+      margin-bottom: 14px;
+    }
+    .panel {
+      background: #1a1a17;
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 16px;
+      padding: 24px;
+    }
+  </style>
+</head>
+<body>
+  {%app_entry%}
+  <footer>{%config%}{%scripts%}{%renderer%}</footer>
+</body>
+</html>
+"""
+
+def build_bar_chart(selected_idx=None):
+    fig = go.Figure()
+
+    bar_colors_highlight = []
+    for i, c in enumerate(colors):
+        if selected_idx is None or i == selected_idx:
+            bar_colors_highlight.append(c)
+        else:
+            bar_colors_highlight.append("rgba(255,255,255,0.08)")
+
+    # Bars
+    fig.add_trace(go.Bar(
+        x=labels,
+        y=totals,
+        marker=dict(
+            color=bar_colors_highlight,
+            cornerradius=8,
+        ),
+        hovertemplate="<b>%{x}</b><br>%{y:,} kcal<extra></extra>",
+        showlegend=False,
+    ))
+
+    # Goal line
+    fig.add_trace(go.Scatter(
+        x=labels,
+        y=[GOAL] * len(labels),
+        mode="lines",
+        line=dict(color="rgba(255,255,255,0.25)", width=1.5, dash="dot"),
+        hoverinfo="skip",
+        showlegend=False,
+    ))
+
+    # Goal annotation
+    fig.add_annotation(
+        x=labels[-1], y=GOAL,
+        text=f"Goal {GOAL:,}",
+        showarrow=False,
+        xanchor="right",
+        yanchor="bottom",
+        font=dict(size=11, color="rgba(255,255,255,0.3)", family=FONT),
+        yshift=6,
+    )
+
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=0, r=0, t=10, b=0),
+        height=260,
+        font=dict(family=FONT, color="#888780"),
+        xaxis=dict(
+            showgrid=False,
+            zeroline=False,
+            tickfont=dict(size=13, color="#888780"),
+        ),
+        yaxis=dict(
+            range=[1000, 2900],
+            showgrid=True,
+            gridcolor="rgba(255,255,255,0.05)",
+            zeroline=False,
+            tickfont=dict(size=11, color="#555"),
+            tickformat=",",
+        ),
+        bargap=0.35,
+        hoverlabel=dict(
+            bgcolor="#1e1e1c",
+            bordercolor="rgba(255,255,255,0.1)",
+            font=dict(family=FONT, color="#f0ede8", size=13),
+        ),
+    )
+    return fig
+
+
+def build_donut(day_idx):
+    d = days[day_idx]
+    meal_names = [m["name"] for m in d["meals"]]
+    meal_kcals = [m["kcal"] for m in d["meals"]]
+    meal_cols  = [MEAL_COLORS.get(m, "#888") for m in meal_names]
+
+    fig = go.Figure(go.Pie(
+        labels=meal_names,
+        values=meal_kcals,
+        hole=0.65,
+        marker=dict(colors=meal_cols, line=dict(color="#0f0f0d", width=3)),
+        hovertemplate="<b>%{label}</b><br>%{value} kcal (%{percent})<extra></extra>",
+        textinfo="none",
+        direction="clockwise",
+        sort=False,
+    ))
+
+    fig.add_annotation(
+        text=f"<b>{d['total']:,}</b><br><span style='font-size:11px;color:#888'>kcal</span>",
+        x=0.5, y=0.5,
+        font=dict(size=18, color="#f0ede8", family=FONT),
+        showarrow=False,
+        align="center",
+    )
+
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=0, r=0, t=0, b=0),
+        height=220,
+        showlegend=False,
+        hoverlabel=dict(
+            bgcolor="#1e1e1c",
+            bordercolor="rgba(255,255,255,0.1)",
+            font=dict(family=FONT, color="#f0ede8", size=13),
+        ),
+    )
+    return fig
+
+
+def meal_breakdown_rows(day_idx):
+    d = days[day_idx]
+    rows = []
+    for m in d["meals"]:
+        pct = round(m["kcal"] / d["total"] * 100)
+        col = MEAL_COLORS.get(m["name"], "#888")
+        rows.append(
+            html.Div([
+                html.Div([
+                    html.Span(m["name"], style={"fontSize": "13px", "color": "#888780", "minWidth": "80px", "display": "inline-block"}),
+                    html.Div([
+                        html.Div(style={
+                            "width": f"{pct}%",
+                            "height": "100%",
+                            "background": col,
+                            "borderRadius": "4px",
+                            "transition": "width 0.4s ease",
+                        })
+                    ], style={
+                        "flex": "1",
+                        "height": "6px",
+                        "background": "rgba(255,255,255,0.06)",
+                        "borderRadius": "4px",
+                        "margin": "0 12px",
+                        "overflow": "hidden",
+                    }),
+                    html.Span(f"{m['kcal']} kcal", style={"fontSize": "13px", "fontWeight": "500", "minWidth": "64px", "textAlign": "right"}),
+                ], style={"display": "flex", "alignItems": "center", "padding": "8px 0"}),
+            ], style={"borderBottom": "1px solid rgba(255,255,255,0.05)"})
+        )
+    return rows
+
+
+# ─────────────────────────────────────────────────────────────
+# LAYOUT
+# ─────────────────────────────────────────────────────────────
+app.layout = html.Div([
+    html.Div([
+
+        # ── Top header ──
+        html.Div([
+            html.Div([
+                html.P("Past 7 days", style={"fontSize": "12px", "color": "#5f5e5a", "letterSpacing": "0.06em", "textTransform": "uppercase", "marginBottom": "4px"}),
+                html.P(f"{avg:,} kcal avg / day", style={"fontSize": "26px", "fontWeight": "600", "color": "#f0ede8"}),
+            ]),
+            html.Div([
+                html.Span("", style={"width": "10px", "height": "10px", "borderRadius": "3px", "background": "#378ADD", "display": "inline-block", "marginRight": "6px"}),
+                html.Span("Under", style={"fontSize": "12px", "color": "#5f5e5a", "marginRight": "14px"}),
+                html.Span("", style={"width": "10px", "height": "10px", "borderRadius": "3px", "background": "#5AAF32", "display": "inline-block", "marginRight": "6px"}),
+                html.Span("On target", style={"fontSize": "12px", "color": "#5f5e5a", "marginRight": "14px"}),
+                html.Span("", style={"width": "10px", "height": "10px", "borderRadius": "3px", "background": "#E24B4A", "display": "inline-block", "marginRight": "6px"}),
+                html.Span("Over", style={"fontSize": "12px", "color": "#5f5e5a"}),
+            ], style={"display": "flex", "alignItems": "center", "flexWrap": "wrap"}),
+        ], style={"display": "flex", "justifyContent": "space-between", "alignItems": "flex-end", "flexWrap": "wrap", "gap": "12px", "marginBottom": "24px"}),
+
+        # ── Bar chart ──
+        dcc.Graph(
+            id="bar-chart",
+            figure=build_bar_chart(),
+            config={"displayModeBar": False},
+            style={"marginBottom": "24px"},
+        ),
+
+        # ── Day selector pills ──
+        html.Div([
+            html.Button(
+                d["label"],
+                id={"type": "day-pill", "index": i},
+                className="day-pill" + (" selected" if i == 0 else ""),
+                n_clicks=0,
+            )
+            for i, d in enumerate(days)
+        ], style={"display": "flex", "gap": "8px", "flexWrap": "wrap", "marginBottom": "24px"}),
+
+        # ── Detail row: donut + meal list ──
+        html.Div([
+
+            # Donut
+            html.Div([
+                html.P("Meal split", className="section-title"),
+                dcc.Graph(
+                    id="donut-chart",
+                    figure=build_donut(0),
+                    config={"displayModeBar": False},
+                ),
+                # Donut legend
+                html.Div([
+                    html.Div([
+                        html.Span(style={"width": "10px", "height": "10px", "borderRadius": "2px", "background": MEAL_COLORS[m], "display": "inline-block", "marginRight": "6px"}),
+                        html.Span(m, style={"fontSize": "12px", "color": "#888780"}),
+                    ], style={"display": "flex", "alignItems": "center", "marginBottom": "4px"})
+                    for m in ["Breakfast", "Lunch", "Snacks", "Dinner"]
+                ], style={"marginTop": "12px"}),
+            ], className="panel", style={"flex": "0 0 220px"}),
+
+            # Meal breakdown
+            html.Div([
+                html.P("Breakdown", className="section-title"),
+                html.Div(id="meal-list", children=meal_breakdown_rows(0)),
+            ], className="panel", style={"flex": "1"}),
+
+        ], style={"display": "flex", "gap": "16px", "flexWrap": "wrap", "marginBottom": "24px"}),
+
+        # ── Metric cards ──
+        html.Div([
+            html.Div([
+                html.P("Best day", className="metric-label"),
+                html.P(f"{best['label']}", className="metric-value"),
+                html.P(f"{best['total']:,} kcal — closest to goal", className="metric-sub"),
+            ], className="metric-card"),
+            html.Div([
+                html.P("Days on target", className="metric-label"),
+                html.P(f"{on_goal_count} / 7", className="metric-value"),
+                html.P("within ±150 kcal of goal", className="metric-sub"),
+            ], className="metric-card"),
+            html.Div([
+                html.P("Weekly total", className="metric-label"),
+                html.P(f"{weekly_total:,}", className="metric-value"),
+                html.P("kcal this week", className="metric-sub"),
+            ], className="metric-card"),
+        ], style={"display": "flex", "gap": "12px", "flexWrap": "wrap"}),
+
+    ], style={"maxWidth": "740px", "margin": "0 auto", "padding": "40px 20px"}),
+
+    # Hidden store for selected day
+    dcc.Store(id="selected-day", data=0),
+
+], style={"fontFamily": FONT})
+
+
+# ─────────────────────────────────────────────────────────────
+# CALLBACKS
+# ─────────────────────────────────────────────────────────────
+@app.callback(
+    Output("selected-day", "data"),
+    Input({"type": "day-pill", "index": dash.ALL}, "n_clicks"),
+    State("selected-day", "data"),
+    prevent_initial_call=True,
+)
+def update_selected_day(n_clicks_list, current):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return current
+    prop_id = ctx.triggered[0]["prop_id"]
+    import json
+    idx = json.loads(prop_id.split(".")[0])["index"]
+    return idx
+
+
+@app.callback(
+    Output("bar-chart", "figure"),
+    Output("donut-chart", "figure"),
+    Output("meal-list", "children"),
+    Input("selected-day", "data"),
+)
+def update_visuals(day_idx):
+    return (
+        build_bar_chart(day_idx),
+        build_donut(day_idx),
+        meal_breakdown_rows(day_idx),
+    )
+
+
+# ─────────────────────────────────────────────────────────────
+# RUN
+# ─────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    app.run(debug=True, port=8050)
 
 
    
