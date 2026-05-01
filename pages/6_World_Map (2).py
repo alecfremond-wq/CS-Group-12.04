@@ -1,9 +1,9 @@
 """
-World Map — explore recipes by country of origin.
+World Map -- explore recipes by country of origin.
 Owner: <assign on Apr 22>
 Grading coverage:
-    * Req. 3 (visualisation — interactive choropleth/scatter-geo)
-    * Req. 4 (interactivity — country picker drives a recipe list)
+    * Req. 3 (visualisation -- interactive choropleth/scatter-geo)
+    * Req. 4 (interactivity -- country picker drives a recipe list)
 """
 import pandas as pd
 import plotly.express as px
@@ -21,11 +21,11 @@ except Exception:
 init_session_state()
 require_profile()
 
-page_header("🌍 World Map", "Discover recipes from around the world.")
+page_header(" World Map", "Discover recipes from around the world.")
 
 
 # ---------------------------------------------------------------------------
-# TheMealDB uses "area" labels (Italian, Japanese, …). Map them to a country
+# TheMealDB uses "area" labels (Italian, Japanese, ...). Map them to a country
 # name + lat/lon so we can plot them on the globe. Easy to extend.
 # ---------------------------------------------------------------------------
 AREA_TO_COUNTRY = {
@@ -61,7 +61,7 @@ AREA_TO_COUNTRY = {
 
 
 # ---------------------------------------------------------------------------
-# Load recipes — DB first, demo fallback otherwise (same pattern as page 7).
+# Load recipes -- DB first, demo fallback otherwise (same pattern as page 7).
 # ---------------------------------------------------------------------------
 def load_recipes() -> pd.DataFrame:
     if query_df is not None:
@@ -71,12 +71,12 @@ def load_recipes() -> pd.DataFrame:
                 return df
         except Exception:
             pass
-    # demo fallback — varied areas so the map shows several bubbles
+    # demo fallback -- varied areas so the map shows several bubbles
     return pd.DataFrame(
         [
             {"id": 1, "title": "Pasta Pesto",      "area": "Italian"},
             {"id": 2, "title": "Thai Green Curry", "area": "Thai"},
-            {"id": 3, "title": "Rösti",            "area": "British"},  # closest in TheMealDB taxonomy
+            {"id": 3, "title": "Rosti",            "area": "British"},  # closest in TheMealDB taxonomy
             {"id": 4, "title": "Dal Tadka",        "area": "Indian"},
             {"id": 5, "title": "Tacos al Pastor",  "area": "Mexican"},
             {"id": 6, "title": "Tomato Risotto",   "area": "Italian"},
@@ -100,20 +100,20 @@ mappable = recipes.dropna(subset=["lat", "lon"])
 
 if mappable.empty:
     st.info(
-        "No recipes with a recognised area yet — sync the DB or add entries to "
+        "No recipes with a recognised area yet -- sync the DB or add entries to "
         "`AREA_TO_COUNTRY` in this file."
     )
     st.stop()
 
 
 # ---------------------------------------------------------------------------
-# Plot — bubble per country, sized by recipe count
+# Plot -- bubble per country, sized by recipe count
 # ---------------------------------------------------------------------------
 grouped = (
     mappable.groupby(["country", "lat", "lon"])
     .agg(
         recipe_count=("title", "count"),
-        recipes=("title", lambda names: "<br>• " + "<br>• ".join(sorted(set(names))[:15])),
+        recipes=("title", lambda names: "<br>* " + "<br>* ".join(sorted(set(names))[:15])),
     )
     .reset_index()
 )
@@ -139,7 +139,7 @@ st.plotly_chart(fig, use_container_width=True)
 
 
 # ---------------------------------------------------------------------------
-# Country picker — drives a recipe list under the map
+# Country picker -- drives a recipe list under the map
 # ---------------------------------------------------------------------------
 st.divider()
 countries = sorted(mappable["country"].unique())
@@ -153,10 +153,10 @@ for i, (_, row) in enumerate(country_recipes.iterrows()):
     with cols[i % 2]:
         with st.container(border=True):
             st.subheader(row["title"])
-            st.caption(f"📍 {row['country']}  •  Area: {row['area']}")
+            st.caption(f" {row['country']}  *  Area: {row['area']}")
             if st.button("View recipe", key=f"view_{row['id']}"):
                 st.session_state["selected_recipe_id"] = int(row["id"])
                 try:
                     st.switch_page("pages/2_Recipes.py")
                 except Exception:
-                    st.toast(f"Opening {row['title']} on the Recipes page…")
+                    st.toast(f"Opening {row['title']} on the Recipes page...")
