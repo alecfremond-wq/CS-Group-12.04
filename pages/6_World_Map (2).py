@@ -24,10 +24,9 @@ require_profile()
 page_header(" World Map", "Discover recipes from around the world.")
 
 
-# ---------------------------------------------------------------------------
 # TheMealDB uses "area" labels (Italian, Japanese, ...). Map them to a country
 # name + lat/lon so we can plot them on the globe. Easy to extend.
-# ---------------------------------------------------------------------------
+
 AREA_TO_COUNTRY = {
     "American":   {"country": "United States",  "lat": 37.09,  "lon": -95.71},
     "British":    {"country": "United Kingdom", "lat": 55.38,  "lon": -3.44},
@@ -60,9 +59,9 @@ AREA_TO_COUNTRY = {
 }
 
 
-# ---------------------------------------------------------------------------
+
 # Load recipes -- DB first, demo fallback otherwise (same pattern as page 7).
-# ---------------------------------------------------------------------------
+
 def load_recipes() -> pd.DataFrame:
     if query_df is not None:
         try:
@@ -106,9 +105,9 @@ if mappable.empty:
     st.stop()
 
 
-# ---------------------------------------------------------------------------
+
 # Plot -- bubble per country, sized by recipe count
-# ---------------------------------------------------------------------------
+
 grouped = (
     mappable.groupby(["country", "lat", "lon"])
     .agg(
@@ -138,9 +137,9 @@ fig.update_layout(
 st.plotly_chart(fig, use_container_width=True)
 
 
-# ---------------------------------------------------------------------------
+
 # Country picker -- drives a recipe list under the map
-# ---------------------------------------------------------------------------
+
 st.divider()
 countries = sorted(mappable["country"].unique())
 country = st.selectbox("Pick a country to browse:", countries)
