@@ -51,7 +51,7 @@ st.plotly_chart(
 
 st.caption("⚠️  Demo data — owner: wire up real cooking_history in Sprint 2.")
 
---------------------------------
+
 st.subheader ("Nutrition facts for the past 7 days")
 import json
 import os
