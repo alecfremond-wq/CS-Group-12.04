@@ -53,672 +53,360 @@ st.caption("⚠️  Demo data — owner: wire up real cooking_history in Sprint 
 
 --------------------------------
 st.subheader ("Nutrition facts for the past 7 days")
+
+Copy
+
 import json
-import requests
-from datetime import datetime, timedelta
-from collections import defaultdict
+import os
+from datetime import date, timedelta
+from pathlib import Path
  
-import dash
-from dash import dcc, html, Input, Output, State, ctx
-import plotly.graph_objects as go
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import numpy as np
  
-# ─────────────────────────────────────────────────────────────
-# CONFIGURATION
-# Replace with your real Spoonacular API key
-# Get one free at: https://spoonacular.com/food-api
-# ─────────────────────────────────────────────────────────────
-SPOONACULAR_API_KEY = "YOUR_API_KEY_HERE"
-SPOONACULAR_BASE    = "https://api.spoonacular.com"
-CALORIE_GOAL        = 2000   # daily kcal goal
+DATA_FILE = Path(__file__).parent / "data.json"
  
-# ─────────────────────────────────────────────────────────────
-# SPOONACULAR API HELPERS
-# ─────────────────────────────────────────────────────────────
-def search_recipes(query: str, number: int = 8) -> list[dict]:
-    """Search recipes by name. Returns list of {id, title, image, calories}."""
-    if not query.strip():
-        return []
-    try:
-        r = requests.get(
-            f"{SPOONACULAR_BASE}/recipes/complexSearch",
-            params={
-                "apiKey":          SPOONACULAR_API_KEY,
-                "query":           query,
-                "number":          number,
-                "addRecipeNutrition": True,
-            },
-            timeout=8,
-        )
-        r.raise_for_status()
-        results = r.json().get("results", [])
-        recipes = []
-        for item in results:
-            kcal = 0
-            nutrients = item.get("nutrition", {}).get("nutrients", [])
-            for n in nutrients:
-                if n.get("name") == "Calories":
-                    kcal = round(n.get("amount", 0))
-                    break
-            recipes.append({
-                "id":       item["id"],
-                "title":    item["title"],
-                "image":    item.get("image", ""),
-                "calories": kcal,
-            })
-        return recipes
-    except Exception as e:
-        print(f"[Spoonacular] Search error: {e}")
-        return []
+# ── Data helpers ──────────────────────────────────────────────────────────────
+ 
+def load_data() -> list[dict]:
+    if DATA_FILE.exists():
+        with open(DATA_FILE) as f:
+            return json.load(f)
+    return []
  
  
-def get_recipe_nutrition(recipe_id: int) -> dict:
-    """Get full nutrition details for a recipe."""
-    try:
-        r = requests.get(
-            f"{SPOONACULAR_BASE}/recipes/{recipe_id}/nutritionWidget.json",
-            params={"apiKey": SPOONACULAR_API_KEY},
-            timeout=8,
-        )
-        r.raise_for_status()
-        data = r.json()
-        def _val(key):
-            for n in data.get("nutrients", []):
-                if n.get("name") == key:
-                    return round(float(n.get("amount", 0)))
-            return 0
-        return {
-            "calories": _val("Calories"),
-            "protein":  _val("Protein"),
-            "carbs":    _val("Carbohydrates"),
-            "fat":      _val("Fat"),
+def save_data(entries: list[dict]) -> None:
+    with open(DATA_FILE, "w") as f:
+        json.dump(entries, f, indent=2)
+ 
+ 
+def add_entry(
+    recipe: str,
+    calories: float,
+    protein: float,
+    carbs: float,
+    fat: float,
+    meal_type: str = "Lunch",
+    entry_date: str | None = None,
+) -> None:
+    """Add a meal entry to the database."""
+    entries = load_data()
+    entry_date = entry_date or str(date.today())
+    entries.append(
+        {
+            "id": int(date.today().strftime("%Y%m%d%H%M%S")),
+            "date": entry_date,
+            "meal": meal_type,
+            "recipe": recipe,
+            "calories": round(calories, 1),
+            "protein": round(protein, 1),
+            "carbs": round(carbs, 1),
+            "fat": round(fat, 1),
         }
-    except Exception as e:
-        print(f"[Spoonacular] Nutrition error: {e}")
-        return {"calories": 0, "protein": 0, "carbs": 0, "fat": 0}
+    )
+    save_data(entries)
+    print(f"  Saved: {recipe} ({calories:.0f} kcal) on {entry_date}")
  
-# ─────────────────────────────────────────────────────────────
-# DATE HELPERS
-# ─────────────────────────────────────────────────────────────
-def last_7_days() -> list[str]:
-    today = datetime.today()
-    return [(today - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(6, -1, -1)]
  
-def date_to_label(date_str: str) -> str:
-    return datetime.strptime(date_str, "%Y-%m-%d").strftime("%a")
+def delete_entry(entry_id: int) -> None:
+    entries = load_data()
+    before = len(entries)
+    entries = [e for e in entries if e["id"] != entry_id]
+    save_data(entries)
+    print(f"  Deleted {before - len(entries)} entry.")
  
-DATES  = last_7_days()
-LABELS = [date_to_label(d) for d in DATES]
  
-# ─────────────────────────────────────────────────────────────
-# COLOR HELPERS
-# ─────────────────────────────────────────────────────────────
-def bar_color(total: int) -> str:
-    if total > CALORIE_GOAL + 150: return "#E24B4A"
-    if total < CALORIE_GOAL - 150: return "#378ADD"
-    return "#5AAF32"
+# ── Chart generation ──────────────────────────────────────────────────────────
  
-MACRO_COLORS = {
-    "calories": "#F4A522",
-    "protein":  "#378ADD",
-    "carbs":    "#9B6FD8",
-    "fat":      "#E24B4A",
+GOAL_KCAL = 2000  # Daily calorie goal
+COLORS = {
+    "bar":     "#3266ad",
+    "goal":    "#e07b39",
+    "protein": "#3266ad",
+    "carbs":   "#73726c",
+    "fat":     "#c44444",
+    "grid":    "#e8e8e8",
+    "bg":      "#ffffff",
+    "text":    "#1a1a1a",
+    "muted":   "#666666",
 }
  
-FONT = "'DM Sans', 'Segoe UI', sans-serif"
  
-# ─────────────────────────────────────────────────────────────
-# CHART BUILDERS
-# ─────────────────────────────────────────────────────────────
-def build_bar_chart(log: dict, selected_date: str | None = None) -> go.Figure:
-    totals = [sum(r["calories"] for r in log.get(d, [])) for d in DATES]
-    sel_idx = DATES.index(selected_date) if selected_date in DATES else None
+def _last_7_days() -> list[str]:
+    today = date.today()
+    return [str(today - timedelta(days=i)) for i in range(6, -1, -1)]
  
-    bar_colors = []
-    for i, t in enumerate(totals):
-        c = bar_color(t)
-        if sel_idx is not None and i != sel_idx:
-            bar_colors.append("rgba(255,255,255,0.07)")
-        else:
-            bar_colors.append(c)
  
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=LABELS, y=totals,
-        marker=dict(color=bar_colors, cornerradius=8),
-        hovertemplate="<b>%{x}</b><br>%{y:,} kcal<extra></extra>",
-        showlegend=False,
-    ))
-    fig.add_trace(go.Scatter(
-        x=LABELS, y=[CALORIE_GOAL] * 7,
-        mode="lines",
-        line=dict(color="rgba(255,255,255,0.2)", width=1.5, dash="dot"),
-        hoverinfo="skip", showlegend=False,
-    ))
-    fig.add_annotation(
-        x=LABELS[-1], y=CALORIE_GOAL,
-        text=f"Goal {CALORIE_GOAL:,}",
-        showarrow=False, xanchor="right", yanchor="bottom",
-        font=dict(size=11, color="rgba(255,255,255,0.25)", family=FONT),
-        yshift=6,
+def _day_totals(entries: list[dict], day: str) -> dict:
+    day_entries = [e for e in entries if e["date"] == day]
+    return {
+        "calories": sum(e["calories"] for e in day_entries),
+        "protein":  sum(e["protein"]  for e in day_entries),
+        "carbs":    sum(e["carbs"]    for e in day_entries),
+        "fat":      sum(e["fat"]      for e in day_entries),
+    }
+ 
+ 
+def generate_charts(output_path: str = "nutrition_report.png") -> str:
+    """Generate a 3-panel nutrition chart for the last 7 days."""
+    entries = load_data()
+    days = _last_7_days()
+    totals = [_day_totals(entries, d) for d in days]
+ 
+    labels = []
+    for d in days:
+        dt = date.fromisoformat(d)
+        labels.append(dt.strftime("%a\n%b %d"))
+ 
+    cal_vals  = [t["calories"] for t in totals]
+    prot_vals = [t["protein"]  for t in totals]
+    carb_vals = [t["carbs"]    for t in totals]
+    fat_vals  = [t["fat"]      for t in totals]
+ 
+    x = np.arange(len(days))
+    bar_w = 0.55
+ 
+    # ── Figure layout ─────────────────────────────────────────────────────────
+    fig = plt.figure(figsize=(14, 11), facecolor=COLORS["bg"])
+    fig.suptitle(
+        "7-Day Nutrition Dashboard",
+        fontsize=18, fontweight="bold", color=COLORS["text"], y=0.97,
     )
-    fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        margin=dict(l=0, r=0, t=10, b=0), height=230,
-        font=dict(family=FONT, color="#888780"),
-        xaxis=dict(showgrid=False, zeroline=False, tickfont=dict(size=13, color="#888780")),
-        yaxis=dict(
-            range=[0, max(max(totals, default=0) + 400, CALORIE_GOAL + 600)],
-            showgrid=True, gridcolor="rgba(255,255,255,0.05)",
-            zeroline=False, tickfont=dict(size=11, color="#555"), tickformat=",",
-        ),
-        bargap=0.35,
-        hoverlabel=dict(bgcolor="#1e1e1c", bordercolor="rgba(255,255,255,0.1)",
-                        font=dict(family=FONT, color="#f0ede8", size=13)),
-    )
-    return fig
  
+    gs = fig.add_gridspec(3, 2, hspace=0.55, wspace=0.35,
+                          left=0.07, right=0.95, top=0.91, bottom=0.06)
  
-def build_macro_chart(log: dict, selected_date: str) -> go.Figure:
-    recipes = log.get(selected_date, [])
-    if not recipes:
-        fig = go.Figure()
-        fig.add_annotation(text="No meals logged for this day",
-                           x=0.5, y=0.5, showarrow=False,
-                           font=dict(size=14, color="#5f5e5a", family=FONT))
-        fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                          height=200, margin=dict(l=0,r=0,t=0,b=0))
-        return fig
+    ax_cal   = fig.add_subplot(gs[0, :])   # full-width calorie bar chart
+    ax_macro = fig.add_subplot(gs[1, :])   # full-width stacked macro bars
+    ax_avg   = fig.add_subplot(gs[2, 0])   # average macro pie
+    ax_tbl   = fig.add_subplot(gs[2, 1])   # summary table
  
-    totals = {"protein": 0, "carbs": 0, "fat": 0}
-    for r in recipes:
-        totals["protein"] += r.get("protein", 0)
-        totals["carbs"]   += r.get("carbs", 0)
-        totals["fat"]     += r.get("fat", 0)
+    _style_axes(ax_cal, ax_macro, ax_avg, ax_tbl)
  
-    fig = go.Figure(go.Pie(
-        labels=["Protein", "Carbs", "Fat"],
-        values=[totals["protein"], totals["carbs"], totals["fat"]],
-        hole=0.6,
-        marker=dict(
-            colors=[MACRO_COLORS["protein"], MACRO_COLORS["carbs"], MACRO_COLORS["fat"]],
-            line=dict(color="#0f0f0d", width=3),
-        ),
-        hovertemplate="<b>%{label}</b><br>%{value}g (%{percent})<extra></extra>",
-        textinfo="none", direction="clockwise", sort=False,
-    ))
-    total_kcal = sum(r["calories"] for r in recipes)
-    fig.add_annotation(
-        text=f"<b>{total_kcal:,}</b><br>kcal",
-        x=0.5, y=0.5, showarrow=False, align="center",
-        font=dict(size=17, color="#f0ede8", family=FONT),
-    )
-    fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        margin=dict(l=0, r=0, t=0, b=0), height=200, showlegend=False,
-        hoverlabel=dict(bgcolor="#1e1e1c", bordercolor="rgba(255,255,255,0.1)",
-                        font=dict(family=FONT, color="#f0ede8", size=13)),
-    )
-    return fig
+    # ── Panel 1 — Calorie bar chart ───────────────────────────────────────────
+    bars = ax_cal.bar(x, cal_vals, width=bar_w, color=COLORS["bar"],
+                      zorder=3, label="Calories", linewidth=0)
+    ax_cal.axhline(GOAL_KCAL, color=COLORS["goal"], linewidth=1.8,
+                   linestyle="--", zorder=4, label=f"Goal ({GOAL_KCAL} kcal)")
  
-# ─────────────────────────────────────────────────────────────
-# APP
-# ─────────────────────────────────────────────────────────────
-app = dash.Dash(__name__, title="Student Meal Tracker")
- 
-app.index_string = """
-<!DOCTYPE html>
-<html>
-<head>
-  {%metas%}<title>{%title%}</title>{%favicon%}{%css%}
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #0f0f0d; min-height: 100vh; font-family: 'DM Sans', sans-serif; color: #f0ede8; }
- 
-    /* Search bar */
-    .search-input {
-      width: 100%; padding: 12px 16px; background: #1a1a17;
-      border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;
-      color: #f0ede8; font-size: 14px; font-family: 'DM Sans', sans-serif;
-      outline: none; transition: border-color 0.15s;
-    }
-    .search-input:focus { border-color: #378ADD; }
-    .search-input::placeholder { color: #5f5e5a; }
- 
-    /* Recipe cards */
-    .recipe-card {
-      display: flex; align-items: center; gap: 12px;
-      background: #1a1a17; border: 1px solid rgba(255,255,255,0.07);
-      border-radius: 10px; padding: 10px 14px; cursor: pointer;
-      transition: border-color 0.15s, background 0.15s;
-    }
-    .recipe-card:hover { border-color: #378ADD; background: #1e2830; }
-    .recipe-thumb {
-      width: 48px; height: 48px; border-radius: 8px;
-      object-fit: cover; flex-shrink: 0; background: #222;
-    }
-    .recipe-title { font-size: 13px; font-weight: 500; color: #f0ede8; margin-bottom: 2px; }
-    .recipe-kcal  { font-size: 12px; color: #5f5e5a; }
-    .recipe-add   {
-      margin-left: auto; background: #378ADD22; border: 1px solid #378ADD55;
-      color: #378ADD; border-radius: 6px; padding: 4px 12px;
-      font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap;
-      transition: background 0.15s;
-    }
-    .recipe-add:hover { background: #378ADD44; }
- 
-    /* Day tabs */
-    .day-tab {
-      padding: 8px 16px; border-radius: 50px; cursor: pointer; font-size: 13px;
-      font-weight: 500; border: 1px solid rgba(255,255,255,0.07);
-      background: #1a1a17; color: #888780; transition: all 0.15s; white-space: nowrap;
-    }
-    .day-tab:hover { border-color: rgba(255,255,255,0.2); color: #f0ede8; }
-    .day-tab.active { background: #378ADD22; border-color: #378ADD; color: #378ADD; }
- 
-    /* Logged meal chips */
-    .meal-chip {
-      display: flex; align-items: center; gap: 8px;
-      background: #222220; border: 1px solid rgba(255,255,255,0.07);
-      border-radius: 8px; padding: 8px 12px; font-size: 13px;
-    }
-    .meal-chip-remove {
-      margin-left: auto; color: #E24B4A; cursor: pointer;
-      font-size: 16px; line-height: 1; opacity: 0.6;
-    }
-    .meal-chip-remove:hover { opacity: 1; }
- 
-    /* Panels */
-    .panel {
-      background: #1a1a17; border: 1px solid rgba(255,255,255,0.07);
-      border-radius: 16px; padding: 20px;
-    }
-    .section-label {
-      font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
-      color: #5f5e5a; margin-bottom: 14px;
-    }
- 
-    /* Metric cards */
-    .metric-card {
-      background: #1a1a17; border: 1px solid rgba(255,255,255,0.07);
-      border-radius: 14px; padding: 16px 20px; flex: 1; min-width: 140px;
-    }
-    .metric-label { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: #5f5e5a; margin-bottom: 4px; }
-    .metric-value { font-size: 22px; font-weight: 600; }
-    .metric-sub   { font-size: 11px; color: #5f5e5a; margin-top: 2px; }
- 
-    /* Spinner */
-    .spinner { color: #5f5e5a; font-size: 13px; padding: 12px 0; text-align: center; }
- 
-    /* Status badge */
-    .status-badge {
-      display: inline-block; font-size: 11px; font-weight: 500;
-      padding: 3px 10px; border-radius: 20px;
-    }
-    .status-over   { background: #E24B4A22; color: #E24B4A; border: 1px solid #E24B4A44; }
-    .status-ok     { background: #5AAF3222; color: #5AAF32; border: 1px solid #5AAF3244; }
-    .status-under  { background: #378ADD22; color: #378ADD; border: 1px solid #378ADD44; }
-  </style>
-</head>
-<body>{%app_entry%}<footer>{%config%}{%scripts%}{%renderer%}</footer></body>
-</html>
-"""
- 
-app.layout = html.Div([
- 
-    # ── Stores ──
-    dcc.Store(id="meal-log",        data={}),     # {date: [{title, calories, protein, carbs, fat}]}
-    dcc.Store(id="selected-date",   data=DATES[-1]),
-    dcc.Store(id="search-results",  data=[]),
- 
-    html.Div([
- 
-        # ══════════ HEADER ══════════
-        html.Div([
-            html.Div([
-                html.P("🥗 Student Meal Tracker", style={"fontSize": "11px", "color": "#5f5e5a", "letterSpacing": "0.08em", "textTransform": "uppercase", "marginBottom": "4px"}),
-                html.H1("Weekly Nutrition", style={"fontSize": "28px", "fontWeight": "600"}),
-            ]),
-            html.Div([
-                html.Div([
-                    html.Span(style={"width": "10px", "height": "10px", "borderRadius": "3px", "background": c, "display": "inline-block", "marginRight": "6px"}),
-                    html.Span(label, style={"fontSize": "12px", "color": "#5f5e5a", "marginRight": "14px"}),
-                ], style={"display": "inline-flex", "alignItems": "center"})
-                for c, label in [("#378ADD", "Under"), ("#5AAF32", "On target"), ("#E24B4A", "Over")]
-            ], style={"display": "flex", "flexWrap": "wrap", "alignItems": "center"}),
-        ], style={"display": "flex", "justifyContent": "space-between", "alignItems": "flex-end",
-                  "flexWrap": "wrap", "gap": "12px", "marginBottom": "28px"}),
- 
-        # ══════════ BAR CHART ══════════
-        html.Div([
-            dcc.Graph(id="bar-chart", figure=build_bar_chart({}),
-                      config={"displayModeBar": False}),
-        ], className="panel", style={"marginBottom": "20px"}),
- 
-        # ══════════ DAY SELECTOR ══════════
-        html.Div([
-            html.Button(
-                [html.Span(lbl, style={"display": "block", "fontWeight": "500"}),
-                 html.Span(d[5:], style={"fontSize": "10px", "color": "#5f5e5a"})],
-                id={"type": "day-tab", "index": d},
-                className="day-tab" + (" active" if d == DATES[-1] else ""),
-                n_clicks=0,
+    for bar, val in zip(bars, cal_vals):
+        if val > 0:
+            ax_cal.text(
+                bar.get_x() + bar.get_width() / 2,
+                val + 25, f"{val:.0f}",
+                ha="center", va="bottom", fontsize=9,
+                color=COLORS["text"], fontweight="500",
             )
-            for d, lbl in zip(DATES, LABELS)
-        ], style={"display": "flex", "gap": "8px", "flexWrap": "wrap", "marginBottom": "20px"}),
  
-        # ══════════ MAIN ROW ══════════
-        html.Div([
+    ax_cal.set_xticks(x)
+    ax_cal.set_xticklabels(labels, fontsize=9, color=COLORS["muted"])
+    ax_cal.set_ylabel("kcal", fontsize=10, color=COLORS["muted"])
+    ax_cal.set_title("Daily Calorie Intake", fontsize=12,
+                     fontweight="bold", color=COLORS["text"], pad=8)
+    ax_cal.set_ylim(0, max(max(cal_vals, default=0), GOAL_KCAL) * 1.18)
+    ax_cal.legend(fontsize=9, framealpha=0.9, loc="upper right")
+    ax_cal.yaxis.set_tick_params(labelsize=9, labelcolor=COLORS["muted"])
  
-            # ── LEFT: Search + log ──
-            html.Div([
+    # ── Panel 2 — Stacked macro bars ─────────────────────────────────────────
+    ax_macro.bar(x, prot_vals, width=bar_w, color=COLORS["protein"],
+                 label="Protein", zorder=3, linewidth=0)
+    ax_macro.bar(x, carb_vals, width=bar_w, bottom=prot_vals,
+                 color=COLORS["carbs"], label="Carbs", zorder=3, linewidth=0)
+    bottom2 = [p + c for p, c in zip(prot_vals, carb_vals)]
+    ax_macro.bar(x, fat_vals, width=bar_w, bottom=bottom2,
+                 color=COLORS["fat"], label="Fat", zorder=3, linewidth=0)
  
-                # Search
-                html.Div([
-                    html.P("Search recipes", className="section-label"),
-                    dcc.Input(
-                        id="search-input", type="text",
-                        placeholder="e.g. pasta, chicken salad, oatmeal…",
-                        debounce=True, debounce_wait=600,
-                        className="search-input",
-                    ),
-                    html.Div(id="search-spinner"),
-                    html.Div(id="search-results-list",
-                             style={"marginTop": "12px", "display": "flex", "flexDirection": "column", "gap": "8px"}),
-                ], className="panel", style={"marginBottom": "16px"}),
+    ax_macro.set_xticks(x)
+    ax_macro.set_xticklabels(labels, fontsize=9, color=COLORS["muted"])
+    ax_macro.set_ylabel("grams", fontsize=10, color=COLORS["muted"])
+    ax_macro.set_title("Daily Macros Breakdown", fontsize=12,
+                       fontweight="bold", color=COLORS["text"], pad=8)
+    ax_macro.legend(fontsize=9, framealpha=0.9, loc="upper right")
+    ax_macro.yaxis.set_tick_params(labelsize=9, labelcolor=COLORS["muted"])
  
-                # Logged meals
-                html.Div([
-                    html.Div([
-                        html.P("Logged meals", className="section-label", style={"margin": "0"}),
-                        html.Div(id="day-status-badge"),
-                    ], style={"display": "flex", "justifyContent": "space-between", "alignItems": "center", "marginBottom": "14px"}),
-                    html.Div(id="logged-meals-list"),
-                ], className="panel"),
+    # ── Panel 3 — 7-day average pie ───────────────────────────────────────────
+    avg_p = np.mean(prot_vals) if any(prot_vals) else 0
+    avg_c = np.mean(carb_vals) if any(carb_vals) else 0
+    avg_f = np.mean(fat_vals)  if any(fat_vals)  else 0
  
-            ], style={"flex": "1", "minWidth": "280px"}),
- 
-            # ── RIGHT: Macro donut + macro bars ──
-            html.Div([
-                html.Div([
-                    html.P("Macro split", className="section-label"),
-                    dcc.Graph(id="macro-chart", figure=build_macro_chart({}, DATES[-1]),
-                              config={"displayModeBar": False}),
-                    # Legend
-                    html.Div([
-                        html.Div([
-                            html.Span(style={"width": "10px", "height": "10px", "borderRadius": "2px",
-                                             "background": MACRO_COLORS[k], "display": "inline-block", "marginRight": "6px"}),
-                            html.Span(k.capitalize(), style={"fontSize": "12px", "color": "#888780"}),
-                        ], style={"display": "flex", "alignItems": "center", "marginBottom": "4px"})
-                        for k in ["protein", "carbs", "fat"]
-                    ], style={"marginTop": "12px"}),
-                ], className="panel", style={"marginBottom": "16px"}),
- 
-                # Macro totals
-                html.Div(id="macro-totals-panel", className="panel"),
- 
-            ], style={"flex": "0 0 240px", "minWidth": "200px"}),
- 
-        ], style={"display": "flex", "gap": "16px", "flexWrap": "wrap", "marginBottom": "20px"}),
- 
-        # ══════════ WEEKLY METRICS ══════════
-        html.Div([
-            html.Div([
-                html.P("Avg / day", className="metric-label"),
-                html.P(id="metric-avg", children="—", className="metric-value"),
-                html.P("kcal", className="metric-sub"),
-            ], className="metric-card"),
-            html.Div([
-                html.P("Days on target", className="metric-label"),
-                html.P(id="metric-on-target", children="—", className="metric-value"),
-                html.P("out of 7", className="metric-sub"),
-            ], className="metric-card"),
-            html.Div([
-                html.P("Weekly total", className="metric-label"),
-                html.P(id="metric-weekly", children="—", className="metric-value"),
-                html.P("kcal", className="metric-sub"),
-            ], className="metric-card"),
-            html.Div([
-                html.P("Best day", className="metric-label"),
-                html.P(id="metric-best", children="—", className="metric-value"),
-                html.P("closest to goal", className="metric-sub"),
-            ], className="metric-card"),
-        ], style={"display": "flex", "gap": "12px", "flexWrap": "wrap"}),
- 
-    ], style={"maxWidth": "900px", "margin": "0 auto", "padding": "40px 20px"}),
- 
-], style={"fontFamily": FONT})
- 
- 
-# ─────────────────────────────────────────────────────────────
-# CALLBACKS
-# ─────────────────────────────────────────────────────────────
- 
-# 1. Update selected date when a day tab is clicked
-@app.callback(
-    Output("selected-date", "data"),
-    Input({"type": "day-tab", "index": dash.ALL}, "n_clicks"),
-    State("selected-date", "data"),
-    prevent_initial_call=True,
-)
-def update_selected_date(_, current):
-    triggered = ctx.triggered_id
-    if triggered and isinstance(triggered, dict):
-        return triggered["index"]
-    return current
- 
- 
-# 2. Style day tabs
-@app.callback(
-    Output({"type": "day-tab", "index": dash.ALL}, "className"),
-    Input("selected-date", "data"),
-)
-def style_day_tabs(selected):
-    return ["day-tab active" if d == selected else "day-tab" for d in DATES]
- 
- 
-# 3. Search Spoonacular
-@app.callback(
-    Output("search-results",      "data"),
-    Output("search-results-list", "children"),
-    Output("search-spinner",      "children"),
-    Input("search-input", "value"),
-    prevent_initial_call=True,
-)
-def do_search(query):
-    if not query or len(query.strip()) < 2:
-        return [], [], ""
- 
-    results = search_recipes(query)
- 
-    if not results:
-        return [], [html.P("No results found.", style={"color": "#5f5e5a", "fontSize": "13px", "marginTop": "8px"})], ""
- 
-    cards = []
-    for r in results:
-        cards.append(html.Div([
-            html.Img(src=r["image"], className="recipe-thumb",
-                     style={"display": "block" if r["image"] else "none"}),
-            html.Div([
-                html.P(r["title"], className="recipe-title",
-                       style={"whiteSpace": "nowrap", "overflow": "hidden", "textOverflow": "ellipsis", "maxWidth": "220px"}),
-                html.P(f"{r['calories']} kcal", className="recipe-kcal"),
-            ], style={"flex": "1", "minWidth": "0"}),
-            html.Button("+ Add", id={"type": "add-recipe-btn", "index": r["id"]},
-                        className="recipe-add", n_clicks=0),
-        ], className="recipe-card"))
- 
-    return results, cards, ""
- 
- 
-# 4. Add recipe to meal log
-@app.callback(
-    Output("meal-log", "data"),
-    Input({"type": "add-recipe-btn", "index": dash.ALL}, "n_clicks"),
-    State("meal-log",       "data"),
-    State("selected-date",  "data"),
-    State("search-results", "data"),
-    prevent_initial_call=True,
-)
-def add_recipe_to_log(n_clicks_list, log, selected_date, search_results):
-    triggered = ctx.triggered_id
-    if not triggered or not isinstance(triggered, dict):
-        return log
- 
-    # Only fire if the click count > 0
-    recipe_id = triggered["index"]
-    click_idx = next((i for i, r in enumerate(search_results) if r["id"] == recipe_id), None)
-    if click_idx is None or n_clicks_list[click_idx] == 0:
-        return log
- 
-    # Find recipe in search results
-    recipe = next((r for r in search_results if r["id"] == recipe_id), None)
-    if not recipe:
-        return log
- 
-    # Fetch full nutrition from Spoonacular
-    nutrition = get_recipe_nutrition(recipe_id)
- 
-    entry = {
-        "id":       recipe_id,
-        "title":    recipe["title"],
-        "calories": nutrition["calories"] or recipe["calories"],
-        "protein":  nutrition["protein"],
-        "carbs":    nutrition["carbs"],
-        "fat":      nutrition["fat"],
-    }
- 
-    log = dict(log)
-    if selected_date not in log:
-        log[selected_date] = []
-    log[selected_date] = list(log[selected_date]) + [entry]
-    return log
- 
- 
-# 5. Remove recipe from log
-@app.callback(
-    Output("meal-log", "data", allow_duplicate=True),
-    Input({"type": "remove-meal-btn", "index": dash.ALL}, "n_clicks"),
-    State("meal-log",      "data"),
-    State("selected-date", "data"),
-    prevent_initial_call=True,
-)
-def remove_meal(n_clicks_list, log, selected_date):
-    triggered = ctx.triggered_id
-    if not triggered or not isinstance(triggered, dict):
-        return log
-    remove_idx = triggered["index"]
-    if n_clicks_list[remove_idx] == 0:
-        return log
-    log = dict(log)
-    meals = list(log.get(selected_date, []))
-    if 0 <= remove_idx < len(meals):
-        meals.pop(remove_idx)
-    log[selected_date] = meals
-    return log
- 
- 
-# 6. Update all visuals when log or selected date changes
-@app.callback(
-    Output("bar-chart",          "figure"),
-    Output("macro-chart",        "figure"),
-    Output("logged-meals-list",  "children"),
-    Output("macro-totals-panel", "children"),
-    Output("day-status-badge",   "children"),
-    Output("metric-avg",         "children"),
-    Output("metric-on-target",   "children"),
-    Output("metric-weekly",      "children"),
-    Output("metric-best",        "children"),
-    Input("meal-log",      "data"),
-    Input("selected-date", "data"),
-)
-def update_all(log, selected_date):
-    # Bar chart
-    bar_fig = build_bar_chart(log, selected_date)
- 
-    # Macro donut
-    macro_fig = build_macro_chart(log, selected_date)
- 
-    # Logged meals list
-    day_meals = log.get(selected_date, [])
-    if day_meals:
-        chips = []
-        for i, m in enumerate(day_meals):
-            chips.append(html.Div([
-                html.Span("🍽", style={"fontSize": "16px"}),
-                html.Div([
-                    html.P(m["title"], style={"fontSize": "13px", "fontWeight": "500",
-                                              "whiteSpace": "nowrap", "overflow": "hidden",
-                                              "textOverflow": "ellipsis", "maxWidth": "240px"}),
-                    html.P(f"{m['calories']} kcal · {m.get('protein',0)}g protein · {m.get('carbs',0)}g carbs · {m.get('fat',0)}g fat",
-                           style={"fontSize": "11px", "color": "#5f5e5a"}),
-                ], style={"flex": "1", "minWidth": "0"}),
-                html.Span("✕", id={"type": "remove-meal-btn", "index": i},
-                          className="meal-chip-remove", n_clicks=0),
-            ], className="meal-chip", style={"marginBottom": "8px"}))
-        meal_list = chips
+    if avg_p + avg_c + avg_f > 0:
+        sizes  = [avg_p * 4, avg_c * 4, avg_f * 9]   # convert to kcal
+        clrs   = [COLORS["protein"], COLORS["carbs"], COLORS["fat"]]
+        explode= [0.03, 0.03, 0.03]
+        wedges, texts, autotexts = ax_avg.pie(
+            sizes, labels=["Protein", "Carbs", "Fat"],
+            colors=clrs, autopct="%1.0f%%", startangle=90,
+            explode=explode, pctdistance=0.78,
+            textprops={"fontsize": 9, "color": COLORS["text"]},
+        )
+        for at in autotexts:
+            at.set_fontsize(8)
+            at.set_color("white")
+            at.set_fontweight("bold")
     else:
-        meal_list = html.P("No meals logged yet. Search and add recipes above.",
-                           style={"fontSize": "13px", "color": "#5f5e5a", "textAlign": "center", "padding": "16px 0"})
+        ax_avg.text(0.5, 0.5, "No data yet", ha="center", va="center",
+                    transform=ax_avg.transAxes, color=COLORS["muted"])
  
-    # Macro totals panel
-    totals_day = {"protein": 0, "carbs": 0, "fat": 0, "calories": 0}
-    for m in day_meals:
-        totals_day["protein"]  += m.get("protein", 0)
-        totals_day["carbs"]    += m.get("carbs", 0)
-        totals_day["fat"]      += m.get("fat", 0)
-        totals_day["calories"] += m.get("calories", 0)
+    ax_avg.set_title("7-Day Macro Split\n(by kcal)", fontsize=11,
+                     fontweight="bold", color=COLORS["text"], pad=8)
  
-    macro_panel = [
-        html.P("Daily totals", className="section-label"),
-        *[
-            html.Div([
-                html.Div(style={"width": "10px", "height": "10px", "borderRadius": "2px",
-                                "background": MACRO_COLORS[k], "flexShrink": "0"}),
-                html.Span(k.capitalize(), style={"fontSize": "13px", "color": "#888780", "flex": "1"}),
-                html.Span(f"{totals_day[k]}{'g' if k != 'calories' else ' kcal'}",
-                          style={"fontSize": "13px", "fontWeight": "500"}),
-            ], style={"display": "flex", "alignItems": "center", "gap": "8px", "marginBottom": "10px"})
-            for k in ["calories", "protein", "carbs", "fat"]
-        ]
+    # ── Panel 4 — Summary table ───────────────────────────────────────────────
+    avg_cal = np.mean(cal_vals) if any(cal_vals) else 0
+ 
+    row_labels = ["Avg calories / day", "Avg protein / day",
+                  "Avg carbs / day",    "Avg fat / day",
+                  "Days logged",        "Total meals logged"]
+    row_values = [
+        f"{avg_cal:.0f} kcal",
+        f"{avg_p:.1f} g",
+        f"{avg_c:.1f} g",
+        f"{avg_f:.1f} g",
+        str(sum(1 for v in cal_vals if v > 0)),
+        str(len(entries)),
     ]
  
-    # Day status badge
-    day_total = totals_day["calories"]
-    if day_total == 0:
-        badge = html.Span("No data", className="status-badge", style={"background": "#22221f", "color": "#5f5e5a", "border": "1px solid #333"})
-    elif day_total > CALORIE_GOAL + 150:
-        badge = html.Span(f"Over by {day_total - CALORIE_GOAL:,} kcal", className="status-badge status-over")
-    elif day_total < CALORIE_GOAL - 150:
-        badge = html.Span(f"Under by {CALORIE_GOAL - day_total:,} kcal", className="status-badge status-under")
-    else:
-        badge = html.Span("On target ✓", className="status-badge status-ok")
+    ax_tbl.axis("off")
+    ax_tbl.set_title("Weekly Summary", fontsize=11,
+                     fontweight="bold", color=COLORS["text"], pad=8)
  
-    # Weekly metrics
-    all_totals = [sum(m["calories"] for m in log.get(d, [])) for d in DATES]
-    logged_totals = [t for t in all_totals if t > 0]
-    avg_val     = f"{round(sum(logged_totals)/len(logged_totals)):,}" if logged_totals else "—"
-    on_target   = sum(1 for t in all_totals if CALORIE_GOAL - 150 <= t <= CALORIE_GOAL + 150 and t > 0)
-    weekly_val  = f"{sum(all_totals):,}" if any(t > 0 for t in all_totals) else "—"
-    best_days   = [(abs(t - CALORIE_GOAL), lbl) for t, lbl in zip(all_totals, LABELS) if t > 0]
-    best_val    = min(best_days)[1] if best_days else "—"
+    for i, (lbl, val) in enumerate(zip(row_labels, row_values)):
+        y_pos = 0.88 - i * 0.155
+        ax_tbl.text(0.04, y_pos, lbl, transform=ax_tbl.transAxes,
+                    fontsize=9.5, color=COLORS["muted"], va="center")
+        ax_tbl.text(0.96, y_pos, val, transform=ax_tbl.transAxes,
+                    fontsize=9.5, color=COLORS["text"], fontweight="bold",
+                    va="center", ha="right")
+        if i < len(row_labels) - 1:
+            ax_tbl.axhline(
+                y_pos - 0.075, xmin=0.02, xmax=0.98,
+                color=COLORS["grid"], linewidth=0.7,
+                transform=ax_tbl.transAxes,
+            )
  
-    return (bar_fig, macro_fig, meal_list, macro_panel, badge,
-            avg_val, f"{on_target} / 7", weekly_val, best_val)
+    fig.savefig(output_path, dpi=150, bbox_inches="tight",
+                facecolor=COLORS["bg"])
+    plt.close(fig)
+    print(f"  Chart saved → {output_path}")
+    return output_path
  
  
-# ─────────────────────────────────────────────────────────────
-# RUN
-# ─────────────────────────────────────────────────────────────
+def _style_axes(*axes):
+    for ax in axes:
+        ax.set_facecolor(COLORS["bg"])
+        ax.spines[["top", "right"]].set_visible(False)
+        ax.spines["left"].set_color(COLORS["grid"])
+        ax.spines["bottom"].set_color(COLORS["grid"])
+        ax.yaxis.grid(True, color=COLORS["grid"], linewidth=0.7, zorder=0)
+        ax.set_axisbelow(True)
+ 
+ 
+# ── CLI helpers ───────────────────────────────────────────────────────────────
+ 
+def list_entries() -> None:
+    entries = load_data()
+    if not entries:
+        print("  No entries yet.")
+        return
+    days = _last_7_days()
+    recent = [e for e in entries if e["date"] in days]
+    recent.sort(key=lambda e: (e["date"], e["id"]), reverse=True)
+    print(f"\n  {'ID':<14} {'Date':<12} {'Meal':<10} {'Recipe':<25} {'Cal':>6} {'P':>5} {'C':>5} {'F':>5}")
+    print("  " + "-" * 85)
+    for e in recent:
+        print(f"  {e['id']:<14} {e['date']:<12} {e['meal']:<10} {e['recipe'][:24]:<25} "
+              f"{e['calories']:>6.0f} {e['protein']:>5.1f} {e['carbs']:>5.1f} {e['fat']:>5.1f}")
+ 
+ 
+def interactive_menu() -> None:
+    print("\n╔══════════════════════════════════════╗")
+    print("║     Student Nutrition Tracker         ║")
+    print("╚══════════════════════════════════════╝")
+ 
+    while True:
+        print("\n  1  Log a meal")
+        print("  2  View 7-day entries")
+        print("  3  Generate nutrition charts")
+        print("  4  Delete an entry")
+        print("  5  Exit")
+        choice = input("\n  Choose an option: ").strip()
+ 
+        if choice == "1":
+            print()
+            recipe    = input("  Recipe name:       ").strip()
+            calories  = float(input("  Calories (kcal):   "))
+            protein   = float(input("  Protein (g):       "))
+            carbs     = float(input("  Carbs (g):         "))
+            fat       = float(input("  Fat (g):           "))
+            meal_type = input("  Meal type [Breakfast/Lunch/Dinner/Snack]: ").strip() or "Lunch"
+            entry_date= input(f"  Date (YYYY-MM-DD, leave blank for today): ").strip() or str(date.today())
+            add_entry(recipe, calories, protein, carbs, fat, meal_type, entry_date)
+ 
+        elif choice == "2":
+            list_entries()
+ 
+        elif choice == "3":
+            path = input("  Output filename [nutrition_report.png]: ").strip() or "nutrition_report.png"
+            generate_charts(path)
+ 
+        elif choice == "4":
+            list_entries()
+            try:
+                eid = int(input("\n  Enter the ID to delete: ").strip())
+                delete_entry(eid)
+            except ValueError:
+                print("  Invalid ID.")
+ 
+        elif choice == "5":
+            print("  Goodbye!\n")
+            break
+        else:
+            print("  Please choose 1–5.")
+ 
+ 
+# ── Quick demo ────────────────────────────────────────────────────────────────
+ 
+def seed_demo_data() -> None:
+    """Add sample data for the last 7 days so the charts look populated."""
+    entries = load_data()
+    if entries:
+        return  # already has data
+    today = date.today()
+    samples = [
+        ("Oatmeal with banana",    350, 12, 60, 7,  "Breakfast"),
+        ("Chicken & rice bowl",    620, 42, 75, 10, "Lunch"),
+        ("Greek yogurt",           130, 15,  9,  2, "Snack"),
+        ("Pasta with tomato sauce",580, 22, 90, 11, "Dinner"),
+        ("Scrambled eggs on toast",410, 24, 38, 14, "Breakfast"),
+        ("Tuna salad sandwich",    480, 35, 40, 12, "Lunch"),
+        ("Apple & peanut butter",  200,  5, 26,  8, "Snack"),
+        ("Beef stir-fry",          670, 40, 55, 18, "Dinner"),
+        ("Granola with milk",      390, 14, 58,  9, "Breakfast"),
+        ("Lentil soup",            420, 20, 60,  7, "Lunch"),
+        ("Banana smoothie",        280, 10, 50,  4, "Snack"),
+        ("Grilled salmon & veg",   540, 45, 30, 18, "Dinner"),
+        ("Avocado toast",          360, 10, 42, 14, "Breakfast"),
+        ("Veggie wrap",            430, 16, 60,  9, "Lunch"),
+    ]
+    for i, (name, cal, p, c, f, meal) in enumerate(samples):
+        day = str(today - timedelta(days=i % 7))
+        add_entry(name, cal, p, c, f, meal, day)
+    print("  Demo data loaded.")
+ 
+ 
 if __name__ == "__main__":
-    print("\n🥗 Student Meal Tracker")
-    print("─────────────────────────────")
-    print("1. Add your Spoonacular API key to SPOONACULAR_API_KEY at the top of this file")
-    print("   → Get a free key at: https://spoonacular.com/food-api")
-    print("2. Run:  pip install dash plotly requests")
-    print("3. Open: http://localhost:8050\n")
-    app.run(debug=True, port=8050)
+    import sys
+    os.makedirs(Path(__file__).parent, exist_ok=True)
+ 
+    if "--demo" in sys.argv:
+        seed_demo_data()
+        generate_charts("nutrition_report.png")
+    elif "--chart" in sys.argv:
+        generate_charts("nutrition_report.png")
+    else:
+        interactive_menu()
 
 
    
