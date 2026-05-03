@@ -534,10 +534,4 @@ else:
                 "⬇️  Download shopping list (.txt)",
                 data=shopping_text,
                 file_name=f"shopping_list_{week_start}.txt",
-                mime="text/plain",
-            )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# END OF FILE
-# ─────────────────────────────────────────────────────────────────────────────
+                mime="text/plain",)
