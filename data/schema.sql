@@ -59,44 +59,44 @@ CREATE TABLE IF NOT EXISTS cooking_history (
 CREATE INDEX IF NOT EXISTS idx_recipes_cuisine ON recipes(cuisine);
 CREATE INDEX IF NOT EXISTS idx_history_user   ON cooking_history(user_id);
 
+
 -- ============================================================
--- schema_meal_planner.sql
--- Run this ONCE to add the meal_plan table to your database.
--- Paste these lines at the bottom of your existing data/schema.sql
+-- ============================================================
+-- Paste everything below at the bottom of data/schema.sql
+-- These two tables are required by the Meal Planner page.
+-- Both use IF NOT EXISTS so it's safe to run multiple times.
 -- ============================================================
 
--- meal_plan: one row per (user, date, meal-type, recipe) combination
--- INSERT OR REPLACE prevents duplicate slots (enforced by UNIQUE key below)
-CREATE TABLE IF NOT EXISTS meal_plan (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id     INTEGER NOT NULL,
-    meal_date   TEXT    NOT NULL,  -- stored as "YYYY-MM-DD"
-    meal_type   TEXT    NOT NULL   CHECK(meal_type IN ('Breakfast','Lunch','Dinner')),
-    recipe_id   INTEGER NOT NULL,
-
-    -- Each slot can only hold one recipe at a time
-    UNIQUE (user_id, meal_date, meal_type),
-
-    FOREIGN KEY (user_id)   REFERENCES users(id)   ON DELETE CASCADE,
-    FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE
+-- pantry: ingredients the user currently has at home
+-- Used by the Meal Planner to tick off items from the shopping list
+-- and by the Pantry page (3_Pantry.py) to manage stock.
+CREATE TABLE IF NOT EXISTS pantry (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER NOT NULL REFERENCES users(id)       ON DELETE CASCADE,
+    ingredient_id INTEGER NOT NULL REFERENCES ingredients(id) ON DELETE CASCADE,
+    quantity      REAL    NOT NULL DEFAULT 0,
+    unit          TEXT,
+    expires_on    DATE,
+    UNIQUE (user_id, ingredient_id)   -- one row per ingredient per user
 );
 
--- Speed up the weekly queries (WHERE meal_date BETWEEN ? AND ?)
+CREATE INDEX IF NOT EXISTS idx_pantry_user
+    ON pantry (user_id);
+
+
+-- meal_plan: which recipe is planned for which slot
+-- One row = one meal (e.g. user 1, Monday 2026-05-05, Lunch, recipe 42)
+-- UNIQUE constraint means each slot can only hold one recipe at a time;
+-- INSERT OR REPLACE in the Python code swaps it out cleanly.
+CREATE TABLE IF NOT EXISTS meal_plan (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id)    ON DELETE CASCADE,
+    meal_date   TEXT    NOT NULL,          -- stored as "YYYY-MM-DD"
+    meal_type   TEXT    NOT NULL
+                    CHECK(meal_type IN ('Breakfast','Lunch','Dinner')),
+    recipe_id   INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+    UNIQUE (user_id, meal_date, meal_type)
+);
+
 CREATE INDEX IF NOT EXISTS idx_meal_plan_user_date
     ON meal_plan (user_id, meal_date);
-
--- ============================================================
--- Existing tables the Meal Planner also reads
--- (already in your schema — listed here just for reference):
---
---   recipes (id, name, cuisine, calories, protein, carbs, fat,
---            cooking_time, spiciness)
---
---   recipe_ingredients (recipe_id, ingredient_id, quantity)
---
---   ingredients (id, name, unit)
---
---   pantry (user_id, ingredient_id, quantity)
---
---   users (id, ...)
--- ============================================================
