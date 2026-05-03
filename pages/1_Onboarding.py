@@ -19,7 +19,7 @@ from src.utils.session import init_session_state
 
 init_session_state()
 page_header(
-    "👤 Your Prof",
+    "👤 Your Account",
     "Tell us about your diet, budget and cooking experience — "
     "this personalises every other page.",
 )
