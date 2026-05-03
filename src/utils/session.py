@@ -11,10 +11,7 @@
 #  This file centralises the default values so that every page can assume
 #  the keys already exist, instead of checking "if 'pantry' not in ..." over
 #  and over.
-# ============================================================================
-#  AI-ASSISTED AUTHORSHIP: scaffold drafted with Anthropic Claude (04/2026),
-#  reviewed by Group 12.04. See README.md.
-# ============================================================================
+
 
 import streamlit as st                     # we need st.session_state from Streamlit
 
