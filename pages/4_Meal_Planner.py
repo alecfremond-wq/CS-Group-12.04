@@ -65,7 +65,7 @@ DAYS       = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
 MEAL_TYPES = ["Breakfast", "Lunch", "Dinner"]
 
 # Emoji icons per meal type — purely cosmetic
-MEAL_ICONS = {"Breakfast": "🌅", "Lunch": "☀️", "Dinner": "🌙"}
+MEAL_ICONS = {"Break": "🌅", "Lunch": "☀️", "Dinner": "🌙"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
