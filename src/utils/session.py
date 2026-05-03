@@ -23,11 +23,14 @@ import streamlit as st                     # we need st.session_state from Strea
 # and what its initial value should be.
 # Add new keys here instead of scattering `if "..." not in ...` checks everywhere.
 DEFAULTS = {
-    "user_profile": None,       # will become a dict like {"name": ..., "diet": ...} after onboarding
-    "pantry": [],               # list of ingredient dicts: {"name":..., "quantity":..., "unit":..., "expires_on":...}
-    "meal_plan": {},            # dict mapping a date string ("2026-04-21") to a list of meal names
-    "cooking_history": [],      # list of dicts: {"recipe_id":..., "cooked_on":..., "rating":...}
-    "wishlist": [],             # list of recipe IDs the user wants to try
+    "user_id":        1,        # integer primary key from the `users` table.
+                                # Set to 1 as a safe placeholder; Onboarding.py
+                                # should overwrite this after INSERT/login.
+    "user_profile":   None,     # will become a dict like {"name": ..., "diet": ...} after onboarding
+    "pantry":         [],       # list of ingredient dicts: {"name":..., "quantity":..., "unit":..., "expires_on":...}
+    "meal_plan":      {},       # dict mapping a date string ("2026-04-21") to a list of meal names
+    "cooking_history":[],       # list of dicts: {"recipe_id":..., "cooked_on":..., "rating":...}
+    "wishlist":       [],       # list of recipe IDs the user wants to try
 }
 
 
@@ -52,6 +55,9 @@ def require_profile():
     Call this at the top of any page that needs a user profile.
     Returns the profile dictionary if it exists.
     """
+    # Make sure all session keys exist before we try to read them
+    init_session_state()
+
     # Try to read the profile from session_state. `.get()` returns None if missing.
     profile = st.session_state.get("user_profile")
 
