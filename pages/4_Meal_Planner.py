@@ -65,7 +65,7 @@ DAYS       = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
 MEAL_TYPES = ["Breakfast", "Lunch", "Dinner"]
 
 # Emoji icons per meal type — purely cosmetic
-MEAL_ICONS = {"Break": "🌅", "Lun": "☀️", "Dinner": "🌙"}
+MEAL_ICONS = {"Breakfast": "🌅", "Lunch": "☀️", "Dinner": "🌙"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -102,11 +102,11 @@ def fetch_planned_meals(week_start: date) -> pd.DataFrame:
             mp.meal_date,
             mp.meal_type,
             mp.recipe_id,
-            r.name        AS recipe_name,
-            r.calories,
-            r.protein,
-            r.carbs,
-            r.fat,
+            r.title           AS recipe_name,
+            r.kcal_per_serv   AS calories,
+            r.protein_g       AS protein,
+            r.carbs_g         AS carbs,
+            r.fat_g           AS fat,
             r.cuisine
         FROM meal_plan mp
         JOIN recipes r ON mp.recipe_id = r.id
@@ -122,10 +122,16 @@ def fetch_all_recipes() -> pd.DataFrame:
     """All recipes in the DB (global + user-created), used to populate the picker."""
     return query_df(
         """
-        SELECT id, name, cuisine, calories, protein, carbs, fat,
-               cooking_time, spiciness
+        SELECT id,
+               title           AS name,
+               cuisine,
+               kcal_per_serv   AS calories,
+               protein_g       AS protein,
+               carbs_g         AS carbs,
+               fat_g           AS fat,
+               minutes         AS cooking_time
         FROM recipes
-        ORDER BY name
+        ORDER BY title
         """,
         (),
     )
@@ -165,13 +171,13 @@ def fetch_ingredients_for_plan(recipe_ids: list) -> pd.DataFrame:
     return query_df(
         f"""
         SELECT
-            i.name          AS ingredient,
-            i.unit,
+            i.name           AS ingredient,
+            ri.unit,
             SUM(ri.quantity) AS total_qty
         FROM recipe_ingredients ri
         JOIN ingredients i ON ri.ingredient_id = i.id
         WHERE ri.recipe_id IN ({placeholders})
-        GROUP BY i.name, i.unit
+        GROUP BY i.name, ri.unit
         ORDER BY i.name
         """,
         tuple(recipe_ids),
