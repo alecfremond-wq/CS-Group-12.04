@@ -21,27 +21,23 @@ BASE_URL = "https://api.spoonacular.com/recipes/complexSearch"
 
 def spoonacular_search(query):
     if not API_KEY:
-        st.warning("Spoonacular API key missing (check secrets.toml)")
+        st.warning("Missing API key")
         return []
 
-    try:
-        response = requests.get(
-            BASE_URL,
-            params={
-                "query": query,
-                "number": 10,
-                "addRecipeInformation": True,
-                "apiKey": API_KEY
-            },
-            timeout=10
-        )
+    response = requests.get(
+        BASE_URL,
+        params={
+            "query": query,
+            "number": 10,
+            "addRecipeInformation": True,
+            "apiKey": API_KEY
+        },
+        timeout=10
+    )
 
-        data = response.json()
-        return data.get("results", [])
+    st.write(response.json())  # 👈 ADD THIS DEBUG LINE
 
-    except Exception as e:
-        st.warning(f"Spoonacular error: {e}")
-        return []
+    return response.json().get("results", [])
 
 # ─────────────────────────────
 # WEEK HELPERS
