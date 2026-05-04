@@ -43,7 +43,7 @@ def search_recipes_by_name(query):
         resp = requests.get(
             f"{THEMEALDB_BASE}/search.php",       # full URL e.g. https://.../search.php
             params={"s": query},                  # TheMealDB expects the query under the key 's'
-            timeout=10,                           # seconds before we give up
+            timeout=20,                           # seconds before we give up
         )
         # raise_for_status() raises an exception if the HTTP status is 4xx or 5xx.
         resp.raise_for_status()
@@ -68,7 +68,7 @@ def list_cuisines():
         resp = requests.get(
             f"{THEMEALDB_BASE}/list.php",
             params={"a": "list"},
-            timeout=10,
+            timeout=20,
         )
         resp.raise_for_status()
 
@@ -88,7 +88,7 @@ def filter_by_cuisine(cuisine):
         resp = requests.get(
             f"{THEMEALDB_BASE}/filter.php",
             params={"a": cuisine},
-            timeout=10,
+            timeout=20,
         )
         resp.raise_for_status()
         return resp.json().get("meals") or []     # list of {"idMeal", "strMeal", "strMealThumb"}
@@ -115,14 +115,14 @@ def search_spoonacular(query="", vegetarian=False, vegan=False,
         params = {
             "apiKey": st.secrets["SPOONACULAR_API_KEY"],
             "query": query,
-            "number": 10,
+            "number": 20,
             "addRecipeInformation": True,
         }
         if diet:
             params["diet"] = diet
         if intolerances:
             params["intolerances"] = ",".join(intolerances)
-        resp = requests.get("https://api.spoonacular.com/recipes/complexSearch", params=params, timeout=10)
+        resp = requests.get("https://api.spoonacular.com/recipes/complexSearch", params=params, timeout=20)
         resp.raise_for_status()
         results = []
         for r in resp.json().get("results", []):
