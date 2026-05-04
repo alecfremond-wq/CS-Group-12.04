@@ -57,7 +57,6 @@ def init_db():
 # use inside a `with ...:` block — like a recipe that says "set up, hand
 # over, then always clean up even if there's an error".
 @contextmanager
-@contextmanager
 def get_connection():
     """Open a SQLite connection and always close it when done."""
 
