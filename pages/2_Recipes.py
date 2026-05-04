@@ -14,26 +14,19 @@ import streamlit as st
 from datetime import date, timedelta
 
 from src.components.ui import empty_state, page_header
-from src.data.api_client import (
-    list_cuisines,
-    search_recipes_by_name,
-    search_spoonacular
-)
+from src.data.api_client import list_cuisines, search_recipes_by_name, search_spoonacular
 from src.data.database import execute, query_df
 from src.utils.session import init_session_state, require_profile
 
-# ─────────────────────────────────────────────
-# SETUP
-# ─────────────────────────────────────────────
 init_session_state()
 require_profile()
 
 page_header("🍲 Recipes", "Search recipes and plan your week")
 
-tab_search, tab_cuisine = st.tabs(["🔎 Search", "🌍 Browse by cuisine"])
+tab_search, tab_cuisine = st.tabs(["🔎 Search", "🌍 Browse"])
 
 # ─────────────────────────────────────────────
-# WEEK HELPERS (used for meal planner integration)
+# WEEK HELPERS
 # ─────────────────────────────────────────────
 def get_week_start():
     if "week_start" not in st.session_state:
@@ -41,14 +34,13 @@ def get_week_start():
         st.session_state.week_start = today - timedelta(days=today.weekday())
     return st.session_state.week_start
 
-
 DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
 MEALS = ["Breakfast","Lunch","Dinner"]
 
 week_start = get_week_start()
 
 # ─────────────────────────────────────────────
-# 🧺 PANTRY HELPERS (NEW BUT SIMPLE)
+# PANTRY
 # ─────────────────────────────────────────────
 def get_pantry_items():
     df = query_df(
@@ -63,8 +55,7 @@ def get_pantry_items():
     return set(df["ingredient"].str.lower()) if not df.empty else set()
 
 
-def recipe_match_score(recipe_id, pantry_items):
-    """Simple % match between recipe ingredients and pantry."""
+def match_score(recipe_id, pantry):
     ing = query_df(
         """
         SELECT i.name AS ingredient
@@ -79,12 +70,10 @@ def recipe_match_score(recipe_id, pantry_items):
     if not items:
         return 0
 
-    match = sum(1 for x in items if x in pantry_items)
-    return match / len(items)
-
+    return sum(1 for x in items if x in pantry) / len(items)
 
 # ─────────────────────────────────────────────
-# SEARCH TAB
+# SEARCH
 # ─────────────────────────────────────────────
 with tab_search:
     query = st.text_input(
@@ -93,11 +82,18 @@ with tab_search:
     )
 
     if query:
+
+        # ─────────────────────────────
+        # ONBOARDING FILTERS (RESTORED)
+        # ─────────────────────────────
         veg = st.session_state.get("vegetarian", False)
         vgn = st.session_state.get("vegan", False)
         gf  = st.session_state.get("gluten_free", False)
         df  = st.session_state.get("dairy_free", False)
 
+        # ─────────────────────────────
+        # API CALL (UNCHANGED LOGIC)
+        # ─────────────────────────────
         results = search_recipes_by_name(query) + search_spoonacular(
             query=query,
             vegetarian=veg,
@@ -109,76 +105,63 @@ with tab_search:
         if not results:
             empty_state("No recipes found — try another word.")
 
+        # ─────────────────────────────
+        # PANTRY CHECK STARTS HERE
+        # ─────────────────────────────
         pantry_items = get_pantry_items()
+        scored = sorted(
+            [(match_score(r.get("id"), pantry_items), r) for r in results[:15]],
+            key=lambda x: x[0],
+            reverse=True
+        )
 
-        # ─────────────────────────────────────────────
-        # PANTRY-AWARE SORTING
-        # ─────────────────────────────────────────────
-        scored_results = []
-        for meal in results[:15]:
-            score = recipe_match_score(meal.get("id"), pantry_items)
-            scored_results.append((score, meal))
-
-        scored_results.sort(key=lambda x: x[0], reverse=True)
-
-        # ─────────────────────────────────────────────
-        # DISPLAY RECIPES
-        # ─────────────────────────────────────────────
-        for score, meal in scored_results[:10]:
+        for score, meal in scored[:10]:
             with st.container(border=True):
-                col_img, col_meta = st.columns([1, 3])
 
-                with col_img:
-                    st.image(meal.get("strMealThumb"), use_container_width=True)
+                col1, col2 = st.columns([1,3])
 
-                with col_meta:
+                with col1:
+                    st.image(meal.get("strMealThumb"))
+
+                with col2:
                     st.subheader(meal["strMeal"])
-                    st.caption(
-                        f"{meal.get('strArea', '—')} · {meal.get('strCategory', '—')}"
-                    )
 
-                    # pantry label
                     if score > 0.6:
-                        st.success("🟢 Mostly in your pantry")
+                        st.success("🟢 Pantry-friendly")
                     elif score > 0.3:
-                        st.warning("🟡 Partially available")
+                        st.warning("🟡 Partial ingredients")
                     else:
-                        st.error("🔴 Needs shopping items")
+                        st.error("🔴 Needs shopping")
 
-                    with st.expander("Instructions"):
-                        st.write(meal.get("strInstructions", ""))
+                    st.write(meal.get("strInstructions", "")[:200] + "...")
 
-                    # ─────────────────────────────
-                    # ADD TO MEAL PLAN (SAFE EXTENSION)
-                    # ─────────────────────────────
-                    st.markdown("**Add to your week**")
+                    st.markdown("### ➕ Add to meal plan")
 
                     c1, c2, c3 = st.columns(3)
 
-                    day_choice = c1.selectbox(
-                        "Day",
-                        DAYS,
-                        key=f"day_{meal.get('id')}_{meal['strMeal']}"
-                    )
+                    day = c1.selectbox("Day", DAYS, key=f"d_{meal['id']}")
+                    meal_type = c2.selectbox("Meal", MEALS, key=f"m_{meal['id']}")
 
-                    meal_type = c2.selectbox(
-                        "Meal",
-                        MEALS,
-                        key=f"type_{meal.get('id')}_{meal['strMeal']}"
-                    )
-
-                    if c3.button("➕ Add", key=f"add_{meal.get('id')}"):
+                    if c3.button("Add", key=f"a_{meal['id']}"):
                         try:
-                            day_index = DAYS.index(day_choice)
+                            day_index = DAYS.index(day)
                             meal_date = week_start + timedelta(days=day_index)
 
+                            # ✅ ONLY THIS MATTERS FOR MEAL PLANNER
                             execute(
+                                """
+                                INSERT OR IGNORE INTO recipes (id, title)
+                                VALUES (?, ?)
+                                """,
+                                (meal.get("id"), meal.get("strMeal"))
+                            )
+                           execute(
                                 """
                                 INSERT OR REPLACE INTO meal_plan
                                 (user_id, meal_date, meal_type, recipe_id)
-                                VALUES (?, ?, ?, ?)
-                                """,
-                                (
+                                 VALUES (?, ?, ?, ?)
+                                 """,
+                                 (
                                     st.session_state.user_id,
                                     meal_date.isoformat(),
                                     meal_type,
@@ -186,21 +169,17 @@ with tab_search:
                                 )
                             )
 
-                            st.success("Added to meal plan!")
+                            st.success("Added to meal planner!")
                         except Exception:
                             st.error("Could not add meal.")
 
 # ─────────────────────────────────────────────
-# CUISINE TAB (UNCHANGED 
+# CUISINE
 # ─────────────────────────────────────────────
 with tab_cuisine:
     cuisines = list_cuisines()
 
-    if not cuisines:
-        empty_state("Cuisine list couldn't be loaded — check your internet.")
+    if cuisines:
+        st.selectbox("Cuisine", cuisines)
     else:
-        choice = st.selectbox("Cuisine", cuisines)
-        st.caption(
-            f"(Owner: render recipes for cuisine = **{choice}**) "
-            "— feature unchanged"
-        )
+        empty_state("No cuisines available.")
