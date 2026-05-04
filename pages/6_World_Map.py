@@ -265,7 +265,7 @@ def build_html():
 
     layout = {
         "title": {
-            "text": "🌍 World Map — Hover to explore continents & countries",
+            "text": "Bites Across Borders",
             "x": 0.5,
             "font": {"size": 20, "family": "Georgia, serif", "color": "#2C3E50"},
         },
@@ -395,8 +395,8 @@ def build_html():
   <div id="header">
     <div class="logo">🍽️</div>
     <div>
-      <h1>Student Meal Planner — World Food Map</h1>
-      <p>Hover over any continent to see its countries</p>
+      <h1>Bites Across Borders</h1>
+      <p>A journey through international food traditions</p>
     </div>
   </div>
 
