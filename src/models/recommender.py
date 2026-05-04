@@ -249,6 +249,12 @@ class Recommender:
         candidates["score"] = 1.0 - distances
         return candidates.sort_values("score", ascending=False).reset_index(drop=True)
 
+    def _jaccard(self, a: set[str], b: set[str]) -> float:
+        """Jaccard similarity between two ingredient sets: |A ∩ B| / |A ∪ B|."""
+        if not a and not b:
+            return 0.0
+        return len(a & b) / len(a | b)
+
     def score_external(
         self,
         ingredient_lists: list[list[str]],
@@ -263,9 +269,13 @@ class Recommender:
         That means TheMealDB results, Spoonacular results, or any other source
         can be scored as long as they come with ingredients.
 
-        Ingredients that aren't in our vocabulary (words the model hasn't seen
-        during setup) are quietly ignored — the recipe still gets a fair score
-        based on the ingredients it does share with the user's liked recipes.
+        We use Jaccard similarity here (ingredient set overlap) instead of the
+        cosine/vocabulary approach used internally. This is because external
+        recipes (TheMealDB, Spoonacular) use ingredient names that often don't
+        match our small local vocabulary — e.g. "Spaghetti" vs "pasta".
+        Jaccard compares ingredient strings directly, so "spaghetti" in a saved
+        recipe matches "spaghetti" in a new search result without needing the
+        ingredient to exist in the local catalogue first.
 
         Parameters
         ----------
@@ -283,21 +293,39 @@ class Recommender:
         """
         liked      = self._liked_ids(history, wishlist)
         has_signal = bool(liked) or bool(liked_ingredients)
-        profile    = self._taste_profile(liked, liked_ingredients) if has_signal else None
 
-        if profile is None or np.linalg.norm(profile) == 0:
+        if not has_signal:
             return [None] * len(ingredient_lists)
 
-        external_matrix = self._encode_external(ingredient_lists)
+        # Build one big reference set from ALL ingredients the user has liked —
+        # both from our local catalogue and from API recipes they saved.
+        # Using a union means "if you saved any pasta recipe, pasta-like
+        # ingredients count as a signal for future results."
+        ref_set: set[str] = set()
 
+        # Add ingredients from local catalogue recipes they saved.
+        local_mask = self.recipes["id"].isin(liked)
+        if local_mask.any():
+            for ing_list in self.recipes[local_mask]["ingredients"]:
+                ref_set.update(_clean(ing_list))
+
+        # Add ingredients from API recipes they saved directly.
+        if liked_ingredients:
+            for ing_list in liked_ingredients:
+                ref_set.update(_clean(ing_list))
+
+        if not ref_set:
+            return [None] * len(ingredient_lists)
+
+        # Score each candidate recipe by how much its ingredients overlap with
+        # the reference set using Jaccard similarity.
         scores = []
-        for vec in external_matrix:
-            norm = np.linalg.norm(vec)
-            if norm == 0:
-                # Recipe has no ingredients in common with our vocabulary at all.
-                scores.append(0.0)
+        for ing_list in ingredient_lists:
+            candidate_set = set(_clean(ing_list))
+            if not candidate_set:
+                # Recipe has no parseable ingredients — can't score it.
+                scores.append(None)
             else:
-                cosine_sim = float(np.dot(profile, vec) / (np.linalg.norm(profile) * norm))
-                scores.append(max(0.0, cosine_sim))   # clamp to [0, 1]
+                scores.append(self._jaccard(ref_set, candidate_set))
 
         return scores
