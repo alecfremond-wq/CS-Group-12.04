@@ -66,19 +66,19 @@ import requests
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
-# ─────────────────────────────────────────────────────────────
+# -----------
 # PAGE CONFIG
-# ─────────────────────────────────────────────────────────────
+# -----------
 st.set_page_config(
     page_title="Student Meal Tracker",
     page_icon="🥗",
     layout="wide",
 )
 
-# ─────────────────────────────────────────────────────────────
+#-----------
 # CONFIGURATION  ← put your Spoonacular key here
 # Get a free key at https://spoonacular.com/food-api
-# ─────────────────────────────────────────────────────────────
+# -----------
 SPOONACULAR_API_KEY = "YOUR_API_KEY_HERE"
 SPOONACULAR_BASE    = "https://api.spoonacular.com"
 CALORIE_GOAL        = 2000
@@ -389,9 +389,9 @@ st.markdown("<br>", unsafe_allow_html=True)
 # ── Main columns ──
 left_col, right_col = st.columns([3, 2], gap="large")
 
-# ════════════════════════════════════
+
 # LEFT — Search + logged meals
-# ════════════════════════════════════
+
 with left_col:
 
     # Search
@@ -488,9 +488,9 @@ with left_col:
 
     st.markdown('</div>', unsafe_allow_html=True)
 
-# ════════════════════════════════════
+
 # RIGHT — Macro chart + totals
-# ════════════════════════════════════
+
 with right_col:
 
     # Donut
@@ -533,9 +533,8 @@ with right_col:
     """, unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-# ════════════════════════════════════
 # BOTTOM — Weekly metrics
-# ════════════════════════════════════
+
 st.markdown("<br>", unsafe_allow_html=True)
 st.markdown('<p class="section-label">Weekly summary</p>', unsafe_allow_html=True)
 
@@ -560,4 +559,5 @@ for col, label, value, sub in [
       <p class="metric-sub">{sub}</p>
     </div>
     """, unsafe_allow_html=True)
+
 
