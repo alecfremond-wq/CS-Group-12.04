@@ -130,6 +130,15 @@ with tab_search:
                     else:
                         st.error("🔴 Needs shopping")
 
+                    if score > 0.7:
+                        suggestion = "🧠 Perfect pantry match — cook this!"
+                    elif score > 0.4:
+                        suggestion = "🧠 Mostly doable — small gaps only"
+                    else:
+                        suggestion = "🧠 Not ideal — needs shopping"
+
+                    st.info(suggestion)
+
                     st.write(meal.get("strInstructions", "")[:200] + "...")
 
                     st.markdown("### ➕ Add to meal plan")
