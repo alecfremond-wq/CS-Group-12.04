@@ -214,12 +214,11 @@ with tab_search:
         key=lambda x: x[0],
         reverse=True
     )
-
-# ───── GRID LAYOUT (SMALLER + CLEAN ALIGNMENT) ─────
-cols = st.columns(3)
+# ───── GRID LAYOUT (4 PER ROW) ─────
+cols = st.columns(4)
 
 for idx, (score_val, meal) in enumerate(ranked):
-    col = cols[idx % 3]
+    col = cols[idx % 4]
 
     with col:
         with st.container(border=True):
@@ -227,24 +226,22 @@ for idx, (score_val, meal) in enumerate(ranked):
             # ───── TITLE ─────
             st.markdown(f"### {meal.get('title', 'Unknown')}")
 
-            # ───── SMALLER IMAGE (KEY FIX) ─────
+            # ───── CLICKABLE IMAGE → RECIPE DETAILS ─────
             if meal.get("image"):
-                st.image(
-                    meal["image"],
-                    use_container_width=True
-                )
+                if st.button("View recipe", key=f"open_{meal['id']}"):
+                    st.session_state["selected_recipe"] = meal
 
-            # ───── CLEAN SHORT DESCRIPTION ─────
+                st.image(meal["image"], use_container_width=True)
+
+            # ───── SHORT DESCRIPTION ─────
             raw_summary = meal.get("summary", "")
             clean_summary = raw_summary.replace("<b>", "").replace("</b>", "")
-
             words = clean_summary.split()
-            short_desc = " ".join(words[:18])
 
-            st.caption(short_desc + ("..." if len(words) > 18 else ""))
+            st.caption(" ".join(words[:18]) + ("..." if len(words) > 18 else ""))
 
             # ───── BUTTON ROW (CLOSE TOGETHER) ─────
-            b1, b2 = st.columns(2, gap="small")
+            b1, b2 = st.columns([1, 1], gap="small")
 
             with b1:
                 if st.button("❤️ Save", key=f"wish_{meal['id']}"):
@@ -265,14 +262,12 @@ for idx, (score_val, meal) in enumerate(ranked):
                 if st.button("📅 Add", key=f"plan_btn_{meal['id']}"):
                     st.session_state[toggle_key] = not st.session_state[toggle_key]
 
-            # ───── PLAN OPTIONS (COMPACT ROW) ─────
+            # ───── ADD TO PLAN OPTIONS ─────
             if st.session_state[toggle_key]:
 
-                c1, c2, c3 = st.columns(3, gap="small")
+                c1, c2 = st.columns(2)
 
                 def save_plan(meal_type):
-                    meal_date = get_week_start()
-
                     try:
                         execute(
                             """
@@ -282,26 +277,26 @@ for idx, (score_val, meal) in enumerate(ranked):
                             """,
                             (
                                 st.session_state.user_id,
-                                meal_date.isoformat(),
+                                get_week_start().isoformat(),
                                 meal_type,
                                 meal["id"]
                             )
                         )
-                        st.success(f"{meal_type} added 🍽️")
+                        st.success(f"Added: {meal_type}")
                     except Exception:
                         st.error("Could not add recipe")
 
                 with c1:
-                    if st.button("B", key=f"b_{meal['id']}"):
+                    if st.button("Breakfast", key=f"b_{meal['id']}"):
                         save_plan("Breakfast")
-
-                with c2:
-                    if st.button("L", key=f"l_{meal['id']}"):
+                    if st.button("Lunch", key=f"l_{meal['id']}"):
                         save_plan("Lunch")
 
-                with c3:
-                    if st.button("D", key=f"d_{meal['id']}"):
+                with c2:
+                    if st.button("Dinner", key=f"d_{meal['id']}"):
                         save_plan("Dinner")
+                    if st.button("Dessert", key=f"ds_{meal['id']}"):
+                        save_plan("Dessert")
 
            
             # ───── PANTRY SCORE ─────
