@@ -1,19 +1,15 @@
 """
-Interactive World Map — Student Meal Planner App
-=================================================
-Run this script to launch the interactive world map in your browser.
-Hover over a continent to see its countries listed in a tooltip.
+Interactive World Map — Student Meal Planner App (Streamlit)
+=============================================================
+Run with:
+    streamlit run world_map_app.py
 
 Requirements:
-    pip install plotly
-
-How to run:
-    python world_map_app.py
+    pip install streamlit plotly
 """
 
-import json
-import webbrowser
-import os
+import streamlit as st # type: ignore
+import plotly.graph_objects as go # type: ignore
 
 # ── 1. Continent → Countries ──────────────────────────────────────────────────
 CONTINENT_DATA = {
@@ -88,7 +84,7 @@ CONTINENT_DATA = {
     },
 }
 
-# ── 2. ISO-3 code → Continent (for the choropleth) ───────────────────────────
+# ── 2. ISO-3 code → Continent ─────────────────────────────────────────────────
 ISO_CONTINENT = {
     # Africa
     "DZA":"Africa","AGO":"Africa","BEN":"Africa","BWA":"Africa","BFA":"Africa",
@@ -146,8 +142,7 @@ ISO_CONTINENT = {
     "ATA":"Antarctica",
 }
 
-# ── 3. Build hover text ────────────────────────────────────────────────────────
-# ISO-3 → country name
+# ── 3. ISO-3 → Country name ───────────────────────────────────────────────────
 ISO_NAME = {
     "DZA":"Algeria","AGO":"Angola","BEN":"Benin","BWA":"Botswana","BFA":"Burkina Faso",
     "BDI":"Burundi","CPV":"Cape Verde","CMR":"Cameroon","CAF":"Central African Rep.",
@@ -198,17 +193,8 @@ ISO_NAME = {
     "ATA":"Antarctica",
 }
 
-def get_hover(iso):
-    cont = ISO_CONTINENT.get(iso, "")
-    name = ISO_NAME.get(iso, iso)
-    color = CONTINENT_DATA.get(cont, {}).get("color", "#999")
-    return (
-        f"<b style='font-size:14px'>{name}</b><br>"
-        f"<span style='color:{color}'>&#9632;</span> {cont}"
-    )
-
-# ── 4. Build HTML with embedded Plotly ────────────────────────────────────────
-def build_html():
+# ── 4. Build Plotly figure ────────────────────────────────────────────────────
+def build_figure():
     locations = list(ISO_CONTINENT.keys())
     continents = [ISO_CONTINENT[c] for c in locations]
     continent_list = list(CONTINENT_DATA.keys())
@@ -216,234 +202,125 @@ def build_html():
 
     z_values = [continent_list.index(c) for c in continents]
 
-    # Build discrete colorscale
     n = len(continent_list)
     colorscale = []
     for i, col in enumerate(colors_list):
         colorscale.append([i / n, col])
         colorscale.append([(i + 1) / n, col])
 
-    hover_texts = [get_hover(iso) for iso in locations]
+    hover_texts = []
+    for iso in locations:
+        cont = ISO_CONTINENT.get(iso, "")
+        name = ISO_NAME.get(iso, iso)
+        color = CONTINENT_DATA.get(cont, {}).get("color", "#999")
+        hover_texts.append(
+            f"<b style='font-size:14px'>{name}</b><br>"
+            f"<span style='color:{color}'>&#9632;</span> {cont}"
+        )
 
-    trace = {
-        "type": "choropleth",
-        "locations": locations,
-        "locationmode": "ISO-3",
-        "z": z_values,
-        "text": hover_texts,
-        "hovertemplate": "%{text}<extra></extra>",
-        "colorscale": colorscale,
-        "zmin": 0,
-        "zmax": n,
-        "showscale": False,
-        "marker": {"line": {"color": "white", "width": 0.8}},
-    }
+    trace = go.Choropleth(
+        locations=locations,
+        locationmode="ISO-3",
+        z=z_values,
+        text=hover_texts,
+        hovertemplate="%{text}<extra></extra>",
+        colorscale=colorscale,
+        zmin=0,
+        zmax=n,
+        showscale=False,
+        marker_line_color="white",
+        marker_line_width=0.8,
+    )
 
-    # Continent name annotations (approximate centres)
-    continent_centres = {
-        "Africa":        (20,  5),
-        "Asia":          (90, 45),
-        "Europe":        (15, 55),
-        "North America": (-95, 45),
-        "South America": (-60,-20),
-        "Oceania":       (135,-25),
-        "Antarctica":    (0,  -80),
-    }
+    fig = go.Figure(data=[trace])
 
-    annotations = []
-    for cont, (lon, lat) in continent_centres.items():
-        annotations.append({
-            "x": lon, "y": lat,
-            "xref": "x", "yref": "y",
-            "text": f"<b>{cont}</b>",
-            "showarrow": False,
-            "font": {"size": 11, "color": "white",
-                     "family": "Georgia, serif"},
-            "bgcolor": "rgba(0,0,0,0.35)",
-            "borderpad": 3,
-        })
-
-    layout = {
-        "title": {
+    fig.update_layout(
+        title={
             "text": "Bites Across Borders",
             "x": 0.5,
             "font": {"size": 20, "family": "Georgia, serif", "color": "#2C3E50"},
         },
-        "geo": {
-            "showframe": False,
-            "showcoastlines": True,
-            "coastlinecolor": "white",
-            "showland": True,
-            "landcolor": "#D5D8DC",
-            "showocean": True,
-            "oceancolor": "#AED6F1",
-            "showlakes": True,
-            "lakecolor": "#AED6F1",
-            "showrivers": False,
-            "projection": {"type": "natural earth"},
-            "bgcolor": "rgba(0,0,0,0)",
-            "lataxis": {"range": [-60, 85]},
-        },
-        "paper_bgcolor": "#F4F6F8",
-        "margin": {"l": 0, "r": 0, "t": 55, "b": 10},
-        "annotations": annotations,
-        "hoverlabel": {
-            "bgcolor": "#2C3E50",
-            "font": {"size": 12, "color": "white", "family": "monospace"},
-            "bordercolor": "#AAA",
-            "align": "left",
-        },
-    }
+        geo=dict(
+            showframe=False,
+            showcoastlines=True,
+            coastlinecolor="white",
+            showland=True,
+            landcolor="#D5D8DC",
+            showocean=True,
+            oceancolor="#AED6F1",
+            showlakes=True,
+            lakecolor="#AED6F1",
+            showrivers=False,
+            projection_type="natural earth",
+            bgcolor="rgba(0,0,0,0)",
+            lataxis_range=[-60, 85],
+            # ── Make the map fully static (no zoom, no pan) ──
+            lonaxis_range=[-180, 180],
+            projection_scale=1,
+        ),
+        paper_bgcolor="#F4F6F8",
+        margin=dict(l=0, r=0, t=55, b=10),
+        hoverlabel=dict(
+            bgcolor="#2C3E50",
+            font=dict(size=12, color="white", family="monospace"),
+            bordercolor="#AAA",
+            align="left",
+        ),
+        dragmode=False,   # disables pan
+    )
 
-    data_json   = json.dumps([trace])
-    layout_json = json.dumps(layout)
+    return fig
 
-    # Legend HTML
-    legend_html = ""
-    for cont, info in CONTINENT_DATA.items():
-        if cont == "Antarctica":
-            continue
-        legend_html += (
-            f'<div class="legend-item">'
-            f'<span class="dot" style="background:{info["color"]}"></span>'
-            f'{cont} <span class="cnt">({len(info["countries"])})</span>'
-            f'</div>'
-        )
 
-    html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>World Map — Student Meal Planner</title>
-  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-  <style>
-    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{
-      font-family: Georgia, serif;
-      background: #F4F6F8;
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
-    }}
-    #header {{
-      background: #2C3E50;
-      color: white;
-      padding: 10px 24px;
-      display: flex;
-      align-items: center;
-      gap: 14px;
-    }}
-    #header .logo {{
-      font-size: 28px;
-    }}
-    #header h1 {{
-      font-size: 18px;
-      font-weight: normal;
-      letter-spacing: 0.5px;
-    }}
-    #header p {{
-      font-size: 12px;
-      color: #BDC3C7;
-      margin-top: 2px;
-    }}
-    #map {{
-      flex: 1;
-    }}
-    #legend {{
-      background: white;
-      border-top: 1px solid #DDD;
-      padding: 8px 20px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 14px;
-      align-items: center;
-    }}
-    .legend-label {{
-      font-size: 12px;
-      font-weight: bold;
-      color: #555;
-      margin-right: 4px;
-    }}
-    .legend-item {{
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-      color: #2C3E50;
-    }}
-    .dot {{
-      width: 12px; height: 12px;
-      border-radius: 50%;
-      display: inline-block;
-      flex-shrink: 0;
-    }}
-    .cnt {{ color: #999; font-size: 11px; }}
-    #tip {{
-      position: fixed;
-      bottom: 60px; right: 18px;
-      background: rgba(44,62,80,0.75);
-      color: white;
-      font-size: 11px;
-      padding: 6px 12px;
-      border-radius: 20px;
-      pointer-events: none;
-    }}
-  </style>
-</head>
-<body>
-  <div id="header">
-    <div class="logo">🍽️</div>
-    <div>
-      <h1>Bites Across Borders</h1>
-      <p>A journey through international food traditions</p>
+# ── 5. Streamlit App ──────────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="Bites Across Borders",
+    page_icon="🍽️",
+    layout="wide",
+)
+
+st.markdown(
+    """
+    <div style="background:#2C3E50;padding:12px 24px;border-radius:6px;
+                display:flex;align-items:center;gap:14px;margin-bottom:16px;">
+        <span style="font-size:28px;">🍽️</span>
+        <div>
+            <h1 style="color:white;font-size:18px;font-weight:normal;
+                       letter-spacing:0.5px;margin:0;">Bites Across Borders</h1>
+            <p style="color:#BDC3C7;font-size:12px;margin:2px 0 0 0;">
+                A journey through international food traditions
+            </p>
+        </div>
     </div>
-  </div>
+    """,
+    unsafe_allow_html=True,
+)
 
-  <div id="map"></div>
+fig = build_figure()
 
-  <div id="legend">
-    <span class="legend-label">Continents:</span>
-    {legend_html}
-  </div>
+st.plotly_chart(
+    fig,
+    use_container_width=True,
+    config={
+        "scrollZoom": False,       # disables scroll-to-zoom
+        "displayModeBar": False,   # hides the toolbar entirely (no zoom buttons)
+        "staticPlot": False,       # keep hover tooltips active
+    },
+)
 
-  <div id="tip">🖱 Hover · Scroll to zoom · Drag to pan</div>
-
-  <script>
-    Plotly.newPlot('map', {data_json}, {layout_json}, {{
-      responsive: true,
-      displayModeBar: true,
-      modeBarButtonsToRemove: ['toImage','sendDataToCloud'],
-      displaylogo: false
-    }});
-
-    // Hide tip after 5 seconds
-    setTimeout(() => {{
-      document.getElementById('tip').style.opacity = '0';
-      document.getElementById('tip').style.transition = 'opacity 1s';
-    }}, 5000);
-  </script>
-</body>
-</html>"""
-    return html
-
-
-# ── 5. Save & open ────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    output_file = "world_map.html"
-    with open(output_file, "w", encoding="utf-8") as f:
-        f.write(build_html())
-
-    abs_path = os.path.abspath(output_file)
-    url = "file://" + abs_path
-
-    print("=" * 55)
-    print("  ✅  World Map generated successfully!")
-    print("=" * 55)
-    print(f"\n  📄  File : {abs_path}")
-    print(f"\n  🌐  URL  : {url}")
-    print("\n  ➡️   Opening in your browser automatically...")
-    print("  (Or copy the URL above and paste it in your browser)")
-    print("=" * 55)
-
-    webbrowser.open(url)
+# ── Legend ────────────────────────────────────────────────────────────────────
+legend_cols = st.columns(len(CONTINENT_DATA) - 1)  # skip Antarctica
+col_idx = 0
+for cont, info in CONTINENT_DATA.items():
+    if cont == "Antarctica":
+        continue
+    with legend_cols[col_idx]:
+        st.markdown(
+            f'<div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#2C3E50;">'
+            f'<span style="width:12px;height:12px;border-radius:50%;background:{info["color"]};'
+            f'display:inline-block;flex-shrink:0;"></span>'
+            f'{cont} <span style="color:#999;font-size:11px;">({len(info["countries"])})</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    col_idx += 1
