@@ -214,11 +214,11 @@ with tab_search:
         key=lambda x: x[0],
         reverse=True
     )
-# ───── GRID LAYOUT (4 PER ROW) ─────
-cols = st.columns(4)
+# ───── GRID LAYOUT (LESS SMUSHED, MORE READABLE) ─────
+cols = st.columns(3)
 
 for idx, (score_val, meal) in enumerate(ranked):
-    col = cols[idx % 4]
+    col = cols[idx % 3]
 
     with col:
         with st.container(border=True):
@@ -226,22 +226,32 @@ for idx, (score_val, meal) in enumerate(ranked):
             # ───── TITLE ─────
             st.markdown(f"### {meal.get('title', 'Unknown')}")
 
-            # ───── CLICKABLE IMAGE → RECIPE DETAILS ─────
+            # ───── IMAGE ─────
             if meal.get("image"):
-                if st.button("View recipe", key=f"open_{meal['id']}"):
-                    st.session_state["selected_recipe"] = meal
-
                 st.image(meal["image"], use_container_width=True)
 
-            # ───── SHORT DESCRIPTION ─────
-            raw_summary = meal.get("summary", "")
-            clean_summary = raw_summary.replace("<b>", "").replace("</b>", "")
-            words = clean_summary.split()
+                # ───── VIEW RECIPE BUTTON (DIRECT UNDER IMAGE) ─────
+                source_url = meal.get("sourceUrl") or meal.get("spoonacularSourceUrl")
 
-            st.caption(" ".join(words[:18]) + ("..." if len(words) > 18 else ""))
+                if source_url:
+                    st.link_button("🍽️ View recipe", source_url)
+                else:
+                    if st.button("🍽️ View recipe", key=f"open_{meal['id']}"):
+                        st.session_state["selected_recipe"] = meal
+
+            # ───── FULL DESCRIPTION (NO TRUNCATION) ─────
+            raw_summary = meal.get("summary", "")
+            clean_summary = (
+                raw_summary
+                .replace("<b>", "")
+                .replace("</b>", "")
+                .replace("<a href=", "")
+            )
+
+            st.markdown(clean_summary, unsafe_allow_html=False)
 
             # ───── BUTTON ROW (CLOSE TOGETHER) ─────
-            b1, b2 = st.columns([1, 1], gap="small")
+            b1, b2 = st.columns(2, gap="small")
 
             with b1:
                 if st.button("❤️ Save", key=f"wish_{meal['id']}"):
@@ -265,8 +275,6 @@ for idx, (score_val, meal) in enumerate(ranked):
             # ───── ADD TO PLAN OPTIONS ─────
             if st.session_state[toggle_key]:
 
-                c1, c2 = st.columns(2)
-
                 def save_plan(meal_type):
                     try:
                         execute(
@@ -282,9 +290,11 @@ for idx, (score_val, meal) in enumerate(ranked):
                                 meal["id"]
                             )
                         )
-                        st.success(f"Added: {meal_type}")
+                        st.success(f"{meal_type} added 🍽️")
                     except Exception:
                         st.error("Could not add recipe")
+
+                c1, c2 = st.columns(2)
 
                 with c1:
                     if st.button("Breakfast", key=f"b_{meal['id']}"):
