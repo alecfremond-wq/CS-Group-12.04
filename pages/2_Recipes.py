@@ -215,41 +215,53 @@ with tab_search:
         reverse=True
     )
 
-    # ───── GRID LAYOUT (NEW) ─────
-    cols = st.columns(3)
+# ───── GRID LAYOUT (FIXED ALIGNMENT + SMALLER IMAGES) ─────
+cols = st.columns(3)
 
-    for idx, (score_val, meal) in enumerate(ranked):
-        col = cols[idx % 3]
+for idx, (score_val, meal) in enumerate(ranked):
+    col = cols[idx % 3]
 
-        with col:
-            with st.container(border=True):
-                st.subheader(meal.get("title", "Unknown"))
+    with col:
+        with st.container(border=True):
 
-                if meal.get("image"):
-                    st.image(meal["image"], use_container_width=True)
+            st.markdown(f"### {meal.get('title', 'Unknown')}")
 
-                # ───── COMMENT BELOW IMAGE (NEW) ─────
-                st.caption(meal.get("summary", "")[:120] + "...")
-
-                # ───── SAVE TO WISHLIST (UNCHANGED) ─────
-                if st.button("❤️ Save to wishlist", key=f"wish_{meal['id']}"):
-                    st.session_state["wishlist"].append({
-                        "title": meal.get("title"),
-                        "image": meal.get("image"),
-                        "local_id": None,
-                        "ingredients": [],
-                    })
-                    st.success("Saved to wishlist!")
-
-                # ───── ADD TO PLAN BUTTON (NEW) ─────
-                meal_type = st.selectbox(
-                    "Meal type",
-                    ["Breakfast", "Lunch", "Dinner"],
-                    key=f"type_{meal['id']}"
+            if meal.get("image"):
+                st.image(
+                    meal["image"],
+                    use_container_width=True,
+                    output_format="auto"
                 )
 
-                if st.button("📅 Add to plan", key=f"plan_{meal['id']}"):
-                    meal_date = get_week_start()  # default to start of week
+            # keep height visually stable
+            st.caption((meal.get("summary", "")[:110] + "...") if meal.get("summary") else "")
+
+            # ───── SAVE TO WISHLIST ─────
+            if st.button("❤️ Save", key=f"wish_{meal['id']}"):
+                st.session_state["wishlist"].append({
+                    "title": meal.get("title"),
+                    "image": meal.get("image"),
+                    "local_id": None,
+                    "ingredients": [],
+                })
+                st.success("Saved!")
+
+            # ───── ADD TO PLAN (TOGGLE STYLE) ─────
+            if f"show_plan_{meal['id']}" not in st.session_state:
+                st.session_state[f"show_plan_{meal['id']}"] = False
+
+            if st.button("📅 Add to plan", key=f"plan_btn_{meal['id']}"):
+                st.session_state[f"show_plan_{meal['id']}"] = \
+                    not st.session_state[f"show_plan_{meal['id']}"]
+
+            if st.session_state[f"show_plan_{meal['id']}"]:
+
+                st.markdown("Choose meal type:")
+
+                c1, c2, c3 = st.columns(3)
+
+                def save_plan(meal_type):
+                    meal_date = get_week_start()
 
                     try:
                         execute(
@@ -265,10 +277,29 @@ with tab_search:
                                 meal["id"]
                             )
                         )
-                        st.success("Added to meal plan! 🍽️")
-
+                        st.success(f"Added as {meal_type} 🍽️")
                     except Exception:
                         st.error("Could not add recipe")
+
+                with c1:
+                    if st.button("Breakfast", key=f"b_{meal['id']}"):
+                        save_plan("Breakfast")
+
+                with c2:
+                    if st.button("Lunch", key=f"l_{meal['id']}"):
+                        save_plan("Lunch")
+
+                with c3:
+                    if st.button("Dinner", key=f"d_{meal['id']}"):
+                        save_plan("Dinner")
+
+            # ───── PANTRY SCORE ─────
+            if score_val > 0.6:
+                st.success("🟢 Pantry-friendly")
+            elif score_val > 0.3:
+                st.warning("🟡 Partially available")
+            else:
+                st.error("🔴 Needs shopping")
 
                 # ───── PANTRY SCORE (UNCHANGED) ─────
                 if score_val > 0.6:
