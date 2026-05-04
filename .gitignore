@@ -36,6 +36,7 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+.streamlit/secrets.toml 
 
 # --- Jupyter ---
 .ipynb_checkpoints/
