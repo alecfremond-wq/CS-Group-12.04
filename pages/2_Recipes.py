@@ -1,20 +1,8 @@
-"""
-Recipes — search and browse recipes (API + DB).
-Owner: <assign on Apr 22>
-Grading coverage:
-    * Req. 2 (API — TheMealDB)
-    * Req. 4 (user interaction — search, filter, add-to-wishlist)
-
-EXTENSION (SAFE ADDITION):
-    - Pantry-aware recipe ranking (only show what user can mostly cook)
-    - Add-to-meal-plan feature (NO schema changes)
-"""
-
 import streamlit as st
+import requests
 from datetime import date, timedelta
 
 from src.components.ui import empty_state, page_header
-from src.data.api_client import list_cuisines, search_recipes_by_name, search_spoonacular
 from src.data.database import execute, query_df
 from src.utils.session import init_session_state, require_profile
 
@@ -25,171 +13,149 @@ page_header("🍲 Recipes", "Search recipes and plan your week")
 
 tab_search, tab_cuisine = st.tabs(["🔎 Search", "🌍 Browse"])
 
-# ─────────────────────────────────────────────
+# ─────────────────────────────
+# SPOONACULAR SETUP
+# ─────────────────────────────
+API_KEY = st.secrets.get("SPOONACULAR_API_KEY", None)
+BASE_URL = "https://api.spoonacular.com/recipes/complexSearch"
+
+def spoonacular_search(query):
+    if not API_KEY:
+        st.warning("Spoonacular API key missing (check secrets.toml)")
+        return []
+
+    try:
+        response = requests.get(
+            BASE_URL,
+            params={
+                "query": query,
+                "number": 10,
+                "addRecipeInformation": True,
+                "apiKey": API_KEY
+            },
+            timeout=10
+        )
+
+        data = response.json()
+        return data.get("results", [])
+
+    except Exception as e:
+        st.warning(f"Spoonacular error: {e}")
+        return []
+
+# ─────────────────────────────
 # WEEK HELPERS
-# ─────────────────────────────────────────────
-def get_week_start():
-    if "week_start" not in st.session_state:
-        today = date.today()
-        st.session_state.week_start = today - timedelta(days=today.weekday())
-    return st.session_state.week_start
-
-
+# ─────────────────────────────
 DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
 MEALS = ["Breakfast","Lunch","Dinner"]
 
+def get_week_start():
+    today = date.today()
+    return today - timedelta(days=today.weekday())
+
 week_start = get_week_start()
 
-# ─────────────────────────────────────────────
-# PANTRY
-# ─────────────────────────────────────────────
-def get_pantry_items():
+# ─────────────────────────────
+# PANTRY (simple)
+# ─────────────────────────────
+def get_pantry():
     df = query_df(
         """
-        SELECT i.name AS ingredient
+        SELECT i.name
         FROM pantry p
         JOIN ingredients i ON p.ingredient_id = i.id
         WHERE p.user_id = ? AND p.quantity > 0
         """,
         (st.session_state.user_id,)
     )
-    return set(df["ingredient"].str.lower()) if not df.empty else set()
+    return set(df["name"].str.lower()) if not df.empty else set()
 
+def score(recipe, pantry):
+    ingredients = recipe.get("extendedIngredients", [])
+    names = [i["name"].lower() for i in ingredients if "name" in i]
 
-def match_score(recipe_id, pantry):
-    ing = query_df(
-        """
-        SELECT i.name AS ingredient
-        FROM recipe_ingredients ri
-        JOIN ingredients i ON ri.ingredient_id = i.id
-        WHERE ri.recipe_id = ?
-        """,
-        (recipe_id,)
-    )
-
-    items = ing["ingredient"].str.lower().tolist() if not ing.empty else []
-    if not items:
+    if not names:
         return 0
 
-    return sum(1 for x in items if x in pantry) / len(items)
+    return sum(1 for i in names if i in pantry) / len(names)
 
-# ─────────────────────────────────────────────
-# SEARCH
-# ─────────────────────────────────────────────
+# ─────────────────────────────
+# SEARCH TAB
+# ─────────────────────────────
 with tab_search:
 
-    query = st.text_input(
-        "What would you like to cook?",
-        placeholder="e.g. pasta, curry…"
-    )
+    query = st.text_input("What do you want to cook?", placeholder="pasta, curry...")
 
     if query:
 
-        # ONBOARDING FILTERS
-        veg = st.session_state.get("vegetarian", False)
-        vgn = st.session_state.get("vegan", False)
-        gf  = st.session_state.get("gluten_free", False)
-        df  = st.session_state.get("dairy_free", False)
-
-        # API CALL
-        results = search_recipes_by_name(query) + search_spoonacular(
-            query=query,
-            vegetarian=veg,
-            vegan=vgn,
-            gluten_free=gf,
-            dairy_free=df,
-        )
+        results = spoonacular_search(query)
 
         if not results:
-            empty_state("No recipes found — try another word.")
+            empty_state("No recipes found.")
+            st.stop()
 
-        # PANTRY CHECK
-        pantry_items = get_pantry_items()
+        pantry = get_pantry()
 
-        scored = sorted(
-            [(match_score(r.get("id"), pantry_items), r) for r in results[:15]],
-            key=lambda x: x[0],
-            reverse=True
-        )
+        ranked = []
+        for r in results:
+            s = score(r, pantry)
+            ranked.append((s, r))
 
-        for score, meal in scored[:10]:
-            with st.container(border=True):
+        ranked.sort(reverse=True, key=lambda x: x[0])
 
-                col1, col2 = st.columns([1, 3])
+        for score_val, meal in ranked:
 
-                with col1:
-                    st.image(meal.get("strMealThumb"))
+            st.divider()
+            st.subheader(meal.get("title", "Unknown"))
 
-                with col2:
-                    st.subheader(meal["strMeal"])
+            image = meal.get("image", "")
+            if image:
+                st.image(image)
 
-                    if score > 0.6:
-                        st.success("🟢 Pantry-friendly")
-                    elif score > 0.3:
-                        st.warning("🟡 Partial ingredients")
-                    else:
-                        st.error("🔴 Needs shopping")
+            # pantry label
+            if score_val > 0.6:
+                st.success("🟢 Pantry-friendly")
+            elif score_val > 0.3:
+                st.warning("🟡 Partially available")
+            else:
+                st.error("🔴 Needs shopping")
 
-                    if score > 0.7:
-                        suggestion = "🧠 Perfect pantry match — cook this!"
-                    elif score > 0.4:
-                        suggestion = "🧠 Mostly doable — small gaps only"
-                    else:
-                        suggestion = "🧠 Not ideal — needs shopping"
+            # summary
+            st.write(meal.get("summary", "")[:200] + "...")
 
-                    st.info(suggestion)
+            # ─── MEAL PLAN ───
+            st.markdown("### ➕ Add to meal plan")
 
-                    st.write(meal.get("strInstructions", "")[:200] + "...")
+            c1, c2, c3 = st.columns(3)
 
-                    st.markdown("### ➕ Add to meal plan")
+            day = c1.selectbox("Day", DAYS, key=f"d_{meal['id']}")
+            meal_type = c2.selectbox("Meal", MEALS, key=f"m_{meal['id']}")
 
-                    c1, c2, c3 = st.columns(3)
+            if c3.button("Add", key=f"b_{meal['id']}"):
 
-                    day = c1.selectbox("Day", DAYS, key=f"d_{meal['id']}")
-                    meal_type = c2.selectbox("Meal", MEALS, key=f"m_{meal['id']}")
+                day_index = DAYS.index(day)
+                meal_date = get_week_start() + timedelta(days=day_index)
 
-                    if c3.button("Add", key=f"a_{meal['id']}"):
-                        try:
-                            day_index = DAYS.index(day)
-                            meal_date = week_start + timedelta(days=day_index)
+                try:
+                    execute(
+                        """
+                        INSERT OR REPLACE INTO meal_plan
+                        (user_id, meal_date, meal_type, recipe_id)
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        (
+                            st.session_state.user_id,
+                            meal_date.isoformat(),
+                            meal_type,
+                            meal["id"]
+                        )
+                    )
+                    st.success("Added to meal plan!")
+                except:
+                    st.error("Could not add recipe")
 
-                            # 1. ensure recipe exists in DB
-                            execute(
-                                """
-                                INSERT INTO recipes (id, title)
-                                VALUES (?, ?)
-                                ON CONFLICT(id) DO UPDATE SET title=excluded.title
-                                """,
-                                (meal.get("id"), meal.get("strMeal"))
-                            )
-
-                            # 2. add to meal plan
-                            execute(
-                                """
-                                INSERT OR REPLACE INTO meal_plan
-                                (user_id, meal_date, meal_type, recipe_id)
-                                VALUES (?, ?, ?, ?)
-                                """,
-                                (
-                                    st.session_state.user_id,
-                                    meal_date.isoformat(),
-                                    meal_type,
-                                    meal.get("id")
-                                )
-                            )
-
-                            st.success("Added to meal planner!")
-
-                        except Exception:
-                            st.error("Could not add meal.")
-
-# ─────────────────────────────────────────────
-# CUISINE
-# ─────────────────────────────────────────────
+# ─────────────────────────────
+# CUISINE TAB (simple placeholder)
+# ─────────────────────────────
 with tab_cuisine:
-    cuisines = list_cuisines()
-
-    if cuisines:
-        st.selectbox("Cuisine", cuisines)
-    else:
-        empty_state("No cuisines available.")
+    st.info("Cuisine browsing can be added later (optional feature).")
