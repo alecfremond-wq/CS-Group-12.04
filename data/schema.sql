@@ -58,3 +58,41 @@ CREATE TABLE IF NOT EXISTS cooking_history (
 
 CREATE INDEX IF NOT EXISTS idx_recipes_cuisine ON recipes(cuisine);
 CREATE INDEX IF NOT EXISTS idx_history_user   ON cooking_history(user_id);
+
+
+-- ============================================================
+-- These two tables are required by the Meal Planner page.
+-- Both use IF NOT EXISTS so it's safe to run multiple times.
+-- ============================================================
+
+-- pantry: ingredients the user currently has at home
+-- Used by the Meal Planner to tick off items from the shopping list
+-- and by the Pantry page (3_Pantry.py) to manage stock.
+CREATE TABLE IF NOT EXISTS pantry (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER NOT NULL REFERENCES users(id)       ON DELETE CASCADE,
+    ingredient_id INTEGER NOT NULL REFERENCES ingredients(id) ON DELETE CASCADE,
+    quantity      REAL    NOT NULL DEFAULT 0,
+    unit          TEXT,
+    expires_on    DATE,
+    UNIQUE (user_id, ingredient_id)   -- one row per ingredient per user
+);
+
+CREATE INDEX IF NOT EXISTS idx_pantry_user
+    ON pantry (user_id);
+-- meal_plan: which recipe is planned for which slot
+-- One row = one meal (e.g. user 1, Monday 2026-05-05, Lunch, recipe 42)
+-- UNIQUE constraint means each slot can only hold one recipe at a time;
+-- INSERT OR REPLACE in the Python code swaps it out cleanly.
+CREATE TABLE IF NOT EXISTS meal_plan (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id)    ON DELETE CASCADE,
+    meal_date   TEXT    NOT NULL,          -- stored as "YYYY-MM-DD"
+    meal_type   TEXT    NOT NULL
+                    CHECK(meal_type IN ('Breakfast','Lunch','Dinner')),
+    recipe_id   INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+    UNIQUE (user_id, meal_date, meal_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_meal_plan_user_date
+    ON meal_plan (user_id, meal_date);

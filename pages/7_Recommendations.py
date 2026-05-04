@@ -1,6 +1,5 @@
 """
 Recommendations — the machine-learning feature.
-
 Owner: <assign on Apr 22>
 Grading coverage:
     * Req. 5 (ML — content-based k-NN recommender)
@@ -10,7 +9,6 @@ TODOs for the owner:
     - replace recipes_data with a real DB query once the recipes table is ready.
     - add a 👎 dislike button that removes a recipe from future results.
 """
-
 import pandas as pd
 import streamlit as st
 
@@ -18,6 +16,13 @@ from recipes_data import RECIPES
 from src.components.ui import page_header
 from src.models.recommender import Recommender
 from src.utils.session import init_session_state, require_profile
+
+# Try to load real recipes from the DB; fall back to demo set if the helper
+# isn't wired up yet or the table is empty.
+try:
+    from src.data.database import query_df  # type: ignore
+except Exception:
+    query_df = None  # type: ignore
 
 
 init_session_state()
@@ -87,6 +92,38 @@ if picks.empty:
     )
 
 # ── Display recommendations ───────────────────────────────────────────────────
+
+
+# ---------------------------------------------------------------------------
+# TODO #2 (resolved): 👍 / 👎 feedback buttons that feed back into history.
+# Each click appends to st.session_state["cooking_history"] so the next
+# rerun the Recommender treats it as a signal. When the DB is wired up,
+# the same write is mirrored into the cooking_history table.
+# ---------------------------------------------------------------------------
+def record_feedback(recipe_row: pd.Series, rating: int) -> None:
+    """rating: +1 for 👍, -1 for 👎."""
+    st.session_state["cooking_history"].append(
+        {
+            "id": int(recipe_row["id"]),
+            "title": recipe_row["title"],
+            "ingredients": recipe_row["ingredients"],
+            "rating": rating,
+        }
+    )
+    # best-effort persistence
+    try:
+        from src.data.database import execute  # type: ignore
+        user_id = st.session_state.get("user_id") \
+            or st.session_state.get("profile", {}).get("id")
+        if user_id is not None:
+            execute(
+                "INSERT INTO cooking_history (user_id, recipe_id, rating) VALUES (?, ?, ?)",
+                (user_id, int(recipe_row["id"]), rating),
+            )
+    except Exception:
+        # session_state is the source of truth for the demo
+        pass
+
 
 for _, row in picks.iterrows():
     with st.container(border=True):

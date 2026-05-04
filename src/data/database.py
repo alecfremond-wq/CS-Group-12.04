@@ -59,24 +59,20 @@ def init_db():
 @contextmanager
 def get_connection():
     """Open a SQLite connection and always close it when done."""
-    # sqlite3.connect opens the .db file (and creates it if it doesn't exist).
-    conn = sqlite3.connect(DB_PATH)
 
-    # By default each row is a tuple ((1, 'Pasta')). Setting row_factory to
-    # sqlite3.Row makes rows behave like dictionaries (row['title']), which
-    # is much nicer to read in the rest of the code.
+    conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
 
     try:
-        # `yield` hands the connection to the caller's `with` block.
-        yield conn
-        # If the caller didn't raise an exception, commit any changes.
-        conn.commit()
-    finally:
-        # `finally` runs whether the caller succeeded or raised an error.
-        # Either way, we must close the connection.
-        conn.close()
+        # 🔥 SAFE GUARANTEE: ensure schema exists for THIS connection
+        if SCHEMA_PATH.exists():
+            conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
 
+        yield conn
+        conn.commit()
+
+    finally:
+        conn.close() 
 
 def query_df(sql, params=None):
     """Run a SELECT and return the results as a pandas DataFrame.
