@@ -8,8 +8,8 @@ Requirements:
     pip install streamlit plotly
 """
 
-import streamlit as st # type: ignore
-import plotly.graph_objects as go # type: ignore
+import streamlit as st
+import plotly.graph_objects as go
 
 # ── 1. Continent → Countries ──────────────────────────────────────────────────
 CONTINENT_DATA = {
@@ -254,9 +254,10 @@ def build_figure():
             projection_type="natural earth",
             bgcolor="rgba(0,0,0,0)",
             lataxis_range=[-60, 85],
-            # ── Make the map fully static (no zoom, no pan) ──
             lonaxis_range=[-180, 180],
             projection_scale=1,
+            showsubunits=False,
+            showcountries=False,
         ),
         paper_bgcolor="#F4F6F8",
         margin=dict(l=0, r=0, t=55, b=10),
@@ -267,6 +268,7 @@ def build_figure():
             align="left",
         ),
         dragmode=False,   # disables pan
+        annotations=[],   # rimuove i nomi dei continenti sulla mappa
     )
 
     return fig
