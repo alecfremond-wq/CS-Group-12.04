@@ -215,52 +215,61 @@ with tab_search:
         reverse=True
     )
 
-    for score_val, meal in ranked:
-        st.divider()
-        st.subheader(meal.get("title", "Unknown"))
+for score_val, meal in ranked:
+    st.divider()
+    st.subheader(meal.get("title", "Unknown"))
 
-        if meal.get("image"):
-            st.image(meal["image"])
+    if meal.get("image"):
+        st.image(meal["image"])
 
-        if score_val > 0.6:
-            st.success("🟢 Pantry-friendly")
-        elif score_val > 0.3:
-            st.warning("🟡 Partially available")
-        else:
-            st.error("🔴 Needs shopping")
+    if st.button("❤️ Save to wishlist", key=f"wish_{meal['id']}"):
+        st.session_state["wishlist"].append({
+            "title": meal.get("title"),
+            "image": meal.get("image"),
+            "local_id": None,
+            "ingredients": [],
+        })
+        st.success("Saved to wishlist!")
 
-        st.write(meal.get("summary", "")[:200] + "...")
+    # existing code continues
+    if score_val > 0.6:
+        st.success("🟢 Pantry-friendly")
+    elif score_val > 0.3:
+        st.warning("🟡 Partially available")
+    else:
+        st.error("🔴 Needs shopping")
 
-        st.markdown("### ➕ Add to meal plan")
+    st.write(meal.get("summary", "")[:200] + "...")
 
-        col1, col2, col3 = st.columns(3)
+    st.markdown("### ➕ Add to meal plan")
 
-        day = col1.selectbox("Day", DAYS, key=f"day_{meal['id']}")
-        meal_type = col2.selectbox("Meal", MEALS, key=f"type_{meal['id']}")
+    col1, col2, col3 = st.columns(3)
 
-        if col3.button("Add", key=f"add_{meal['id']}"):
-            day_index = DAYS.index(day)
-            meal_date = get_week_start() + timedelta(days=day_index)
+    day = col1.selectbox("Day", DAYS, key=f"day_{meal['id']}")
+    meal_type = col2.selectbox("Meal", MEALS, key=f"type_{meal['id']}")
 
-            try:
-                execute(
-                    """
-                    INSERT OR REPLACE INTO meal_plan
-                    (user_id, meal_date, meal_type, recipe_id)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    (
-                        st.session_state.user_id,
-                        meal_date.isoformat(),
-                        meal_type,
-                        meal["id"]
-                    )
+    if col3.button("Add", key=f"add_{meal['id']}"):
+        day_index = DAYS.index(day)
+        meal_date = get_week_start() + timedelta(days=day_index)
+
+        try:
+            execute(
+                """
+                INSERT OR REPLACE INTO meal_plan
+                (user_id, meal_date, meal_type, recipe_id)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    st.session_state.user_id,
+                    meal_date.isoformat(),
+                    meal_type,
+                    meal["id"]
                 )
-                st.success("Added to meal plan! 🍽️")
+            )
+            st.success("Added to meal plan! 🍽️")
 
-            except Exception:
-                st.error("Could not add recipe")
-
+        except Exception:
+            st.error("Could not add recipe")
 
 # ─────────────────────────────
 # CUISINE TAB
