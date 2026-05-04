@@ -19,7 +19,7 @@ require_profile()
 page_header("📅 Meal Planner", "Plan your week simply")
 
 DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
-MEALS = ["Breakfast","Lunch","Dinner"]
+MEALS = ["Breakfast","Lunch","Dinner","Dessert"]
 
 # ─────────────────────────────────────────────
 # HELPERS (DEFINED FIRST → FIXES YOUR ERROR)
