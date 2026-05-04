@@ -60,504 +60,265 @@ st.caption("⚠️  Demo data — owner: wire up real cooking_history in Sprint 
 # that CLI tool back, it belongs in its own separate file, not here.
 -------
 
-st.subheader ("Nutrition facts for the past 7 days")
+st.subheader ("Calorie intake of the past 7 days")
 import streamlit as st
-import requests
-import plotly.graph_objects as go
-from datetime import datetime, timedelta
+import pandas as pd
+import altair as alt
+import numpy as np
 
-# -----------
-# PAGE CONFIG
-# -----------
-st.set_page_config(
-    page_title="Student Meal Tracker",
-    page_icon="🥗",
-    layout="wide",
-)
+# --- 1. SET UP THE APPLICATION ---
+st.set_page_config(page_title="Weekly Calorie Intake Dashboard", layout="wide")
 
-#-----------
-# CONFIGURATION  ← put your Spoonacular key here
-# Get a free key at https://spoonacular.com/food-api
-# -----------
-SPOONACULAR_API_KEY = "YOUR_API_KEY_HERE"
-SPOONACULAR_BASE    = "https://api.spoonacular.com"
-CALORIE_GOAL        = 2000
-
-# ─────────────────────────────────────────────────────────────
-# CUSTOM CSS
-# ─────────────────────────────────────────────────────────────
+# Custom CSS for UI styling (matching image_1.png and image_2.png)
 st.markdown("""
 <style>
-  /* Import font */
-  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&display=swap');
+    /* Global style fixes */
+    .stApp { background-color: #fcfcfc; }
+    .reportview-container .main .block-container { padding-top: 2rem; }
+    
+    /* Chart and Summary Header Styles */
+    .dashboard-header { font-size: 1.2rem; color: #757575; font-weight: normal; margin-bottom: -10px; }
+    .calorie-avg { font-size: 2.8rem; font-weight: bold; margin-bottom: 20px; }
 
-  html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
+    /* Custom CSS for clickable day cards */
+    div.stButton > button {
+        background-color: white;
+        color: #757575;
+        border: 1px solid #e0e0e0;
+        border-radius: 12px;
+        padding: 10px 15px;
+        width: 100%;
+        text-align: center;
+        transition: all 0.2s;
+        box-shadow: 0px 2px 4px rgba(0,0,0,0.05);
+    }
+    div.stButton > button:hover {
+        border-color: #a0a0a0;
+        color: #333;
+    }
+    div.stButton > button:active {
+        background-color: #f8f8f8;
+        transform: translateY(1px);
+    }
+    
+    /* Highlight style for the selected day card */
+    div.stButton > button.selected-day {
+        border: 2px solid #3e88e2;
+        color: black;
+        font-weight: bold;
+    }
 
-  /* Dark background */
-  .stApp { background-color: #0f0f0d; color: #f0ede8; }
+    /* Styles for the summary metrics */
+    .summary-card {
+        background-color: #f8f8f8;
+        border-radius: 12px;
+        padding: 20px;
+        margin-top: 15px;
+    }
+    .summary-title { color: #757575; font-size: 1rem; margin-bottom: 5px; }
+    .summary-value { font-size: 1.8rem; font-weight: bold; }
 
-  /* Hide default header/footer */
-  #MainMenu, footer, header { visibility: hidden; }
-
-  /* Panels */
-  .panel {
-    background: #1a1a17;
-    border: 1px solid rgba(255,255,255,0.07);
-    border-radius: 16px;
-    padding: 20px 22px;
-    margin-bottom: 16px;
-  }
-
-  /* Section labels */
-  .section-label {
-    font-size: 11px; letter-spacing: 0.08em;
-    text-transform: uppercase; color: #5f5e5a; margin-bottom: 12px;
-  }
-
-  /* Metric cards */
-  .metric-card {
-    background: #1a1a17;
-    border: 1px solid rgba(255,255,255,0.07);
-    border-radius: 14px; padding: 16px 20px;
-  }
-  .metric-label { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: #5f5e5a; }
-  .metric-value { font-size: 26px; font-weight: 600; color: #f0ede8; margin: 4px 0 2px; }
-  .metric-sub   { font-size: 11px; color: #5f5e5a; }
-
-  /* Recipe cards */
-  .recipe-card {
-    display: flex; align-items: center; gap: 12px;
-    background: #222220; border: 1px solid rgba(255,255,255,0.07);
-    border-radius: 10px; padding: 10px 14px; margin-bottom: 8px;
-  }
-  .recipe-title { font-size: 13px; font-weight: 500; color: #f0ede8; }
-  .recipe-kcal  { font-size: 12px; color: #5f5e5a; }
-
-  /* Meal chips */
-  .meal-chip {
-    display: flex; align-items: center; gap: 10px;
-    background: #222220; border: 1px solid rgba(255,255,255,0.07);
-    border-radius: 8px; padding: 10px 14px; margin-bottom: 8px;
-  }
-  .meal-chip-title { font-size: 13px; font-weight: 500; color: #f0ede8; }
-  .meal-chip-sub   { font-size: 11px; color: #5f5e5a; }
-
-  /* Status badges */
-  .badge-over  { display:inline-block; background:#E24B4A22; color:#E24B4A; border:1px solid #E24B4A44; border-radius:20px; padding:3px 12px; font-size:12px; font-weight:500; }
-  .badge-ok    { display:inline-block; background:#5AAF3222; color:#5AAF32; border:1px solid #5AAF3244; border-radius:20px; padding:3px 12px; font-size:12px; font-weight:500; }
-  .badge-under { display:inline-block; background:#378ADD22; color:#378ADD; border:1px solid #378ADD44; border-radius:20px; padding:3px 12px; font-size:12px; font-weight:500; }
-  .badge-none  { display:inline-block; background:#22221f;   color:#5f5e5a; border:1px solid #333;      border-radius:20px; padding:3px 12px; font-size:12px; font-weight:500; }
-
-  /* Day selector buttons */
-  div[data-testid="column"] button {
-    width: 100%; background: #1a1a17 !important;
-    border: 1px solid rgba(255,255,255,0.07) !important;
-    border-radius: 50px !important; color: #888780 !important;
-    font-size: 13px !important; padding: 8px 4px !important;
-    transition: all 0.15s;
-  }
-  div[data-testid="column"] button:hover {
-    border-color: rgba(255,255,255,0.2) !important; color: #f0ede8 !important;
-  }
-
-  /* Streamlit input */
-  .stTextInput input {
-    background: #1a1a17 !important; border: 1px solid rgba(255,255,255,0.1) !important;
-    border-radius: 10px !important; color: #f0ede8 !important;
-    font-size: 14px !important;
-  }
-  .stTextInput input:focus { border-color: #378ADD !important; }
-
-  /* Dividers */
-  hr { border-color: rgba(255,255,255,0.06) !important; }
-
-  /* Scrollable recipe list */
-  .recipe-scroll { max-height: 340px; overflow-y: auto; padding-right: 4px; }
+    /* Define metric colors for the chart and bars */
+    :root {
+        --color-under: #3e88e2; /* Blue */
+        --color-over: #e84c4c;  /* Red */
+        --color-goal: #72ac4c;  /* Green */
+    }
 </style>
-""", unsafe_allow_html=True)
+""", unsafe_allow_stdio=True)
 
-# ─────────────────────────────────────────────────────────────
-# SESSION STATE
-# ─────────────────────────────────────────────────────────────
-def last_7_days():
-    today = datetime.today()
-    return [(today - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(6, -1, -1)]
 
-DATES  = last_7_days()
-LABELS = [datetime.strptime(d, "%Y-%m-%d").strftime("%a") for d in DATES]
+# --- 2. GENERATE AND MANAGE DATA ---
+# (Simulating user data based on the images)
+DAYS_OF_WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+DAILY_GOAL = 2000
 
-if "meal_log"       not in st.session_state: st.session_state.meal_log       = {d: [] for d in DATES}
-if "selected_date"  not in st.session_state: st.session_state.selected_date  = DATES[-1]
-if "search_results" not in st.session_state: st.session_state.search_results = []
-if "search_query"   not in st.session_state: st.session_state.search_query   = ""
+# Function to generate a realistic weekly dataset
+@st.cache_data
+def get_weekly_data():
+    # Data structure from image_1.png bar chart
+    weekly_history = {
+        "Mon": {"total": 1840, "breakdown": {"Breakfast": 420, "Lunch": 680, "Snacks": 210, "Dinner": 530}},
+        "Tue": {"total": 2200, "breakdown": {"Breakfast": 500, "Lunch": 800, "Snacks": 300, "Dinner": 600}},
+        "Wed": {"total": 1780, "breakdown": {"Breakfast": 400, "Lunch": 650, "Snacks": 200, "Dinner": 530}},
+        "Thu": {"total": 2450, "breakdown": {"Breakfast": 550, "Lunch": 900, "Snacks": 400, "Dinner": 600}},
+        "Fri": {"total": 1980, "breakdown": {"Breakfast": 450, "Lunch": 730, "Snacks": 250, "Dinner": 550}}, # Close to goal
+        "Sat": {"total": 2330, "breakdown": {"Breakfast": 520, "Lunch": 850, "Snacks": 360, "Dinner": 600}},
+        "Sun": {"total": 1650, "breakdown": {"Breakfast": 380, "Lunch": 600, "Snacks": 180, "Dinner": 490}},
+    }
+    
+    # Pre-process history data for main chart
+    bar_chart_data = []
+    for day, data in weekly_history.items():
+        total = data["total"]
+        status = 'Goal'
+        if total < DAILY_GOAL - 50: status = 'Under' # A tolerance range for 'Goal'
+        elif total > DAILY_GOAL + 50: status = 'Over'
+        
+        bar_chart_data.append({
+            "Day": day,
+            "Calories": total,
+            "Goal": DAILY_GOAL,
+            "Status": status
+        })
 
-# ─────────────────────────────────────────────────────────────
-# SPOONACULAR HELPERS
-# ─────────────────────────────────────────────────────────────
-@st.cache_data(ttl=3600, show_spinner=False)
-def search_recipes(query: str) -> list:
-    if not query.strip(): return []
-    try:
-        r = requests.get(
-            f"{SPOONACULAR_BASE}/recipes/complexSearch",
-            params={"apiKey": SPOONACULAR_API_KEY, "query": query,
-                    "number": 8, "addRecipeNutrition": True},
-            timeout=8,
-        )
-        r.raise_for_status()
-        out = []
-        for item in r.json().get("results", []):
-            kcal = 0
-            for n in item.get("nutrition", {}).get("nutrients", []):
-                if n.get("name") == "Calories":
-                    kcal = round(n.get("amount", 0)); break
-            out.append({"id": item["id"], "title": item["title"],
-                        "image": item.get("image", ""), "calories": kcal})
-        return out
-    except Exception as e:
-        st.error(f"Spoonacular error: {e}")
-        return []
+    return pd.DataFrame(bar_chart_data), weekly_history
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def get_nutrition(recipe_id: int) -> dict:
-    try:
-        r = requests.get(
-            f"{SPOONACULAR_BASE}/recipes/{recipe_id}/nutritionWidget.json",
-            params={"apiKey": SPOONACULAR_API_KEY}, timeout=8,
-        )
-        r.raise_for_status()
-        def _val(key):
-            for n in r.json().get("nutrients", []):
-                if n.get("name") == key: return round(float(n.get("amount", 0)))
-            return 0
-        return {"calories": _val("Calories"), "protein": _val("Protein"),
-                "carbs": _val("Carbohydrates"), "fat": _val("Fat")}
-    except:
-        return {"calories": 0, "protein": 0, "carbs": 0, "fat": 0}
+# Load the data
+df_bars, history_dict = get_weekly_data()
 
-# ─────────────────────────────────────────────────────────────
-# COLOR HELPERS
-# ─────────────────────────────────────────────────────────────
-def bar_color(total):
-    if total > CALORIE_GOAL + 150: return "#E24B4A"
-    if total < CALORIE_GOAL - 150: return "#378ADD"
-    return "#5AAF32"
+# Calculate dynamic aggregate metrics
+avg_calories_raw = df_bars["Calories"].mean()
+formatted_avg = "{:,.0f}".format(avg_calories_raw)
+weekly_total_raw = df_bars["Calories"].sum()
+formatted_total = "{:,.0f}".format(weekly_total_raw)
+best_day_row = df_bars.loc[df_bars["Calories"].idxmin()] # "Best" is closest to goal, here interpreted as lowest
+best_day_text = f"{best_day_row['Day']} · {best_day_row['Calories']:,}"
+days_on_goal = len(df_bars[df_bars['Status'] == 'Goal'])
 
-MACRO_COLORS = {"calories": "#F4A522", "protein": "#378ADD", "carbs": "#9B6FD8", "fat": "#E24B4A"}
-FONT = "DM Sans, Segoe UI, sans-serif"
 
-# ─────────────────────────────────────────────────────────────
-# CHART BUILDERS
-# ─────────────────────────────────────────────────────────────
-def build_bar_chart(selected_date):
-    log    = st.session_state.meal_log
-    totals = [sum(m["calories"] for m in log.get(d, [])) for d in DATES]
-    sel_i  = DATES.index(selected_date) if selected_date in DATES else None
+# --- 3. BUILD THE UI ---
 
-    colors = []
-    for i, t in enumerate(totals):
-        c = bar_color(t)
-        colors.append(c if sel_i is None or i == sel_i else "rgba(255,255,255,0.07)")
+# 3.1: HEADER SECTION
+st.markdown('<p class="dashboard-header">Past 7 days</p>', unsafe_allow_stdio=True)
+st.markdown(f'<p class="calorie-avg">{formatted_avg} kcal avg/day</p>', unsafe_allow_stdio=True)
 
-    fig = go.Figure()
-    fig.add_trace(go.Bar(
-        x=LABELS, y=totals,
-        marker=dict(color=colors, cornerradius=8),
-        hovertemplate="<b>%{x}</b><br>%{y:,} kcal<extra></extra>",
-        showlegend=False,
-    ))
-    fig.add_trace(go.Scatter(
-        x=LABELS, y=[CALORIE_GOAL]*7, mode="lines",
-        line=dict(color="rgba(255,255,255,0.2)", width=1.5, dash="dot"),
-        hoverinfo="skip", showlegend=False,
-    ))
-    fig.add_annotation(
-        x=LABELS[-1], y=CALORIE_GOAL,
-        text=f"Goal {CALORIE_GOAL:,}", showarrow=False,
-        xanchor="right", yanchor="bottom", yshift=6,
-        font=dict(size=11, color="rgba(255,255,255,0.25)", family=FONT),
+
+# 3.2: THE MAIN BAR CHART (image_1.png)
+# Color mapping matching the colors from the image
+status_color_scale = alt.Scale(
+    domain=['Under', 'Over', 'Goal'],
+    range=['#3e88e2', '#e84c4c', '#72ac4c'] # Blue, Red, Green
+)
+
+base_chart = alt.Chart(df_bars).encode(
+    x=alt.X('Day', sort=DAYS_OF_WEEK, axis=alt.Axis(title=None, labelAngle=0, labelColor='#757575', tickColor='#e0e0e0', domain=False)),
+    y=alt.Y('Calories', axis=alt.Axis(title=None, values=[1200, 1400, 1600, 1800, 2000, 2200, 2400, 2600, 2800], gridColor='#e0e0e0', labelColor='#757575', tickColor='#e0e0e0', domain=False)),
+)
+
+# The bars, colored by status
+bars = base_chart.mark_bar(cornerRadiusTopLeft=8, cornerRadiusTopRight=8, size=40).encode(
+    color=alt.Color('Status', scale=status_color_scale, legend=None),
+    tooltip=['Day', alt.Tooltip('Calories', format=',') ]
+)
+
+# The dashed goal line
+goal_line = base_chart.mark_rule(strokeDash=[4, 4], color='#a0a0a0', size=1).encode(
+    y='Goal'
+)
+
+# Combine and render the chart
+main_bar_chart = (bars + goal_line).properties(height=350).configure_view(strokeWidth=0)
+st.altair_chart(main_bar_chart, use_container_width=True)
+
+
+# 3.3: CLICKABLE DAY CARDS (NAVIGATION) (image_1.png footer)
+st.markdown("### ") # Spacer
+
+# Create 7 columns for the day selection buttons
+cols = st.columns(7)
+
+# Need to manage which day is currently selected across interactions
+# We will use Streamlit's session state to track this.
+if 'selected_day' not in st.session_state:
+    st.session_state.selected_day = 'Mon' # Default to Monday
+
+# Render each day card as a button
+for i, day in enumerate(DAYS_OF_WEEK):
+    day_total_raw = df_bars.loc[df_bars['Day'] == day, 'Calories'].values[0]
+    # Format total as "1.8k" as seen in image_1.png
+    formatted_total_k = f"{day_total_raw/1000:.1f}k"
+    
+    # Create the button content (Day + Total)
+    button_label = f"**{day}**\n\n{formatted_total_k}"
+    
+    # We apply custom CSS class if the day is currently selected
+    is_selected = (day == st.session_state.selected_day)
+    button_type = "primary" if is_selected else "secondary"
+
+    # Important trick: use columns and st.button callback to manage selection
+    # We define a function for the callback
+    def make_day_selector(day_to_select):
+        def select_day():
+            st.session_state.selected_day = day_to_select
+        return select_day
+
+    # Place the button in its column
+    cols[i].button(
+        button_label, 
+        key=f"btn_{day}", 
+        on_click=make_day_selector(day), 
+        type=button_type, 
+        help=f"View details for {day}"
     )
-    fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        margin=dict(l=0, r=0, t=10, b=0), height=240,
-        font=dict(family=FONT, color="#888780"),
-        xaxis=dict(showgrid=False, zeroline=False, tickfont=dict(size=13, color="#888780")),
-        yaxis=dict(
-            range=[0, max(max(totals, default=0)+500, CALORIE_GOAL+600)],
-            showgrid=True, gridcolor="rgba(255,255,255,0.05)",
-            zeroline=False, tickfont=dict(size=11, color="#555"), tickformat=",",
-        ),
-        bargap=0.35,
-        hoverlabel=dict(bgcolor="#1e1e1c", font=dict(family=FONT, color="#f0ede8", size=13)),
-    )
-    return fig
 
 
-def build_macro_donut(selected_date):
-    meals = st.session_state.meal_log.get(selected_date, [])
-    p = sum(m.get("protein", 0) for m in meals)
-    c = sum(m.get("carbs",   0) for m in meals)
-    f = sum(m.get("fat",     0) for m in meals)
-    total_kcal = sum(m.get("calories", 0) for m in meals)
+# 3.4: DAY BREAKDOWN & SUMMARY (image_2.png)
+st.markdown("---") # Visual separator
 
-    if not meals:
-        fig = go.Figure()
-        fig.add_annotation(text="No meals logged", x=0.5, y=0.5, showarrow=False,
-                           font=dict(size=13, color="#5f5e5a", family=FONT))
-        fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", height=200,
-                          margin=dict(l=0,r=0,t=0,b=0))
-        return fig
+# Get the data for the currently selected day
+selected_data = history_dict[st.session_state.selected_day]
+breakdown_data = selected_data['breakdown']
+selected_day_total = selected_data['total']
+formatted_selected_total = "{:,.0f}".format(selected_day_total)
 
-    fig = go.Figure(go.Pie(
-        labels=["Protein", "Carbs", "Fat"], values=[p, c, f], hole=0.62,
-        marker=dict(colors=[MACRO_COLORS["protein"], MACRO_COLORS["carbs"], MACRO_COLORS["fat"]],
-                    line=dict(color="#0f0f0d", width=3)),
-        hovertemplate="<b>%{label}</b><br>%{value}g (%{percent})<extra></extra>",
-        textinfo="none", direction="clockwise", sort=False,
-    ))
-    fig.add_annotation(
-        text=f"<b>{total_kcal:,}</b><br>kcal",
-        x=0.5, y=0.5, showarrow=False, align="center",
-        font=dict(size=16, color="#f0ede8", family=FONT),
-    )
-    fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)", margin=dict(l=0,r=0,t=0,b=0),
-        height=200, showlegend=False,
-        hoverlabel=dict(bgcolor="#1e1e1c", font=dict(family=FONT, color="#f0ede8", size=13)),
-    )
-    return fig
+# Header for the breakdown section
+st.markdown(f"#### {st.session_state.selected_day} — {formatted_selected_total} kcal total")
 
-# ─────────────────────────────────────────────────────────────
-# UI
-# ─────────────────────────────────────────────────────────────
+# Calculate meal breakdown percentages/maxes for normalization
+meal_names = list(breakdown_data.keys())
+meal_cals = list(breakdown_data.values())
+# For the 'max' background bar, we use a fixed max or make it dynamic.
+# Let's use the largest meal in the whole history as the scale benchmark.
+MAX_MEAL_CAL = 950 # An arbitrary max benchmark based on the history data
 
-# ── Header ──
-log     = st.session_state.meal_log
-totals  = [sum(m["calories"] for m in log.get(d, [])) for d in DATES]
-logged  = [t for t in totals if t > 0]
-avg_val = f"{round(sum(logged)/len(logged)):,}" if logged else "—"
-
-st.markdown(f"""
-<div style="margin-bottom:28px">
-  <p style="font-size:11px;color:#5f5e5a;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px">🥗 Student Meal Tracker</p>
-  <h1 style="font-size:30px;font-weight:600;color:#f0ede8;margin:0">Weekly Nutrition</h1>
-  <p style="font-size:14px;color:#5f5e5a;margin-top:4px">{avg_val} kcal average per day · goal {CALORIE_GOAL:,} kcal</p>
-</div>
-""", unsafe_allow_html=True)
-
-# ── Bar chart ──
-st.markdown('<div class="panel">', unsafe_allow_html=True)
-st.markdown('<p class="section-label">7-day calorie overview</p>', unsafe_allow_html=True)
-st.plotly_chart(build_bar_chart(st.session_state.selected_date),
-                use_container_width=True, config={"displayModeBar": False})
-
-# Legend row
-st.markdown("""
-<div style="display:flex;gap:16px;margin-top:-8px;flex-wrap:wrap">
-  <span style="font-size:12px;color:#5f5e5a;display:flex;align-items:center;gap:6px">
-    <span style="width:10px;height:10px;border-radius:2px;background:#378ADD;display:inline-block"></span>Under goal
-  </span>
-  <span style="font-size:12px;color:#5f5e5a;display:flex;align-items:center;gap:6px">
-    <span style="width:10px;height:10px;border-radius:2px;background:#5AAF32;display:inline-block"></span>On target
-  </span>
-  <span style="font-size:12px;color:#5f5e5a;display:flex;align-items:center;gap:6px">
-    <span style="width:10px;height:10px;border-radius:2px;background:#E24B4A;display:inline-block"></span>Over goal
-  </span>
-</div>
-""", unsafe_allow_html=True)
-st.markdown('</div>', unsafe_allow_html=True)
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-# ── Day selector ──
-st.markdown('<p class="section-label">Select a day to log meals</p>', unsafe_allow_html=True)
-day_cols = st.columns(7)
-for i, (col, date, lbl) in enumerate(zip(day_cols, DATES, LABELS)):
-    day_total = sum(m["calories"] for m in log.get(date, []))
-    dot = "🟢" if CALORIE_GOAL-150 <= day_total <= CALORIE_GOAL+150 and day_total > 0 \
-          else ("🔴" if day_total > CALORIE_GOAL+150 else ("🔵" if day_total > 0 else ""))
-    label = f"{lbl}\n{dot}" if dot else lbl
-    if col.button(label, key=f"day_{date}", use_container_width=True):
-        st.session_state.selected_date = date
-        st.rerun()
-
-selected = st.session_state.selected_date
-selected_label = datetime.strptime(selected, "%Y-%m-%d").strftime("%A, %b %d")
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-# ── Main columns ──
-left_col, right_col = st.columns([3, 2], gap="large")
+# Build the meal breakdown list
+for meal, cals in breakdown_data.items():
+    # Percentage of benchmark
+    filled_pct = min(100, (cals / MAX_MEAL_CAL) * 100)
+    remaining_pct = 100 - filled_pct
+    
+    col_meal, col_bar, col_val = st.columns([2, 6, 1])
+    
+    col_meal.markdown(f"**{meal}**")
+    
+    # Create the progress bar using HTML/CSS
+    # We use linear gradients to create the blue-filled portion on a grey background.
+    bar_html = f"""
+    <div style="background-color: #f1f1f1; border-radius: 8px; width: 100%; height: 10px; margin-top: 5px; position: relative; overflow: hidden;">
+        <div style="background-color: #3e88e2; width: {filled_pct}%; height: 10px; border-radius: 8px 0 0 8px;"></div>
+    </div>
+    """
+    col_bar.markdown(bar_html, unsafe_allow_stdio=True)
+    
+    col_val.markdown(f"{cals:,} kcal")
 
 
-# LEFT — Search + logged meals
+# 3.5: BOTTOM SUMMARY CARDS (image_2.png)
+st.markdown("### ") # Spacer
 
-with left_col:
+col1, col2, col3 = st.columns(3)
 
-    # Search
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.markdown('<p class="section-label">Search recipes (Spoonacular)</p>', unsafe_allow_html=True)
-
-    query = st.text_input("", placeholder="e.g. pasta, chicken salad, oatmeal…",
-                          label_visibility="collapsed", key="search_box")
-
-    if query and query != st.session_state.search_query:
-        st.session_state.search_query   = query
-        with st.spinner("Searching recipes…"):
-            st.session_state.search_results = search_recipes(query)
-
-    results = st.session_state.search_results
-    if results:
-        st.markdown(f'<p style="font-size:12px;color:#5f5e5a;margin-bottom:10px">{len(results)} results for "{query}"</p>', unsafe_allow_html=True)
-        for r in results:
-            r_col1, r_col2, r_col3 = st.columns([1, 4, 1])
-            with r_col1:
-                if r["image"]:
-                    st.image(r["image"], width=52)
-                else:
-                    st.markdown('<div style="width:52px;height:52px;background:#222;border-radius:8px"></div>', unsafe_allow_html=True)
-            with r_col2:
-                st.markdown(f"""
-                <div style="padding:4px 0">
-                  <p class="recipe-title">{r['title']}</p>
-                  <p class="recipe-kcal">{r['calories']} kcal</p>
-                </div>
-                """, unsafe_allow_html=True)
-            with r_col3:
-                if st.button("＋ Add", key=f"add_{r['id']}_{selected}", use_container_width=True):
-                    with st.spinner("Fetching nutrition…"):
-                        nutrition = get_nutrition(r["id"])
-                    entry = {
-                        "id":       r["id"],
-                        "title":    r["title"],
-                        "calories": nutrition["calories"] or r["calories"],
-                        "protein":  nutrition["protein"],
-                        "carbs":    nutrition["carbs"],
-                        "fat":      nutrition["fat"],
-                    }
-                    st.session_state.meal_log[selected].append(entry)
-                    st.success(f"Added {r['title']} to {selected_label}!")
-                    st.rerun()
-            st.markdown('<hr style="margin:4px 0;border-color:rgba(255,255,255,0.05)">', unsafe_allow_html=True)
-    elif query:
-        st.markdown('<p style="color:#5f5e5a;font-size:13px;padding:8px 0">No results found.</p>', unsafe_allow_html=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # Logged meals
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    day_meals  = st.session_state.meal_log.get(selected, [])
-    day_total  = sum(m["calories"] for m in day_meals)
-
-    # Status badge
-    if day_total == 0:
-        badge = '<span class="badge-none">No meals logged</span>'
-    elif day_total > CALORIE_GOAL + 150:
-        badge = f'<span class="badge-over">Over by {day_total - CALORIE_GOAL:,} kcal</span>'
-    elif day_total < CALORIE_GOAL - 150:
-        badge = f'<span class="badge-under">Under by {CALORIE_GOAL - day_total:,} kcal</span>'
-    else:
-        badge = '<span class="badge-ok">On target ✓</span>'
-
+with col1:
     st.markdown(f"""
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-      <p class="section-label" style="margin:0">Logged meals · {selected_label}</p>
-      {badge}
+    <div class="summary-card">
+        <div class="summary-title">Best day</div>
+        <div class="summary-value">{best_day_text}</div>
     </div>
-    """, unsafe_allow_html=True)
+    """, unsafe_allow_stdio=True)
 
-    if day_meals:
-        for i, m in enumerate(day_meals):
-            m_col1, m_col2 = st.columns([6, 1])
-            with m_col1:
-                st.markdown(f"""
-                <div class="meal-chip">
-                  <span style="font-size:18px">🍽</span>
-                  <div>
-                    <p class="meal-chip-title">{m['title']}</p>
-                    <p class="meal-chip-sub">{m['calories']} kcal &nbsp;·&nbsp; {m.get('protein',0)}g protein &nbsp;·&nbsp; {m.get('carbs',0)}g carbs &nbsp;·&nbsp; {m.get('fat',0)}g fat</p>
-                  </div>
-                </div>
-                """, unsafe_allow_html=True)
-            with m_col2:
-                if st.button("✕", key=f"remove_{selected}_{i}", help="Remove meal"):
-                    st.session_state.meal_log[selected].pop(i)
-                    st.rerun()
-    else:
-        st.markdown('<p style="color:#5f5e5a;font-size:13px;text-align:center;padding:20px 0">No meals yet. Search and add recipes above ↑</p>', unsafe_allow_html=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-
-# RIGHT — Macro chart + totals
-
-with right_col:
-
-    # Donut
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.markdown('<p class="section-label">Macro split</p>', unsafe_allow_html=True)
-    st.plotly_chart(build_macro_donut(selected),
-                    use_container_width=True, config={"displayModeBar": False})
-
-    # Legend
-    st.markdown("""
-    <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
-    """, unsafe_allow_html=True)
-    for k, label in [("protein","Protein"), ("carbs","Carbs"), ("fat","Fat")]:
-        val = sum(m.get(k, 0) for m in st.session_state.meal_log.get(selected, []))
-        st.markdown(f"""
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="width:10px;height:10px;border-radius:2px;background:{MACRO_COLORS[k]};display:inline-block;flex-shrink:0"></span>
-          <span style="font-size:13px;color:#888780;flex:1">{label}</span>
-          <span style="font-size:13px;font-weight:500;color:#f0ede8">{val}g</span>
-        </div>
-        """, unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # Progress bar vs goal
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.markdown('<p class="section-label">Daily progress</p>', unsafe_allow_html=True)
-    pct = min(round((day_total / CALORIE_GOAL) * 100), 100) if day_total else 0
-    fill_color = bar_color(day_total)
+with col2:
     st.markdown(f"""
-    <div style="margin-bottom:8px">
-      <div style="display:flex;justify-content:space-between;font-size:12px;color:#5f5e5a;margin-bottom:6px">
-        <span>{day_total:,} kcal consumed</span><span>{CALORIE_GOAL:,} kcal goal</span>
-      </div>
-      <div style="background:rgba(255,255,255,0.06);border-radius:6px;height:10px;overflow:hidden">
-        <div style="width:{pct}%;height:100%;background:{fill_color};border-radius:6px;transition:width 0.4s ease"></div>
-      </div>
-      <p style="font-size:11px;color:#5f5e5a;margin-top:6px;text-align:right">{pct}% of daily goal</p>
+    <div class="summary-card">
+        <div class="summary-title">Days on goal</div>
+        <div class="summary-value">{days_on_goal} / 7 days</div>
     </div>
-    """, unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    """, unsafe_allow_stdio=True)
 
-# BOTTOM — Weekly metrics
-
-st.markdown("<br>", unsafe_allow_html=True)
-st.markdown('<p class="section-label">Weekly summary</p>', unsafe_allow_html=True)
-
-logged_totals = [t for t in totals if t > 0]
-weekly_avg    = f"{round(sum(logged_totals)/len(logged_totals)):,}" if logged_totals else "—"
-on_target_cnt = sum(1 for t in totals if CALORIE_GOAL-150 <= t <= CALORIE_GOAL+150 and t > 0)
-weekly_sum    = f"{sum(totals):,}" if any(t > 0 for t in totals) else "—"
-best_days     = [(abs(t-CALORIE_GOAL), lbl) for t, lbl in zip(totals, LABELS) if t > 0]
-best_day_lbl  = min(best_days)[1] if best_days else "—"
-
-m1, m2, m3, m4 = st.columns(4)
-for col, label, value, sub in [
-    (m1, "Avg / day",      weekly_avg,           "kcal"),
-    (m2, "Days on target", f"{on_target_cnt} / 7","within ±150 kcal"),
-    (m3, "Weekly total",   weekly_sum,            "kcal this week"),
-    (m4, "Best day",       best_day_lbl,          "closest to goal"),
-]:
-    col.markdown(f"""
-    <div class="metric-card">
-      <p class="metric-label">{label}</p>
-      <p class="metric-value">{value}</p>
-      <p class="metric-sub">{sub}</p>
+with col3:
+    st.markdown(f"""
+    <div class="summary-card">
+        <div class="summary-title">Weekly total</div>
+        <div class="summary-value">{formatted_total} kcal</div>
     </div>
-    """, unsafe_allow_html=True)
-
-
+    """, unsafe_allow_stdio=True)
