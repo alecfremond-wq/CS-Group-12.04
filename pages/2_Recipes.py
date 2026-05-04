@@ -215,7 +215,7 @@ with tab_search:
         reverse=True
     )
 
-# ───── GRID LAYOUT (FIXED ALIGNMENT + IMAGE CONTROL) ─────
+# ───── GRID LAYOUT (SMALLER + CLEAN ALIGNMENT) ─────
 cols = st.columns(3)
 
 for idx, (score_val, meal) in enumerate(ranked):
@@ -227,27 +227,24 @@ for idx, (score_val, meal) in enumerate(ranked):
             # ───── TITLE ─────
             st.markdown(f"### {meal.get('title', 'Unknown')}")
 
-            # ───── FIXED IMAGE SIZE (KEY FIX #1) ─────
+            # ───── SMALLER IMAGE (KEY FIX) ─────
             if meal.get("image"):
                 st.image(
                     meal["image"],
                     use_container_width=True
                 )
 
-            # ───── CLEAN DESCRIPTION (KEY FIX #4) ─────
+            # ───── CLEAN SHORT DESCRIPTION ─────
             raw_summary = meal.get("summary", "")
-            clean_summary = (
-                raw_summary
-                .replace("<b>", "")
-                .replace("</b>", "")
-                .replace("<a href=", "")
-            )
+            clean_summary = raw_summary.replace("<b>", "").replace("</b>", "")
 
-            short_desc = " ".join(clean_summary.split()[:25])  # word-safe cut
-            st.caption(short_desc + ("..." if len(clean_summary.split()) > 25 else ""))
+            words = clean_summary.split()
+            short_desc = " ".join(words[:18])
 
-            # ───── BUTTON ROW (WISHLIST + ADD TO PLAN SIDE BY SIDE) ─────
-            b1, b2 = st.columns(2)
+            st.caption(short_desc + ("..." if len(words) > 18 else ""))
+
+            # ───── BUTTON ROW (CLOSE TOGETHER) ─────
+            b1, b2 = st.columns(2, gap="small")
 
             with b1:
                 if st.button("❤️ Save", key=f"wish_{meal['id']}"):
@@ -268,10 +265,10 @@ for idx, (score_val, meal) in enumerate(ranked):
                 if st.button("📅 Add", key=f"plan_btn_{meal['id']}"):
                     st.session_state[toggle_key] = not st.session_state[toggle_key]
 
-            # ───── COLLAPSIBLE PLAN OPTIONS (KEY FIX #2) ─────
+            # ───── PLAN OPTIONS (COMPACT ROW) ─────
             if st.session_state[toggle_key]:
 
-                p1, p2, p3 = st.columns(3)
+                c1, c2, c3 = st.columns(3, gap="small")
 
                 def save_plan(meal_type):
                     meal_date = get_week_start()
@@ -294,18 +291,19 @@ for idx, (score_val, meal) in enumerate(ranked):
                     except Exception:
                         st.error("Could not add recipe")
 
-                with p1:
+                with c1:
                     if st.button("B", key=f"b_{meal['id']}"):
                         save_plan("Breakfast")
 
-                with p2:
+                with c2:
                     if st.button("L", key=f"l_{meal['id']}"):
                         save_plan("Lunch")
 
-                with p3:
+                with c3:
                     if st.button("D", key=f"d_{meal['id']}"):
                         save_plan("Dinner")
 
+           
             # ───── PANTRY SCORE ─────
             if score_val > 0.6:
                 st.success("🟢 Pantry-friendly")
