@@ -23,7 +23,7 @@ from datetime import date, timedelta
 
 from src.components.ui import empty_state, page_header
 from src.data.database import execute, query_df
->>>>>>> main
+      main
 from src.utils.session import init_session_state, require_profile
 
 # ─────────────────────────────
@@ -225,7 +225,7 @@ with tab_search:
 
 
 # ── Cuisine tab ───────────────────────────────────────────────────────────────
-=======
+
 page_header("🍲 Recipes", "Search recipes and plan your week")
 
 tab_search, tab_cuisine = st.tabs(["🔎 Search", "🌍 Browse"])
@@ -306,7 +306,7 @@ if "last_query" not in st.session_state:
 # SEARCH TAB
 # ─────────────────────────────
 with tab_search:
->>>>>>> main
+      main
 
     query = st.text_input("What do you want to cook?", placeholder="pasta, curry...")
 
