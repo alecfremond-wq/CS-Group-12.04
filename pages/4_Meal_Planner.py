@@ -1,11 +1,7 @@
-""
-4_Meal_Planner.py — Clean Working Version (Fixed)
-=================================================
-Simple weekly meal planner that works reliably:
-- view week
-- add/remove meals
-- select recipes
-"""
+#Simple weekly meal planner that works reliably:
+#- view week
+#- add/remove meals
+#- select recipes
 
 import streamlit as st
 import pandas as pd
