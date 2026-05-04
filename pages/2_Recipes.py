@@ -6,6 +6,9 @@ from src.components.ui import empty_state, page_header
 from src.data.database import execute, query_df
 from src.utils.session import init_session_state, require_profile
 
+# ─────────────────────────────
+# INIT
+# ─────────────────────────────
 init_session_state()
 require_profile()
 
@@ -14,12 +17,12 @@ page_header("🍲 Recipes", "Search recipes and plan your week")
 tab_search, tab_cuisine = st.tabs(["🔎 Search", "🌍 Browse"])
 
 # ─────────────────────────────
-# SPOONACULAR SETUP
+# API SETUP
 # ─────────────────────────────
-API_KEY = st.secrets.get("SPOONACULAR_API_KEY", None)
+API_KEY = st.secrets.get("SPOONACULAR_API_KEY")
 BASE_URL = "https://api.spoonacular.com/recipes/complexSearch"
 
-def spoonacular_search(query):
+def fetch_recipes(query):
     if not API_KEY:
         st.warning("Missing API key")
         return []
@@ -35,9 +38,8 @@ def spoonacular_search(query):
         timeout=10
     )
 
-    st.write(response.json())  # 👈 ADD THIS DEBUG LINE
-
-    return response.json().get("results", [])
+    data = response.json()
+    return data.get("results", [])
 
 # ─────────────────────────────
 # WEEK HELPERS
@@ -49,10 +51,8 @@ def get_week_start():
     today = date.today()
     return today - timedelta(days=today.weekday())
 
-week_start = get_week_start()
-
 # ─────────────────────────────
-# PANTRY (simple)
+# PANTRY
 # ─────────────────────────────
 def get_pantry():
     df = query_df(
@@ -64,16 +64,29 @@ def get_pantry():
         """,
         (st.session_state.user_id,)
     )
-    return set(df["name"].str.lower()) if not df.empty else set()
 
-def score(recipe, pantry):
+    if df.empty:
+        return set()
+
+    return set(df["name"].str.lower())
+
+def score_recipe(recipe, pantry):
     ingredients = recipe.get("extendedIngredients", [])
     names = [i["name"].lower() for i in ingredients if "name" in i]
 
     if not names:
         return 0
 
-    return sum(1 for i in names if i in pantry) / len(names)
+    return sum(1 for n in names if n in pantry) / len(names)
+
+# ─────────────────────────────
+# SESSION STATE INIT
+# ─────────────────────────────
+if "recipes" not in st.session_state:
+    st.session_state.recipes = []
+
+if "last_query" not in st.session_state:
+    st.session_state.last_query = ""
 
 # ─────────────────────────────
 # SEARCH TAB
@@ -82,76 +95,83 @@ with tab_search:
 
     query = st.text_input("What do you want to cook?", placeholder="pasta, curry...")
 
-    if query:
+    search_clicked = st.button("🔍 Search Recipes")
 
-        results = spoonacular_search(query)
+    # Run search ONLY when button is clicked
+    if search_clicked and query:
+        st.session_state.recipes = fetch_recipes(query)
+        st.session_state.last_query = query
 
-        if not results:
-            empty_state("No recipes found.")
-            st.stop()
+    results = st.session_state.recipes
 
-        pantry = get_pantry()
+    if not results:
+        empty_state("Search for recipes to see results.")
+        st.stop()
 
-        ranked = []
-        for r in results:
-            s = score(r, pantry)
-            ranked.append((s, r))
+    pantry = get_pantry()
 
-        ranked.sort(reverse=True, key=lambda x: x[0])
+    # rank recipes
+    ranked = sorted(
+        [(score_recipe(r, pantry), r) for r in results],
+        key=lambda x: x[0],
+        reverse=True
+    )
 
-        for score_val, meal in ranked:
+    # display
+    for score_val, meal in ranked:
 
-            st.divider()
-            st.subheader(meal.get("title", "Unknown"))
+        st.divider()
+        st.subheader(meal.get("title", "Unknown"))
 
-            image = meal.get("image", "")
-            if image:
-                st.image(image)
+        if meal.get("image"):
+            st.image(meal["image"])
 
-            # pantry label
-            if score_val > 0.6:
-                st.success("🟢 Pantry-friendly")
-            elif score_val > 0.3:
-                st.warning("🟡 Partially available")
-            else:
-                st.error("🔴 Needs shopping")
+        # pantry status
+        if score_val > 0.6:
+            st.success("🟢 Pantry-friendly")
+        elif score_val > 0.3:
+            st.warning("🟡 Partially available")
+        else:
+            st.error("🔴 Needs shopping")
 
-            # summary
-            st.write(meal.get("summary", "")[:200] + "...")
+        st.write(meal.get("summary", "")[:200] + "...")
 
-            # ─── MEAL PLAN ───
-            st.markdown("### ➕ Add to meal plan")
+        # ─────────────────────────────
+        # MEAL PLAN SECTION
+        # ─────────────────────────────
+        st.markdown("### ➕ Add to meal plan")
 
-            c1, c2, c3 = st.columns(3)
+        col1, col2, col3 = st.columns(3)
 
-            day = c1.selectbox("Day", DAYS, key=f"d_{meal['id']}")
-            meal_type = c2.selectbox("Meal", MEALS, key=f"m_{meal['id']}")
+        day = col1.selectbox("Day", DAYS, key=f"day_{meal['id']}")
+        meal_type = col2.selectbox("Meal", MEALS, key=f"type_{meal['id']}")
 
-            if c3.button("Add", key=f"b_{meal['id']}"):
+        if col3.button("Add", key=f"add_{meal['id']}"):
 
-                day_index = DAYS.index(day)
-                meal_date = get_week_start() + timedelta(days=day_index)
+            day_index = DAYS.index(day)
+            meal_date = get_week_start() + timedelta(days=day_index)
 
-                try:
-                    execute(
-                        """
-                        INSERT OR REPLACE INTO meal_plan
-                        (user_id, meal_date, meal_type, recipe_id)
-                        VALUES (?, ?, ?, ?)
-                        """,
-                        (
-                            st.session_state.user_id,
-                            meal_date.isoformat(),
-                            meal_type,
-                            meal["id"]
-                        )
+            try:
+                execute(
+                    """
+                    INSERT OR REPLACE INTO meal_plan
+                    (user_id, meal_date, meal_type, recipe_id)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        st.session_state.user_id,
+                        meal_date.isoformat(),
+                        meal_type,
+                        meal["id"]
                     )
-                    st.success("Added to meal plan!")
-                except:
-                    st.error("Could not add recipe")
+                )
+                st.success("Added to meal plan! 🍽️")
+
+            except Exception:
+                st.error("Could not add recipe")
 
 # ─────────────────────────────
-# CUISINE TAB (simple placeholder)
+# CUISINE TAB
 # ─────────────────────────────
 with tab_cuisine:
-    st.info("Cuisine browsing can be added later (optional feature).")
+    st.info("Cuisine browsing coming soon 🌍")
