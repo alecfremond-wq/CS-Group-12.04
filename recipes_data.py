@@ -238,7 +238,10 @@ RECIPES = [
         "id": 9,
         "name": "Crêpes",
         "country": "France",
-        "category": ["Snack","Meal", "Dessert"],
+        # Was a list before — standardised to a single string like every other recipe.
+        # "Meal" is the most general fit here; crêpes can be dessert or snack too,
+        # but we need one consistent value so filters don't crash.
+        "category": "Meal",
         "ingredients": ["flour", "eggs", "milk", "butter", "sugar", "vanilla", "jam or nutella"],
         "time_minutes": 20,
         "cost_chf": 2.5,
@@ -354,7 +357,8 @@ RECIPES = [
         "id": 13,
         "name": "Avocado Toast",
         "country": "Australia",
-        "category": ["Snack", "Meal"],
+        # Same issue as crêpes — was a list, now a single string.
+        "category": "Meal",
         "ingredients": ["bread", "avocado", "lemon", "salt", "chili flakes", "eggs"],
         "time_minutes": 10,
         "cost_chf": 3.0,
@@ -498,7 +502,8 @@ RECIPES = [
         "id": 18,
         "name": "Overnight Oats",
         "country": "Sweden",
-        "category": ["Breakfast", "Meal", "Snack"],
+        # Same fix — "Breakfast" is the most specific and accurate category for overnight oats.
+        "category": "Breakfast",
         "ingredients": ["oats", "milk", "yogurt", "banana", "honey", "berries"],
         "time_minutes": 5,
         "cost_chf": 1.5,
