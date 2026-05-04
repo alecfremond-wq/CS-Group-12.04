@@ -96,6 +96,8 @@ week_end = week_start + timedelta(days=6)
 meals = get_meals(week_start)
 recipes = get_recipes()
 
+st.write(query_df("SELECT COUNT(*) as n FROM recipes")) 
+
 plan = {}
 for _, m in meals.iterrows():
     plan[(str(m["meal_date"]), m["meal_type"])] = m.to_dict()
