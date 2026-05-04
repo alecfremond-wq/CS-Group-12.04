@@ -117,7 +117,10 @@ def fetch_planned_meals(week_start: date) -> pd.DataFrame:
         (st.session_state.user_id, week_start.isoformat(), week_end.isoformat()),
     )
 
+import streamlit as st
+from src.data.database import query_df
 
+st.write(query_df("SELECT name FROM sqlite_master WHERE type='table';"))
 def fetch_all_recipes() -> pd.DataFrame:
     """All recipes in the DB (global + user-created), used to populate the picker."""
     return query_df(
