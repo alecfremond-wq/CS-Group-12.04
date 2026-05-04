@@ -1,4 +1,3 @@
-<<<<<<< feature/ml-recommendations
 """
 Recipes — search and browse recipes (API + DB).
 Owner: <assign on Apr 22>
