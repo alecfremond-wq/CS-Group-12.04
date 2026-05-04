@@ -46,28 +46,18 @@ def get_meals(week_start):
 
 
 def get_recipes():
-    """Safe recipe loader (works with different DB structures)."""
-    df = query_df("SELECT * FROM recipes LIMIT 50", ())
+    """
+    SAFE loader:
+    - tries DB first
+    - falls back to empty list instead of crashing flow
+    """
 
-    if df.empty:
+    df = query_df("SELECT id, title FROM recipes LIMIT 100", ())
+
+    if df is None or df.empty:
         return []
 
-    cols = df.columns
-
-    # find usable title column
-    title_col = None
-    for c in ["title", "strMeal", "recipe_name", "name"]:
-        if c in cols:
-            title_col = c
-            break
-
-    if title_col is None:
-        return []
-
-    return query_df(
-        f"SELECT id, {title_col} AS title FROM recipes",
-        ()
-    )
+    return df
 
 
 def add_meal(day, meal_type, recipe_id):
@@ -160,15 +150,16 @@ if "adding_slot" in st.session_state:
 
     st.subheader(f"Add {meal} for {day.strftime('%A %d %b')}")
 
-    if not recipes:
-        st.error("No recipes available in database.")
+    # 🔥 fallback safety: if DB empty, tell user clearly
+    if recipes is None or len(recipes) == 0:
+        st.warning("No saved recipes yet. Go to Recipes page and search something first.")
     else:
         for _, r in recipes.iterrows():
-            c1, c2 = st.columns([3,1])
+            col1, col2 = st.columns([3, 1])
 
-            c1.write(r["title"])
+            col1.write(r["title"])
 
-            if c2.button("Add", key=f"add_{r['id']}_{day}_{meal}"):
+            if col2.button("Add", key=f"add_{r['id']}_{day}_{meal}"):
                 add_meal(day, meal, r["id"])
                 del st.session_state["adding_slot"]
                 st.rerun()
