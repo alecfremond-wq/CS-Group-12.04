@@ -215,62 +215,68 @@ with tab_search:
         reverse=True
     )
 
-for score_val, meal in ranked:
-    st.divider()
-    st.subheader(meal.get("title", "Unknown"))
+    # ───── GRID LAYOUT (NEW) ─────
+    cols = st.columns(3)
 
-    if meal.get("image"):
-        st.image(meal["image"])
+    for idx, (score_val, meal) in enumerate(ranked):
+        col = cols[idx % 3]
 
-    if st.button("❤️ Save to wishlist", key=f"wish_{meal['id']}"):
-        st.session_state["wishlist"].append({
-            "title": meal.get("title"),
-            "image": meal.get("image"),
-            "local_id": None,
-            "ingredients": [],
-        })
-        st.success("Saved to wishlist!")
+        with col:
+            with st.container(border=True):
+                st.subheader(meal.get("title", "Unknown"))
 
-    # existing code continues
-    if score_val > 0.6:
-        st.success("🟢 Pantry-friendly")
-    elif score_val > 0.3:
-        st.warning("🟡 Partially available")
-    else:
-        st.error("🔴 Needs shopping")
+                if meal.get("image"):
+                    st.image(meal["image"], use_container_width=True)
 
-    st.write(meal.get("summary", "")[:200] + "...")
+                # ───── COMMENT BELOW IMAGE (NEW) ─────
+                st.caption(meal.get("summary", "")[:120] + "...")
 
-    st.markdown("### ➕ Add to meal plan")
+                # ───── SAVE TO WISHLIST (UNCHANGED) ─────
+                if st.button("❤️ Save to wishlist", key=f"wish_{meal['id']}"):
+                    st.session_state["wishlist"].append({
+                        "title": meal.get("title"),
+                        "image": meal.get("image"),
+                        "local_id": None,
+                        "ingredients": [],
+                    })
+                    st.success("Saved to wishlist!")
 
-    col1, col2, col3 = st.columns(3)
-
-    day = col1.selectbox("Day", DAYS, key=f"day_{meal['id']}")
-    meal_type = col2.selectbox("Meal", MEALS, key=f"type_{meal['id']}")
-
-    if col3.button("Add", key=f"add_{meal['id']}"):
-        day_index = DAYS.index(day)
-        meal_date = get_week_start() + timedelta(days=day_index)
-
-        try:
-            execute(
-                """
-                INSERT OR REPLACE INTO meal_plan
-                (user_id, meal_date, meal_type, recipe_id)
-                VALUES (?, ?, ?, ?)
-                """,
-                (
-                    st.session_state.user_id,
-                    meal_date.isoformat(),
-                    meal_type,
-                    meal["id"]
+                # ───── ADD TO PLAN BUTTON (NEW) ─────
+                meal_type = st.selectbox(
+                    "Meal type",
+                    ["Breakfast", "Lunch", "Dinner"],
+                    key=f"type_{meal['id']}"
                 )
-            )
-            st.success("Added to meal plan! 🍽️")
 
-        except Exception:
-            st.error("Could not add recipe")
+                if st.button("📅 Add to plan", key=f"plan_{meal['id']}"):
+                    meal_date = get_week_start()  # default to start of week
 
+                    try:
+                        execute(
+                            """
+                            INSERT OR REPLACE INTO meal_plan
+                            (user_id, meal_date, meal_type, recipe_id)
+                            VALUES (?, ?, ?, ?)
+                            """,
+                            (
+                                st.session_state.user_id,
+                                meal_date.isoformat(),
+                                meal_type,
+                                meal["id"]
+                            )
+                        )
+                        st.success("Added to meal plan! 🍽️")
+
+                    except Exception:
+                        st.error("Could not add recipe")
+
+                # ───── PANTRY SCORE (UNCHANGED) ─────
+                if score_val > 0.6:
+                    st.success("🟢 Pantry-friendly")
+                elif score_val > 0.3:
+                    st.warning("🟡 Partially available")
+                else:
+                    st.error("🔴 Needs shopping")
 # ─────────────────────────────
 # CUISINE TAB
 # ─────────────────────────────
