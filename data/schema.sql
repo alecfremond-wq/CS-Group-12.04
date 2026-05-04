@@ -61,8 +61,6 @@ CREATE INDEX IF NOT EXISTS idx_history_user   ON cooking_history(user_id);
 
 
 -- ============================================================
--- ============================================================
--- Paste everything below at the bottom of data/schema.sql
 -- These two tables are required by the Meal Planner page.
 -- Both use IF NOT EXISTS so it's safe to run multiple times.
 -- ============================================================
@@ -82,8 +80,6 @@ CREATE TABLE IF NOT EXISTS pantry (
 
 CREATE INDEX IF NOT EXISTS idx_pantry_user
     ON pantry (user_id);
-
-
 -- meal_plan: which recipe is planned for which slot
 -- One row = one meal (e.g. user 1, Monday 2026-05-05, Lunch, recipe 42)
 -- UNIQUE constraint means each slot can only hold one recipe at a time;
