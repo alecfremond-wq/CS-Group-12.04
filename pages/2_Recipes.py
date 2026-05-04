@@ -34,6 +34,7 @@ def get_week_start():
         st.session_state.week_start = today - timedelta(days=today.weekday())
     return st.session_state.week_start
 
+
 DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
 MEALS = ["Breakfast","Lunch","Dinner"]
 
@@ -76,6 +77,7 @@ def match_score(recipe_id, pantry):
 # SEARCH
 # ─────────────────────────────────────────────
 with tab_search:
+
     query = st.text_input(
         "What would you like to cook?",
         placeholder="e.g. pasta, curry…"
@@ -83,17 +85,13 @@ with tab_search:
 
     if query:
 
-        # ─────────────────────────────
-        # ONBOARDING FILTERS (RESTORED)
-        # ─────────────────────────────
+        # ONBOARDING FILTERS
         veg = st.session_state.get("vegetarian", False)
         vgn = st.session_state.get("vegan", False)
         gf  = st.session_state.get("gluten_free", False)
         df  = st.session_state.get("dairy_free", False)
 
-        # ─────────────────────────────
-        # API CALL (UNCHANGED LOGIC)
-        # ─────────────────────────────
+        # API CALL
         results = search_recipes_by_name(query) + search_spoonacular(
             query=query,
             vegetarian=veg,
@@ -105,10 +103,9 @@ with tab_search:
         if not results:
             empty_state("No recipes found — try another word.")
 
-        # ─────────────────────────────
-        # PANTRY CHECK STARTS HERE
-        # ─────────────────────────────
+        # PANTRY CHECK
         pantry_items = get_pantry_items()
+
         scored = sorted(
             [(match_score(r.get("id"), pantry_items), r) for r in results[:15]],
             key=lambda x: x[0],
@@ -118,7 +115,7 @@ with tab_search:
         for score, meal in scored[:10]:
             with st.container(border=True):
 
-                col1, col2 = st.columns([1,3])
+                col1, col2 = st.columns([1, 3])
 
                 with col1:
                     st.image(meal.get("strMealThumb"))
@@ -147,7 +144,7 @@ with tab_search:
                             day_index = DAYS.index(day)
                             meal_date = week_start + timedelta(days=day_index)
 
-                            # ✅ ONLY THIS MATTERS FOR MEAL PLANNER
+                            # 1. ensure recipe exists in DB
                             execute(
                                 """
                                 INSERT OR IGNORE INTO recipes (id, title)
@@ -155,13 +152,15 @@ with tab_search:
                                 """,
                                 (meal.get("id"), meal.get("strMeal"))
                             )
-                           execute(
+
+                            # 2. add to meal plan
+                            execute(
                                 """
                                 INSERT OR REPLACE INTO meal_plan
                                 (user_id, meal_date, meal_type, recipe_id)
-                                 VALUES (?, ?, ?, ?)
-                                 """,
-                                 (
+                                VALUES (?, ?, ?, ?)
+                                """,
+                                (
                                     st.session_state.user_id,
                                     meal_date.isoformat(),
                                     meal_type,
@@ -170,6 +169,7 @@ with tab_search:
                             )
 
                             st.success("Added to meal planner!")
+
                         except Exception:
                             st.error("Could not add meal.")
 
