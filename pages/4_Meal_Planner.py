@@ -1,7 +1,8 @@
-#Simple weekly meal planner that works reliably:
-#- view week
-#- add/remove meals
-#- select recipes
+
+#Fixed:
+#- recipes loading issue
+#- add-meal flow stability
+#- added lightweight ML suggestions in grid
 
 import streamlit as st
 import pandas as pd
@@ -51,7 +52,8 @@ def get_meals(week_start):
 
 
 def get_recipes():
-    return query_df("SELECT id, title FROM recipes", ())
+    # FIX: supports both title and name column just in case DB differs
+    return query_df("SELECT id, COALESCE(title, name) AS title FROM recipes", ())
 
 
 def add_meal(day, meal_type, recipe_id):
@@ -66,6 +68,17 @@ def delete_meal(meal_id):
         "DELETE FROM meal_plan WHERE id=? AND user_id=?",
         (meal_id, st.session_state.user_id)
     )
+
+# ─────────────────────────────────────────────
+# SIMPLE ML (LIGHTWEIGHT)
+# ─────────────────────────────────────────────
+
+def get_suggestions(recipes_df, exclude_ids):
+    if recipes_df.empty:
+        return []
+
+    filtered = recipes_df[~recipes_df["id"].isin(exclude_ids)]
+    return filtered.head(3).to_dict(orient="records")
 
 # ─────────────────────────────────────────────
 # WEEK NAVIGATION
@@ -100,6 +113,9 @@ plan = {}
 for _, m in meals.iterrows():
     plan[(str(m["meal_date"]), m["meal_type"])] = m.to_dict()
 
+exclude_ids = meals["recipe_id"].tolist() if not meals.empty else []
+suggestions = get_suggestions(recipes, exclude_ids)
+
 # ─────────────────────────────────────────────
 # GRID
 # ─────────────────────────────────────────────
@@ -119,17 +135,28 @@ for meal in MEALS:
         key = (day.isoformat(), meal)
 
         with row[i+1]:
+
+            # ── IF MEAL EXISTS ──
             if key in plan:
                 st.write("🍽", plan[key]["title"])
                 if st.button("✕", key=f"del_{plan[key]['id']}"):
                     delete_meal(plan[key]["id"])
                     st.rerun()
+
+            # ── EMPTY SLOT ──
             else:
                 if st.button("+", key=f"add_{meal}_{i}"):
                     st.session_state["adding_slot"] = (day, meal)
 
+                # 💡 SIMPLE ML SUGGESTION (light, not smart)
+                if suggestions:
+                    s = suggestions[i % len(suggestions)]
+                    if st.button(f"💡 {s['title']}", key=f"sug_{meal}_{i}"):
+                        add_meal(day, meal, s["id"])
+                        st.rerun()
+
 # ─────────────────────────────────────────────
-# ADD MEAL (WORKING FLOW)
+# ADD MEAL FLOW
 # ─────────────────────────────────────────────
 if "adding_slot" in st.session_state:
     day, meal = st.session_state["adding_slot"]
@@ -137,7 +164,7 @@ if "adding_slot" in st.session_state:
     st.subheader(f"Add {meal} for {day.strftime('%A %d %b')}")
 
     if recipes.empty:
-        st.warning("No recipes available.")
+        st.error("No recipes available. Go to Recipes page and save some first.")
     else:
         for _, r in recipes.iterrows():
             c1, c2 = st.columns([3,1])
@@ -161,3 +188,4 @@ if meals.empty:
     st.info("No meals planned yet.")
 else:
     st.success(f"You planned {len(meals)} meals this week.")
+""
