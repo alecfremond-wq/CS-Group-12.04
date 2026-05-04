@@ -90,7 +90,7 @@ st.markdown("""
     }
     .summary-value { font-size: 1.8rem; font-weight: bold; }
 </style>
-""", unsafe_allow_stdio=True)
+""", unsafe_allow_html=True)
 
 # --- DATA SETUP ---
 DAYS_OF_WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -116,8 +116,8 @@ for day, data in weekly_history.items():
 df = pd.DataFrame(bar_data)
 
 # --- MAIN UI ---
-st.markdown('<p class="dashboard-header">Past 7 days</p>', unsafe_allow_stdio=True)
-st.markdown(f'<p class="calorie-avg">2,031 kcal avg/day</p>', unsafe_allow_stdio=True)
+st.markdown('<p class="dashboard-header">Past 7 days</p>', unsafe_allow_html=True)
+st.markdown(f'<p class="calorie-avg">2,031 kcal avg/day</p>', unsafe_allow_html=True)
 
 # Chart
 chart = alt.Chart(df).mark_bar(cornerRadiusTopLeft=8, cornerRadiusTopRight=8, size=40).encode(
@@ -127,7 +127,6 @@ chart = alt.Chart(df).mark_bar(cornerRadiusTopLeft=8, cornerRadiusTopRight=8, si
 ).properties(height=300)
 
 goal_line = alt.Chart(df).mark_rule(strokeDash=[4, 4], color='#a0a0a0').encode(y='Goal')
-
 st.altair_chart(chart + goal_line, use_container_width=True)
 
 # Interaction State
@@ -154,6 +153,6 @@ for meal, cals in day_data['breakdown'].items():
 # Bottom Summary
 st.markdown("---")
 sc1, sc2, sc3 = st.columns(3)
-sc1.markdown(f'<div class="summary-card"><p>Best day</p><p class="summary-value">Fri · 1,980</p></div>', unsafe_allow_stdio=True)
-sc2.markdown(f'<div class="summary-card"><p>Days on goal</p><p class="summary-value">1 / 7 days</p></div>', unsafe_allow_stdio=True)
-sc3.markdown(f'<div class="summary-card"><p>Weekly total</p><p class="summary-value">14,220 kcal</p></div>', unsafe_allow_stdio=True)
+sc1.markdown(f'<div class="summary-card"><p>Best day</p><p class="summary-value">Fri · 1,980</p></div>', unsafe_allow_html=True)
+sc2.markdown(f'<div class="summary-card"><p>Days on goal</p><p class="summary-value">1 / 7 days</p></div>', unsafe_allow_html=True)
+sc3.markdown(f'<div class="summary-card"><p>Weekly total</p><p class="summary-value">14,220 kcal</p></div>', unsafe_allow_html=True)
