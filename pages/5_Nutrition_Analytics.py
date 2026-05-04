@@ -51,14 +51,14 @@ st.plotly_chart(
 
 st.caption("⚠️  Demo data — owner: wire up real cooking_history in Sprint 2.")
 
-<<<<<<< feature/ml-recommendations
+----feature/ml-recommendations
 # Everything below this point used to be a standalone CLI calorie tracker script
 # that someone accidentally pasted into the middle of this Streamlit page.
 # It was never reachable (Streamlit had already finished rendering above),
 # and the line of dashes right before it was breaking Python's parser entirely,
 # causing the whole page to crash on load. Removed it cleanly — if you want
 # that CLI tool back, it belongs in its own separate file, not here.
-=======
+-------
 
 st.subheader ("Nutrition facts for the past 7 days")
 import streamlit as st
