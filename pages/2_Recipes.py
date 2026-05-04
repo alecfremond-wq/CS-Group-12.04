@@ -16,7 +16,7 @@ from recipes_data import RECIPES as LOCAL_RECIPES
 from src.components.ui import empty_state, page_header
 from src.data.api_client import list_cuisines, search_recipes_by_name, search_spoonacular
 from src.models.recommender import Recommender
-=======
+
 import streamlit as st
 import requests
 from datetime import date, timedelta
