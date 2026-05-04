@@ -147,8 +147,9 @@ with tab_search:
                             # 1. ensure recipe exists in DB
                             execute(
                                 """
-                                INSERT OR IGNORE INTO recipes (id, title)
+                                INSERT INTO recipes (id, title)
                                 VALUES (?, ?)
+                                ON CONFLICT(id) DO UPDATE SET title=excluded.title
                                 """,
                                 (meal.get("id"), meal.get("strMeal"))
                             )
