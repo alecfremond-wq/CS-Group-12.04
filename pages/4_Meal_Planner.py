@@ -1,7 +1,7 @@
 import streamlit as st
 from datetime import date, timedelta
 import sys, os
-import pandas as pd 
+import pandas as pd
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
@@ -9,22 +9,17 @@ from src.data.database import query_df, execute
 from src.utils.session import init_session_state, require_profile
 from src.components.ui import page_header
 
-# ─────────────────────────────────────────────
-# SETUP (MUST BE FIRST STREAMLIT CALL)
-# ─────────────────────────────────────────────
+# ── PAGE SETUP ──────────────────────────────
 st.set_page_config(page_title="Meal Planner", page_icon="📅", layout="wide")
-
 init_session_state()
 require_profile()
-
 page_header("📅 Meal Planner", "Plan your week simply")
 
-DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
-MEALS = ["Breakfast","Lunch","Dinner","Dessert"]
+DAYS  = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+MEALS = ["Breakfast", "Lunch", "Dinner", "Dessert"]
 
-# ─────────────────────────────────────────────
-# HELPERS (DEFINED FIRST → FIXES YOUR ERROR)
-# ─────────────────────────────────────────────
+
+# ── HELPERS ──────────────────────────────────
 
 def get_week_start():
     if "week_start" not in st.session_state:
@@ -33,49 +28,40 @@ def get_week_start():
     return st.session_state.week_start
 
 
-def get_meals(week_start):
+def load_meals(week_start):
     week_end = week_start + timedelta(days=6)
-    return query_df(
+    result = query_df(
         """
         SELECT mp.id, mp.meal_date, mp.meal_type, mp.recipe_id, r.title
         FROM meal_plan mp
         JOIN recipes r ON mp.recipe_id = r.id
-        WHERE mp.user_id=? AND mp.meal_date BETWEEN ? AND ?
+        WHERE mp.user_id = ? AND mp.meal_date BETWEEN ? AND ?
         """,
         (st.session_state.user_id, week_start.isoformat(), week_end.isoformat())
     )
+    if result is None:
+        return pd.DataFrame(columns=["id", "meal_date", "meal_type", "recipe_id", "title"])
+    return result
 
 
-def get_recipes():
-    # get recipes from database
+def load_recipes():
     base = query_df("SELECT id, title FROM recipes LIMIT 100", ())
     pool = query_df(
-        "SELECT recipe_id as id, title FROM planner_pool WHERE user_id=?",
+        "SELECT recipe_id AS id, title FROM planner_pool WHERE user_id = ?",
         (st.session_state.user_id,)
     )
-
-    # make sure we always have a DataFrame (even if query fails)
     if base is None:
         base = pd.DataFrame(columns=["id", "title"])
     if pool is None:
         pool = pd.DataFrame(columns=["id", "title"])
-
-    # if both are empty, return empty list
-    if base.empty and pool.empty:
-        return pd.DataFrame(columns=["id", "title"])
-
-    # combine and remove duplicates
-    combined = pd.concat([base, pool], ignore_index=True)
-    combined = combined.drop_duplicates(subset=["id"])
-
+    combined = pd.concat([base, pool], ignore_index=True).drop_duplicates(subset=["id"])
     return combined
 
 
 def add_meal(day, meal_type, recipe_id):
     execute(
         """
-        INSERT OR REPLACE INTO meal_plan
-        (user_id, meal_date, meal_type, recipe_id)
+        INSERT OR REPLACE INTO meal_plan (user_id, meal_date, meal_type, recipe_id)
         VALUES (?, ?, ?, ?)
         """,
         (st.session_state.user_id, day.isoformat(), meal_type, recipe_id)
@@ -84,152 +70,139 @@ def add_meal(day, meal_type, recipe_id):
 
 def delete_meal(meal_id):
     execute(
-        "DELETE FROM meal_plan WHERE id=? AND user_id=?",
+        "DELETE FROM meal_plan WHERE id = ? AND user_id = ?",
         (meal_id, st.session_state.user_id)
     )
 
-# ─────────────────────────────────────────────
-# LOAD DATA
-# ─────────────────────────────────────────────
+
+# ── LOAD DATA ────────────────────────────────
+
 week_start = get_week_start()
-week_end = week_start + timedelta(days=6)
+week_end   = week_start + timedelta(days=6)
+meals_df   = load_meals(week_start)
+recipes_df = load_recipes()
 
-meals = get_meals(week_start)
-recipes = get_recipes()
-
+# Build a lookup dict: (date_string, meal_type) -> meal row dict
 plan = {}
-for _, m in meals.iterrows():
-    plan[(str(m["meal_date"]), m["meal_type"])] = m.to_dict()
+for _, row in meals_df.iterrows():
+    key = (str(row["meal_date"]), row["meal_type"])
+    plan[key] = row.to_dict()
 
-# ─────────────────────────────────────────────
-# NAVIGATION
-# ─────────────────────────────────────────────
-c1, c2, c3 = st.columns([1,2,1])
 
-with c1:
-    if st.button("← Prev"):
+# ── WEEK NAVIGATION ──────────────────────────
+
+col_prev, col_title, col_next = st.columns([1, 2, 1])
+
+with col_prev:
+    if st.button("← Prev week"):
         st.session_state.week_start = week_start - timedelta(days=7)
         st.rerun()
 
-with c2:
-    st.markdown(f"### {week_start.strftime('%b %d')} - {week_end.strftime('%b %d')}")
+with col_title:
+    st.markdown(f"### {week_start.strftime('%b %d')} – {week_end.strftime('%b %d, %Y')}")
 
-with c3:
-    if st.button("Next →"):
+with col_next:
+    if st.button("Next week →"):
         st.session_state.week_start = week_start + timedelta(days=7)
         st.rerun()
 
 st.divider()
 
-# ─────────────────────────────────────────────
-# GRID
-# ─────────────────────────────────────────────
+
+# ── MEAL GRID ────────────────────────────────
+
 st.subheader("Your Week")
 
-cols = st.columns(8)
-cols[0].write("")
+# Header row: empty first cell + one cell per day
+header = st.columns(8)
+header[0].write("")  # row label column
+for i, day_name in enumerate(DAYS):
+    day_date = week_start + timedelta(days=i)
+    header[i + 1].markdown(f"**{day_name}**  \n{day_date.strftime('%d %b')}")
 
-for i, d in enumerate(DAYS):
-    cols[i+1].write(d)
+st.divider()
 
-for meal in MEALS:
+# One row per meal type
+for meal_type in MEALS:
     row = st.columns(8)
-    row[0].write(meal)
+    row[0].markdown(f"**{meal_type}**")
 
     for i in range(7):
-        day = week_start + timedelta(days=i)
-        key = (day.isoformat(), meal)
+        day_date = week_start + timedelta(days=i)
+        key      = (day_date.isoformat(), meal_type)
 
-        with row[i+1]:
-
+        with row[i + 1]:
             if key in plan:
-                st.write("🍽", plan[key]["title"])
-                st.markdown(f"🍽️ **{meal_title}**")
-
-                if st.button("✕", key=f"del_{plan[key]['id']}"):
-                    delete_meal(plan[key]["id"])
+                # Show the meal title and a delete button
+                meal_title = plan[key]["title"]
+                meal_id    = plan[key]["id"]
+                st.markdown(f"🍽 {meal_title}")
+                if st.button("✕", key=f"del_{meal_id}"):
+                    delete_meal(meal_id)
                     st.rerun()
-
             else:
-                if st.button("+", key=f"add_{meal}_{i}"):
-                    st.session_state["adding_slot"] = (day, meal)
+                # Show add button
+                if st.button("＋", key=f"add_{meal_type}_{i}"):
+                    st.session_state["adding_slot"] = (day_date, meal_type)
 
-# ─────────────────────────────────────────────
-# ADD MEAL FLOW
-# ─────────────────────────────────────────────
+st.divider()
+
+
+# ── ADD MEAL FLOW ────────────────────────────
+
 if "adding_slot" in st.session_state:
-    day, meal = st.session_state["adding_slot"]
+    chosen_day, chosen_meal = st.session_state["adding_slot"]
 
-    st.subheader(f"Add {meal} for {day.strftime('%A %d %b')}")
+    st.subheader(f"Add {chosen_meal} for {chosen_day.strftime('%A, %d %b')}")
 
-    if recipes is None or len(recipes) == 0:
-        st.warning("No saved recipes yet. Go to Recipes page and search something first.")
-
+    if recipes_df.empty:
+        st.warning("No recipes found. Go to the Recipes page and save some first.")
     else:
-        # ─────────────────────────────────────
-        # FILTER RECIPES FOR THIS MEAL TYPE
-        # ─────────────────────────────────────
+        # Filter by meal type if the planner_pool has type info
         pool_df = query_df(
-            """
-            SELECT recipe_id
-            FROM planner_pool
-            WHERE user_id=? AND meal_type=?
-            """,
-            (st.session_state.user_id, meal)
+            "SELECT recipe_id FROM planner_pool WHERE user_id = ? AND meal_type = ?",
+            (st.session_state.user_id, chosen_meal)
         )
 
-        if pool_df is None or pool_df.empty:
-            st.info("No saved recipes for this meal type yet.")
-            slot_recipes = recipes.iloc[0:0]  # empty df
+        if pool_df is not None and not pool_df.empty:
+            allowed = set(pool_df["recipe_id"].tolist())
+            filtered = recipes_df[recipes_df["id"].isin(allowed)]
         else:
-            allowed_ids = set(pool_df["recipe_id"].tolist())
+            filtered = recipes_df  # fall back to all recipes
 
-            slot_recipes = recipes[
-                recipes["id"].isin(allowed_ids)
-            ]
+        if filtered.empty:
+            st.info(f"No recipes tagged for {chosen_meal}. Showing all recipes instead.")
+            filtered = recipes_df
 
-        # ─────────────────────────────────────
-        # RENDER OPTIONS
-        # ─────────────────────────────────────
-        if slot_recipes.empty:
-            st.info("No matching recipes found for this meal slot.")
-        else:
-            for _, r in slot_recipes.iterrows():
-                col1, col2 = st.columns([3, 1])
-
-                with col1:
-                    st.write(r["title"])
-
-                with col2:
-                    if st.button("Add", key=f"add_{r['id']}_{day}_{meal}"):
-                        add_meal(day, meal, r["id"])
-                        del st.session_state["adding_slot"]
-                        st.rerun()
+        for _, recipe in filtered.iterrows():
+            col_name, col_btn = st.columns([4, 1])
+            col_name.write(recipe["title"])
+            if col_btn.button("Add", key=f"pick_{recipe['id']}_{chosen_day}_{chosen_meal}"):
+                add_meal(chosen_day, chosen_meal, recipe["id"])
+                del st.session_state["adding_slot"]
+                st.rerun()
 
     if st.button("Cancel"):
         del st.session_state["adding_slot"]
         st.rerun()
 
-# ─────────────────────────────────────────────
-# SUMMARY
-# ─────────────────────────────────────────────
+    st.divider()
+
+
+# ── SUMMARY ──────────────────────────────────
+
 st.subheader("Summary")
 
-if meals.empty:
-    st.info("No meals planned yet.")
+if meals_df.empty:
+    st.info("No meals planned yet this week.")
 else:
-    st.success(f"You planned {len(meals)} meals this week.")
-
-    st.markdown("### 🍽 Weekly Overview")
+    st.success(f"You have {len(meals_df)} meal(s) planned this week.")
 
     for meal_type in MEALS:
-        st.markdown(f"#### {meal_type}")
-
-        subset = meals[meals["meal_type"] == meal_type]
-
+        subset = meals_df[meals_df["meal_type"] == meal_type]
         if subset.empty:
-            st.caption("No meals planned")
-        else:
-            for _, m in subset.iterrows():
-                day_name = pd.to_datetime(m["meal_date"]).strftime("%A")
-                st.write(f"• {day_name}: **{m['title']}**")
+            continue
+        st.markdown(f"**{meal_type}**")
+        for _, m in subset.iterrows():
+            day_name = pd.to_datetime(m["meal_date"]).strftime("%A")
+            st.write(f"• {day_name}: {m['title']}")
