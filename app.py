@@ -9,6 +9,11 @@
 # ============================================================================
 
 # --- imports ---------------------------------------------------------------
+import streamlit as st
+
+st.write("Key loaded?", "SPOONACULAR_API_KEY" in st.secrets)
+
+
 import streamlit as st                              # the library that turns this Python file into a web app
 
 # We import two helper functions from our own source folder.
