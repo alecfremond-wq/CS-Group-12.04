@@ -23,7 +23,7 @@ from src.utils.session import init_session_state    # puts default values into S
 
 # --- page configuration (MUST be the very first Streamlit command) ---------
 st.set_page_config(                                 # configures the browser tab + layout
-    page_title="CookTogether",                      # title shown in the browser tab
+    page_title="COOKtogether",                      # title shown in the browser tab
     page_icon="🍳",                                 # emoji favicon
     layout="wide",                                  # use the full screen width instead of a narrow centred column
     initial_sidebar_state="expanded",               # sidebar is open by default so users see the navigation
