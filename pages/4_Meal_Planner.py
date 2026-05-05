@@ -200,6 +200,7 @@ if len(plan) == 0:
 else:
     st.success(f"You have {len(meals_df)} meal(s) planned this week.")
 
+<<<<<<< HEAD
     for meal_type in MEALS:
         subset = meals_df[meals_df["meal_type"] == meal_type]
         if subset.empty:
