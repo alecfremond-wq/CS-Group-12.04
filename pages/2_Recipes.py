@@ -97,11 +97,14 @@ wishlist_ids = [
     for w in wishlist
     if isinstance(w, dict) and w.get("local_id") is not None
 ]
-# Ingredient lists from API-only saves (no local_id) — the model uses these too.
+# Ingredient lists from ALL saved recipes — used for Jaccard similarity scoring.
+# We include items regardless of whether they have a local_id, because the
+# actual ingredient strings from the API (e.g. "spaghetti") match other API
+# results much better than the local catalogue names (e.g. "pasta") would.
 liked_ingredients = [
     w["ingredients"]
     for w in wishlist
-    if isinstance(w, dict) and not w.get("local_id") and w.get("ingredients")
+    if isinstance(w, dict) and w.get("ingredients")
 ]
 history_df = pd.DataFrame(st.session_state.get("cooking_history", []))
 

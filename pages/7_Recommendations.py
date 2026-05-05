@@ -43,13 +43,13 @@ wishlist_ids = [
     if isinstance(w, dict) and w.get("local_id") is not None
 ]
 
-# Ingredient lists from recipes saved via the search page (API results).
-# These don't have a local_id, but we stored their ingredients when saving,
-# so the model can still use them to build the taste profile.
+# Ingredient lists from ALL saved recipes — used to build the taste profile.
+# We include items regardless of local_id so that every save (from any page)
+# contributes ingredient signals to the model.
 liked_ingredients = [
     w["ingredients"]
     for w in wishlist
-    if isinstance(w, dict) and not w.get("local_id") and w.get("ingredients")
+    if isinstance(w, dict) and w.get("ingredients")
 ]
 
 # ── Context message ───────────────────────────────────────────────────────────
