@@ -84,8 +84,10 @@ recipes_df = load_recipes()
 
 # Build a lookup dict: (date_string, meal_type) -> meal row dict
 plan = {}
+
 for _, row in meals_df.iterrows():
-    key = (str(row["meal_date"]), row["meal_type"])
+    date_key = pd.to_datetime(row["meal_date"]).date().isoformat()
+    key = (date_key, row["meal_type"])
     plan[key] = row.to_dict()
 
 
@@ -134,7 +136,7 @@ for meal_type in MEALS:
         with row[i + 1]:
             if key in plan:
                 # Show the meal title and a delete button
-                meal_title = plan[key]["title"]
+                meal_title = plan[key].get("title", "Unknown meal")
                 meal_id    = plan[key]["id"]
                 st.markdown(f"🍽 {meal_title}")
                 if st.button("✕", key=f"del_{meal_id}"):
@@ -193,7 +195,7 @@ if "adding_slot" in st.session_state:
 
 st.subheader("Summary")
 
-if meals_df.empty:
+if len(plan) == 0:
     st.info("No meals planned yet this week.")
 else:
     st.success(f"You have {len(meals_df)} meal(s) planned this week.")
