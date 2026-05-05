@@ -126,7 +126,29 @@ def search_spoonacular(query="", vegetarian=False, vegan=False,
         resp.raise_for_status()
         results = []
         for r in resp.json().get("results", []):
-            results.append({"strMeal": r.get("title", ""), "strMealThumb": r.get("image", ""), "strArea": "International", "strCategory": r.get("dishTypes", [""])[0].title() if r.get("dishTypes") else "—", "strInstructions": r.get("summary", ""), "source": "spoonacular"})
+            # Spoonacular returns the summary as HTML — strip tags for clean display.
+            import re
+            raw_summary = r.get("summary", "")
+            clean_summary = re.sub(r"<[^>]+>", "", raw_summary)
+            # Extract ingredient names from extendedIngredients (available when
+            # addRecipeInformation=True). We store them under "_ingredients" so
+            # extract_ingredients() in the Recipes page can find them — without
+            # this, Spoonacular saves would always have an empty ingredient list
+            # and would never feed the ML model.
+            ing = [
+                i.get("name", "").strip()
+                for i in r.get("extendedIngredients", [])
+                if i.get("name", "").strip()
+            ]
+            results.append({
+                "strMeal": r.get("title", ""),
+                "strMealThumb": r.get("image", ""),
+                "strArea": "International",
+                "strCategory": r.get("dishTypes", [""])[0].title() if r.get("dishTypes") else "—",
+                "strInstructions": clean_summary,
+                "_ingredients": ing,
+                "source": "spoonacular",
+            })
         return results
     except Exception as exc:
         st.warning(f"Spoonacular unavailable: {exc}")

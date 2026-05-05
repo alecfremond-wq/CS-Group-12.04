@@ -33,13 +33,17 @@ local_title_to_id = {r["name"].lower(): r["id"] for r in LOCAL_RECIPES}
 
 
 def extract_ingredients(meal: dict) -> list[str]:
-    """Pull the ingredient list out of a TheMealDB result.
+    """Pull the ingredient list out of a TheMealDB or Spoonacular result.
 
-    TheMealDB stores ingredients in fields strIngredient1 … strIngredient20.
-    We loop through them and collect the non-empty ones.
-    Spoonacular results don't have this structure, so they return an empty list.
+    TheMealDB stores ingredients in strIngredient1 … strIngredient20 fields.
+    Spoonacular results have a pre-built list under "_ingredients" (added by
+    our api_client). We check that first, then fall back to TheMealDB's format.
+    This means saves from BOTH sources will have ingredients and feed the ML model.
     """
-    # TheMealDB sets unused slots to None, not "". `or ""` prevents .strip() crashes.
+    # Spoonacular results: api_client pre-extracted these from extendedIngredients.
+    if meal.get("_ingredients"):
+        return [i.strip() for i in meal["_ingredients"] if i.strip()]
+    # TheMealDB: unused slots are None, not "". `or ""` prevents .strip() crashes.
     return [
         meal[f"strIngredient{i}"].strip()
         for i in range(1, 21)
