@@ -235,11 +235,6 @@ def build_figure():
     fig = go.Figure(data=[trace])
 
     fig.update_layout(
-        title={
-            "text": "Bites Across Borders",
-            "x": 0.5,
-            "font": {"size": 20, "family": "Georgia, serif", "color": "#2C3E50"},
-        },
         geo=dict(
             showframe=False,
             showcoastlines=True,
@@ -260,7 +255,7 @@ def build_figure():
             showcountries=False,
         ),
         paper_bgcolor="#F4F6F8",
-        margin=dict(l=0, r=0, t=55, b=10),
+        margin=dict(l=0, r=0, t=10, b=10),
         hoverlabel=dict(
             bgcolor="#2C3E50",
             font=dict(size=12, color="white", family="monospace"),
@@ -283,16 +278,15 @@ st.set_page_config(
 
 st.markdown(
     """
-    <div style="background:#2C3E50;padding:12px 24px;border-radius:6px;
-                display:flex;align-items:center;gap:14px;margin-bottom:16px;">
-        <span style="font-size:28px;">🍽️</span>
-        <div>
-            <h1 style="color:white;font-size:18px;font-weight:normal;
-                       letter-spacing:0.5px;margin:0;">Bites Across Borders</h1>
-            <p style="color:#BDC3C7;font-size:12px;margin:2px 0 0 0;">
-                A journey through international food traditions
-            </p>
-        </div>
+    <div style="margin-bottom:16px;">
+        <h1 style="font-family:'Source Sans Pro', sans-serif; font-size:2.2rem;
+                   font-weight:700; color:#1a1a2e; margin:0 0 4px 0; line-height:1.2;">
+            🌍 World Map
+        </h1>
+        <p style="font-family:'Source Sans Pro', sans-serif; font-size:1rem;
+                  color:#6b7280; margin:0;">
+            A journey through international food traditions
+        </p>
     </div>
     """,
     unsafe_allow_html=True,
@@ -326,3 +320,4 @@ for cont, info in CONTINENT_DATA.items():
             unsafe_allow_html=True,
         )
     col_idx += 1
+
