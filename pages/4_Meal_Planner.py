@@ -144,6 +144,7 @@ for meal in MEALS:
 
             if key in plan:
                 st.write("🍽", plan[key]["title"])
+                st.markdown(f"🍽️ **{meal_title}**")
 
                 if st.button("✕", key=f"del_{plan[key]['id']}"):
                     delete_meal(plan[key]["id"])
@@ -218,3 +219,17 @@ if meals.empty:
     st.info("No meals planned yet.")
 else:
     st.success(f"You planned {len(meals)} meals this week.")
+
+    st.markdown("### 🍽 Weekly Overview")
+
+    for meal_type in MEALS:
+        st.markdown(f"#### {meal_type}")
+
+        subset = meals[meals["meal_type"] == meal_type]
+
+        if subset.empty:
+            st.caption("No meals planned")
+        else:
+            for _, m in subset.iterrows():
+                day_name = pd.to_datetime(m["meal_date"]).strftime("%A")
+                st.write(f"• {day_name}: **{m['title']}**")
