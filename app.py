@@ -12,7 +12,6 @@
 
 
 import streamlit as st                              # the library that turns this Python file into a web app
-st.write("Key loaded?", "SPOONACULAR_API_KEY" in st.secrets)
 
 # We import two helper functions from our own source folder.
 # "from src.data.database import init_db" means: in the file src/data/database.py,
@@ -23,7 +22,7 @@ from src.utils.session import init_session_state    # puts default values into S
 
 # --- page configuration (MUST be the very first Streamlit command) ---------
 st.set_page_config(                                 # configures the browser tab + layout
-    page_title="COOKtogether",                      # title shown in the browser tab
+    page_title="Cooktogether",                      # title shown in the browser tab
     page_icon="🍳",                                 # emoji favicon
     layout="wide",                                  # use the full screen width instead of a narrow centred column
     initial_sidebar_state="expanded",               # sidebar is open by default so users see the navigation
