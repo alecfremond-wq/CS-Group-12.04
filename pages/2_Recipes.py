@@ -279,15 +279,15 @@ for idx, (score_val, meal) in enumerate(ranked):
                     try:
                         execute(
                             """
-                            INSERT OR REPLACE INTO meal_plan
-                            (user_id, meal_date, meal_type, recipe_id)
+                            INSERT OR REPLACE INTO planner_pool
+                            (user_id, recipe_id, title, meal_type)
                             VALUES (?, ?, ?, ?)
                             """,
                             (
                                 st.session_state.user_id,
-                                get_week_start().isoformat(),
-                                meal_type,
-                                meal["id"]
+                                meal["id"],
+                                meal.get("title"),
+                                meal_type
                             )
                         )
                         st.success(f"{meal_type} added 🍽️")
