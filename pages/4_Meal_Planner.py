@@ -24,13 +24,6 @@ if "week_start" not in st.session_state:
     st.session_state.week_start = today - timedelta(days=today.weekday())
 
 week_start = st.session_state.week_start
-# --- TRACK WEEK CHANGE (RESET STATE EACH WEEK) ---
-if "active_week" not in st.session_state:
-    st.session_state.active_week = week_start
-
-if st.session_state.active_week != week_start:
-    st.session_state.active_week = week_start
-    
 week_end = week_start + timedelta(days=6)
 
 # --- LOAD MEALS ---
@@ -47,6 +40,9 @@ meals_df = query_df(
 if meals_df is None:
     meals_df = pd.DataFrame(columns=["id", "meal_date", "meal_type", "recipe_id", "title"])
 
+# normalize date ONCE (important fix)
+meals_df["meal_date"] = pd.to_datetime(meals_df["meal_date"]).dt.date
+
 # --- LOAD RECIPES ---
 recipes1 = query_df("SELECT id, title FROM recipes LIMIT 100", ())
 recipes2 = query_df(
@@ -59,20 +55,11 @@ if recipes1 is None:
 if recipes2 is None:
     recipes2 = pd.DataFrame(columns=["id", "title"])
 
-recipes_df = pd.concat([recipes1, recipes2])
-recipes_df = recipes_df.drop_duplicates(subset=["id"])
-
+recipes_df = pd.concat([recipes1, recipes2]).drop_duplicates(subset=["id"])
 recipe_dict = recipes_df.set_index("id")["title"].to_dict()
 
-# --- PLAN DICT ---
-plan = {}
-
-for i, row in meals_df.iterrows():
-    d = pd.to_datetime(row["meal_date"]).date().isoformat()
-    plan[(d, row["meal_type"])] = row
-
 # --- WEEK NAV ---
-c1, c2, c3 = st.columns([1,2,1])
+c1, c2, c3 = st.columns([1, 2, 1])
 
 with c1:
     if st.button("← Prev week"):
@@ -89,7 +76,7 @@ with c3:
 
 st.divider()
 
-# --- GRID ---
+# --- GRID HEADER ---
 st.subheader("Your Week")
 
 cols = st.columns(8)
@@ -97,7 +84,7 @@ cols[0].write("")
 
 for i in range(7):
     d = week_start + timedelta(days=i)
-    cols[i+1].markdown(f"**{DAYS[i]}**  \n{d.strftime('%d %b')}")
+    cols[i + 1].markdown(f"**{DAYS[i]}**  \n{d.strftime('%d %b')}")
 
 st.divider()
 
@@ -108,47 +95,43 @@ icons = {
     "Dessert": "🍰"
 }
 
+# --- GRID ---
 for meal in MEALS:
     row = st.columns(8)
     row[0].markdown(f"**{meal}**")
 
     for i in range(7):
         d = week_start + timedelta(days=i)
-        key = (d.isoformat(), meal)
 
-        with row[i+1]:
+        with row[i + 1]:
 
-            # --- IF MEAL EXISTS ---
-            if key in plan:
-                meal_data = plan[key]
-                st.markdown(f"{icons.get(meal,'🍽')} **{meal_data['title']}**")
+            day_meals = meals_df[
+                (meals_df["meal_date"] == d) &
+                (meals_df["meal_type"] == meal)
+            ]
 
-                if st.button("Remove", key=f"del_{meal_data['id']}"):
+            if not day_meals.empty:
+                m = day_meals.iloc[0]
+
+                st.markdown(f"{icons.get(meal,'🍽')} **{m['title']}**")
+
+                if st.button("Remove", key=f"del_{m['id']}"):
                     execute(
                         "DELETE FROM meal_plan WHERE id = ? AND user_id = ?",
-                        (meal_data["id"], st.session_state.user_id)
+                        (m["id"], st.session_state.user_id)
                     )
                     st.rerun()
 
-            # --- IF EMPTY SLOT ---
             else:
-                select_key = f"{meal}_{i}_{d}"
-
-                options= list(recipe_dict.keys())
-                
                 selected = st.selectbox(
                     "",
-                    options=options,
+                    options=list(recipe_dict.keys()),
                     format_func=lambda x: recipe_dict[x],
-                    key=select_key,
+                    key=f"{meal}_{i}_{d}",
                     label_visibility="collapsed"
                 )
 
-                prev_key = select_key + "_prev"
-
-                if selected and st.session_state.get(prev_key) != selected:
-                    st.session_state[prev_key] = selected
-
+                if selected:
                     execute(
                         """
                         INSERT OR REPLACE INTO meal_plan (user_id, meal_date, meal_type, recipe_id)
@@ -156,7 +139,6 @@ for meal in MEALS:
                         """,
                         (st.session_state.user_id, d.isoformat(), meal, selected)
                     )
-
                     st.rerun()
 
 st.divider()
@@ -169,19 +151,10 @@ if meals_df.empty:
 else:
     st.success(f"You have {len(meals_df)} meal(s) planned this week.")
 
-    meals_df["meal_date"] = pd.to_datetime(meals_df["meal_date"])
     meals_df = meals_df.sort_values("meal_date")
 
-    for meal_type in MEALS:  # ensures correct order
-        for i in range(7):
-            d = week_start + timedelta(days=i)
-            day_meals = meals_df[
-                (meals_df["meal_date"].dt.date == d.date()) &
-                (meals_df["meal_type"] == meal_type)
-            ]
+    for d in sorted(meals_df["meal_date"].unique()):
+        st.markdown(f"### {d.strftime('%A')}")
 
-            for _, m in day_meals.iterrows():
-                if i == 0 and meal_type == MEALS[0]:
-                    st.markdown(f"### {d.strftime('%A')}")
-
-                st.write(f"- **{meal_type}**: {m['title']}")
+        for _, m in meals_df[meals_df["meal_date"] == d].iterrows():
+            st.write(f"- **{m['meal_type']}**: {m['title']}")
