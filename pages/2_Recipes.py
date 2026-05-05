@@ -175,40 +175,40 @@ def render_meal_card(meal: dict, ml_score: float | None = None, pantry: float | 
                     st.rerun()
    # ── Add to meal planner pool ─────────────────────────────
 
-if st.button("➕ Add to Meal Planner", key=f"planner_{meal_title}"):
-    user_id = st.session_state.get("user_id")
+               if st.button("➕ Add to Meal Planner", key=f"planner_{meal_title}"):
+                   user_id = st.session_state.get("user_id")
 
     # ensure recipe exists in recipes table
-    local_id = local_title_to_id.get(meal_title.lower())
+                   local_id = local_title_to_id.get(meal_title.lower())
 
-    if local_id is None:
+                   if local_id is None:
         # insert new recipe if not already in DB
-        execute(
-            """
-            INSERT INTO recipes (title)
-            VALUES (?)
-            """,
-            (meal_title,)
-        )
+                       execute(
+                           """
+                           INSERT INTO recipes (title)
+                           VALUES (?)
+                           """,
+                           (meal_title,)
+                       )
 
         # fetch its id
-        new_row = query_df(
-            "SELECT id FROM recipes WHERE title = ? ORDER BY id DESC LIMIT 1",
-            (meal_title,)
-        )
-        if not new_row.empty:
-            local_id = int(new_row.iloc[0]["id"])
+                       new_row = query_df(
+                           "SELECT id FROM recipes WHERE title = ? ORDER BY id DESC LIMIT 1",
+                           (meal_title,)
+                        )
+                       if not new_row.empty:
+                           local_id = int(new_row.iloc[0]["id"])
 
     # add to planner_pool
-    if local_id:
-        execute(
-            """
-            INSERT OR IGNORE INTO planner_pool (user_id, recipe_id)
-            VALUES (?, ?)
-            """,
-            (user_id, local_id)
-        )
-        st.success("Added to Meal Planner 🍽️")
+                if local_id:
+                    execute(
+                        """
+                        INSERT OR IGNORE INTO planner_pool (user_id, recipe_id)
+                        VALUES (?, ?)
+                        """,
+                        (user_id, local_id)
+                    )
+                  st.success("Added to Meal Planner 🍽️")
 
 
 # ── Search tab ────────────────────────────────────────────────────────────────
