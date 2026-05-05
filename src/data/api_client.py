@@ -117,6 +117,9 @@ def search_spoonacular(query="", vegetarian=False, vegan=False,
             "query": query,
             "number": 20,
             "addRecipeInformation": True,
+            # fillIngredients makes Spoonacular include extendedIngredients in
+            # the response — without this, ingredient lists come back empty.
+            "fillIngredients": True,
         }
         if diet:
             params["diet"] = diet
