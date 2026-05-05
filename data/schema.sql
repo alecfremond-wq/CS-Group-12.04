@@ -96,3 +96,15 @@ CREATE TABLE IF NOT EXISTS meal_plan (
 
 CREATE INDEX IF NOT EXISTS idx_meal_plan_user_date
     ON meal_plan (user_id, meal_date);
+
+-- ============================================================
+-- trying to link meal planner and recipes page
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS planner_pool (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    recipe_id INTEGER,
+    title TEXT,
+    meal_type TEXT
+);
