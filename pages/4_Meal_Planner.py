@@ -194,13 +194,12 @@ if "adding_slot" in st.session_state:
 # ── SUMMARY ──────────────────────────────────
 
 st.subheader("Summary")
-
-if len(plan) == 0:
+ 
+if meals_df.empty:
     st.info("No meals planned yet this week.")
 else:
     st.success(f"You have {len(meals_df)} meal(s) planned this week.")
-
-<<<<<<< HEAD
+ 
     for meal_type in MEALS:
         subset = meals_df[meals_df["meal_type"] == meal_type]
         if subset.empty:
