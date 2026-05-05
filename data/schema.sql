@@ -108,3 +108,18 @@ CREATE TABLE IF NOT EXISTS planner_pool (
     title TEXT,
     meal_type TEXT
 );
+CREATE TABLE meal_plan_new (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER,
+    meal_date TEXT,
+    meal_type TEXT CHECK(meal_type IN ('Breakfast','Lunch','Dinner','Dessert')),
+    recipe_id INTEGER
+);
+
+INSERT INTO meal_plan_new
+SELECT * FROM meal_plan;
+
+DROP TABLE meal_plan;
+
+ALTER TABLE meal_plan_new RENAME TO meal_plan;
+
