@@ -1,6 +1,7 @@
 import streamlit as st
 from datetime import date, timedelta
 import sys, os
+import pandas as pd 
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
@@ -46,27 +47,27 @@ def get_meals(week_start):
 
 
 def get_recipes():
+    # get recipes from database
     base = query_df("SELECT id, title FROM recipes LIMIT 100", ())
-
     pool = query_df(
-        """
-        SELECT recipe_id as id, title
-        FROM planner_pool
-        WHERE user_id=?
-        """,
+        "SELECT recipe_id as id, title FROM planner_pool WHERE user_id=?",
         (st.session_state.user_id,)
     )
 
-    if base is None and pool is None:
-        return []
-
+    # make sure we always have a DataFrame (even if query fails)
     if base is None:
-        return pool
+        base = pd.DataFrame(columns=["id", "title"])
+    if pool is None:
+        pool = pd.DataFrame(columns=["id", "title"])
 
-    if pool is None or pool.empty:
-        return base
+    # if both are empty, return empty list
+    if base.empty and pool.empty:
+        return pd.DataFrame(columns=["id", "title"])
 
-    combined = pd.concat([base, pool]).drop_duplicates(subset=["id"])
+    # combine and remove duplicates
+    combined = pd.concat([base, pool], ignore_index=True)
+    combined = combined.drop_duplicates(subset=["id"])
+
     return combined
 
 
