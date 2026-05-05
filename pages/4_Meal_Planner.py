@@ -46,18 +46,28 @@ def get_meals(week_start):
 
 
 def get_recipes():
-    """
-    SAFE loader:
-    - tries DB first
-    - falls back to empty list instead of crashing flow
-    """
+    base = query_df("SELECT id, title FROM recipes LIMIT 100", ())
 
-    df = query_df("SELECT id, title FROM recipes LIMIT 100", ())
+    pool = query_df(
+        """
+        SELECT recipe_id as id, title
+        FROM planner_pool
+        WHERE user_id=?
+        """,
+        (st.session_state.user_id,)
+    )
 
-    if df is None or df.empty:
+    if base is None and pool is None:
         return []
 
-    return df
+    if base is None:
+        return pool
+
+    if pool is None or pool.empty:
+        return base
+
+    combined = pd.concat([base, pool]).drop_duplicates(subset=["id"])
+    return combined
 
 
 def add_meal(day, meal_type, recipe_id):
@@ -150,19 +160,49 @@ if "adding_slot" in st.session_state:
 
     st.subheader(f"Add {meal} for {day.strftime('%A %d %b')}")
 
-    # 🔥 fallback safety: if DB empty, tell user clearly
     if recipes is None or len(recipes) == 0:
         st.warning("No saved recipes yet. Go to Recipes page and search something first.")
+
     else:
-        for _, r in recipes.iterrows():
-            col1, col2 = st.columns([3, 1])
+        # ─────────────────────────────────────
+        # FILTER RECIPES FOR THIS MEAL TYPE
+        # ─────────────────────────────────────
+        pool_df = query_df(
+            """
+            SELECT recipe_id
+            FROM planner_pool
+            WHERE user_id=? AND meal_type=?
+            """,
+            (st.session_state.user_id, meal)
+        )
 
-            col1.write(r["title"])
+        if pool_df is None or pool_df.empty:
+            st.info("No saved recipes for this meal type yet.")
+            slot_recipes = recipes.iloc[0:0]  # empty df
+        else:
+            allowed_ids = set(pool_df["recipe_id"].tolist())
 
-            if col2.button("Add", key=f"add_{r['id']}_{day}_{meal}"):
-                add_meal(day, meal, r["id"])
-                del st.session_state["adding_slot"]
-                st.rerun()
+            slot_recipes = recipes[
+                recipes["id"].isin(allowed_ids)
+            ]
+
+        # ─────────────────────────────────────
+        # RENDER OPTIONS
+        # ─────────────────────────────────────
+        if slot_recipes.empty:
+            st.info("No matching recipes found for this meal slot.")
+        else:
+            for _, r in slot_recipes.iterrows():
+                col1, col2 = st.columns([3, 1])
+
+                with col1:
+                    st.write(r["title"])
+
+                with col2:
+                    if st.button("Add", key=f"add_{r['id']}_{day}_{meal}"):
+                        add_meal(day, meal, r["id"])
+                        del st.session_state["adding_slot"]
+                        st.rerun()
 
     if st.button("Cancel"):
         del st.session_state["adding_slot"]
