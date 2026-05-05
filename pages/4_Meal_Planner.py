@@ -24,6 +24,13 @@ if "week_start" not in st.session_state:
     st.session_state.week_start = today - timedelta(days=today.weekday())
 
 week_start = st.session_state.week_start
+# --- TRACK WEEK CHANGE (RESET STATE EACH WEEK) ---
+if "active_week" not in st.session_state:
+    st.session_state.active_week = week_start
+
+if st.session_state.active_week != week_start:
+    st.session_state.active_week = week_start
+    
 week_end = week_start + timedelta(days=6)
 
 # --- LOAD MEALS ---
@@ -116,7 +123,7 @@ for meal in MEALS:
                 meal_data = plan[key]
                 st.markdown(f"{icons.get(meal,'🍽')} **{meal_data['title']}**")
 
-                if st.button("✕", key=f"del_{meal_data['id']}"):
+                if st.button("Remove", key=f"del_{meal_data['id']}"):
                     execute(
                         "DELETE FROM meal_plan WHERE id = ? AND user_id = ?",
                         (meal_data["id"], st.session_state.user_id)
@@ -127,10 +134,12 @@ for meal in MEALS:
             else:
                 select_key = f"{meal}_{i}_{d}"
 
+                options= list(recipe_dict.keys())
+                
                 selected = st.selectbox(
-                    " ",
-                    options=[None] + list(recipe_dict.keys()),
-                    format_func=lambda x: "Select..." if x is None else recipe_dict[x],
+                    "",
+                    options=options,
+                    format_func=lambda x: recipe_dict[x],
                     key=select_key,
                     label_visibility="collapsed"
                 )
@@ -163,14 +172,16 @@ else:
     meals_df["meal_date"] = pd.to_datetime(meals_df["meal_date"])
     meals_df = meals_df.sort_values("meal_date")
 
-    for i in range(7):
-        d = week_start + timedelta(days=i)
-        day_meals = meals_df[meals_df["meal_date"].dt.date == d]
+    for meal_type in MEALS:  # ensures correct order
+        for i in range(7):
+            d = week_start + timedelta(days=i)
+            day_meals = meals_df[
+                (meals_df["meal_date"].dt.date == d.date()) &
+                (meals_df["meal_type"] == meal_type)
+            ]
 
-        if len(day_meals) == 0:
-            continue
+            for _, m in day_meals.iterrows():
+                if i == 0 and meal_type == MEALS[0]:
+                    st.markdown(f"### {d.strftime('%A')}")
 
-        st.markdown(f"### {d.strftime('%A')}")
-
-        for _, m in day_meals.iterrows():
-            st.write(f"- **{m['meal_type']}**: {m['title']}")
+                st.write(f"- **{meal_type}**: {m['title']}")
