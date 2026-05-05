@@ -9,12 +9,10 @@
 # ============================================================================
 
 # --- imports ---------------------------------------------------------------
-import streamlit as st
-
-st.write("Key loaded?", "SPOONACULAR_API_KEY" in st.secrets)
 
 
 import streamlit as st                              # the library that turns this Python file into a web app
+st.write("Key loaded?", "SPOONACULAR_API_KEY" in st.secrets)
 
 # We import two helper functions from our own source folder.
 # "from src.data.database import init_db" means: in the file src/data/database.py,
