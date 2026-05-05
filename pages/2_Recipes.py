@@ -20,30 +20,26 @@ from src.models.recommender import Recommender
 from src.utils.session import init_session_state, require_profile
 
 init_session_state()
-# We capture the return value here — require_profile() already stops the page
-# if the user hasn't done onboarding yet, so by the time we reach the next line
-# we're guaranteed to have a real profile dict to work with.
+# require_profile() stops the page if the user hasn't done onboarding yet,
+# so by the time we reach the next line we're guaranteed to have a profile.
 profile = require_profile()
 
 page_header("🍲 Recipes", "Search recipes or browse by cuisine.")
 
 # Build a lookup table: lowercase recipe name → local ID.
-# Used when saving: if the recipe title matches something in our local catalogue,
-# we can link the saved item to the local ID so the ML model can use it.
+# Used when saving: if the title matches something in our local catalogue,
+# we link the saved item to the local ID so the ML model can use it.
 local_title_to_id = {r["name"].lower(): r["id"] for r in LOCAL_RECIPES}
 
 
 def extract_ingredients(meal: dict) -> list[str]:
     """Pull the ingredient list out of a TheMealDB result.
 
-    TheMealDB stores ingredients in fields strIngredient1 … strIngredient20
-    (yes, twenty separate fields — that's just how their API works).
+    TheMealDB stores ingredients in fields strIngredient1 … strIngredient20.
     We loop through them and collect the non-empty ones.
-    Spoonacular results don't have this structure, so they return an empty list
-    and won't get an ML score — that's fine for now.
+    Spoonacular results don't have this structure, so they return an empty list.
     """
-    # TheMealDB sets unused ingredient slots to null (None in Python), not "".
-    # Using `or ""` converts None → "" so .strip() never crashes.
+    # TheMealDB sets unused slots to None, not "". `or ""` prevents .strip() crashes.
     return [
         meal[f"strIngredient{i}"].strip()
         for i in range(1, 21)
@@ -51,38 +47,46 @@ def extract_ingredients(meal: dict) -> list[str]:
     ]
 
 
-# ── Pantry helpers ────────────────────────────────────────────────────────────
+# ── Pantry helper ─────────────────────────────────────────────────────────────
 
 def get_pantry() -> set[str]:
     """Load the user's pantry from the database as a set of lowercase ingredient names."""
     user_id = st.session_state.get("user_id")
     if not user_id:
         return set()
-    df = query_df(
-        """
-        SELECT i.name
-        FROM pantry p
-        JOIN ingredients i ON p.ingredient_id = i.id
-        WHERE p.user_id = ? AND p.quantity > 0
-        """,
-        (user_id,)
-    )
-    if df.empty:
+    try:
+        df = query_df(
+            """
+            SELECT i.name
+            FROM pantry p
+            JOIN ingredients i ON p.ingredient_id = i.id
+            WHERE p.user_id = ? AND p.quantity > 0
+            """,
+            (user_id,)
+        )
+        if df.empty:
+            return set()
+        return set(df["name"].str.lower())
+    except Exception:
         return set()
-    return set(df["name"].str.lower())
 
 
-def pantry_score(recipe: dict, pantry: set[str]) -> float:
-    """Return the fraction of a recipe's ingredients that the user already has at home."""
-    ingredients = recipe.get("extendedIngredients", [])
-    names = [i["name"].lower() for i in ingredients if "name" in i]
-    if not names:
-        return 0.0
+def pantry_pct(meal: dict, pantry: set[str]) -> float | None:
+    """Return what fraction of the recipe's ingredients the user already has.
+
+    Returns None when the pantry is empty so we don't show a misleading badge.
+    """
+    if not pantry:
+        return None
+    ingredients = extract_ingredients(meal)
+    if not ingredients:
+        return None
+    names = [i.lower() for i in ingredients]
     return sum(1 for n in names if n in pantry) / len(names)
 
 
-# Grab the user's wishlist and history so we can check what's already saved
-# and build a taste profile for ML ranking.
+# ── Wishlist / taste-profile setup ────────────────────────────────────────────
+
 wishlist    = st.session_state.get("wishlist", [])
 wishlist_ids = [
     w["local_id"]
@@ -97,12 +101,8 @@ liked_ingredients = [
 ]
 history_df = pd.DataFrame(st.session_state.get("cooking_history", []))
 
-# A taste profile exists when the user has saved at least one recipe anywhere
-# in the app — either a local recipe (wishlist_ids), an API recipe whose
-# ingredients were stored (liked_ingredients), or a cooked + rated recipe
-# from history (not yet available in the UI, but wired up for Sprint 2).
-# We only activate ML ranking when this is true — a brand-new user with
-# nothing saved gets results in plain API order, with no misleading scores.
+# We only activate ML ranking when the user has saved at least one recipe —
+# a brand-new user with nothing saved gets results in plain API order.
 has_taste_profile = (
     bool(wishlist_ids)
     or bool(liked_ingredients)
@@ -117,8 +117,8 @@ tab_search, tab_cuisine = st.tabs(["🔎 Search", "🌍 Browse by cuisine"])
 
 # ── Helper: render one recipe card ────────────────────────────────────────────
 
-def render_meal_card(meal: dict, ml_score: float | None = None, pantry_pct: float | None = None) -> None:
-    """Draw a single recipe card.  ml_score is shown as a match bar when available."""
+def render_meal_card(meal: dict, ml_score: float | None = None, pantry: float | None = None) -> None:
+    """Draw a single recipe card with optional ML match score and pantry badge."""
     meal_title = meal["strMeal"]
 
     with st.container(border=True):
@@ -131,17 +131,15 @@ def render_meal_card(meal: dict, ml_score: float | None = None, pantry_pct: floa
             st.subheader(meal_title)
             st.caption(f"{meal.get('strArea', '—')} · {meal.get('strCategory', '—')}")
 
-            # If we have an ML score for this result, show it as a progress bar.
-            # This only appears when the user has a taste profile — otherwise
-            # we don't mislead them with a fake "match" percentage.
+            # ML match score bar — only shown when the user has a taste profile.
             if ml_score is not None and not pd.isna(ml_score):
                 st.progress(float(ml_score), text=f"Match score: {ml_score:.0%}")
 
-            # Show pantry status if we have the data.
-            if pantry_pct is not None:
-                if pantry_pct > 0.6:
+            # Pantry badge — shows how much of this recipe the user already has.
+            if pantry is not None:
+                if pantry > 0.6:
                     st.success("🟢 Pantry-friendly")
-                elif pantry_pct > 0.3:
+                elif pantry > 0.3:
                     st.warning("🟡 Partially available")
 
             with st.expander("Instructions"):
@@ -157,13 +155,9 @@ def render_meal_card(meal: dict, ml_score: float | None = None, pantry_pct: floa
                 st.caption("❤️ Saved to wishlist")
             else:
                 if st.button("❤️ Save to wishlist", key=f"wish_{meal_title}"):
-                    # Try to find this recipe in our local catalogue by title.
-                    # If we find it, we set local_id so the ML model can use it
-                    # as a signal — the user's save will influence future rankings.
-                    # If we don't find it, local_id stays None (saved for display only).
                     local_id = local_title_to_id.get(meal_title.lower())
-                    # Store the ingredient list so the ML model can use this save
-                    # as a signal even when it's an API recipe without a local_id.
+                    # Store ingredients so the ML model can use this save as a
+                    # signal even when the recipe isn't in our local catalogue.
                     st.session_state["wishlist"].append({
                         "title":       meal_title,
                         "image":       meal.get("strMealThumb"),
@@ -180,18 +174,11 @@ with tab_search:
     query = st.text_input("What would you like to cook?", placeholder="e.g. pasta, curry…")
 
     if query:
-        # Pull the diet string and allergy list out of the profile the user
-        # filled in during onboarding. The diet is stored as a plain string
-        # like "vegan" or "omnivore", not as individual boolean flags —
-        # so we convert it here to what the Spoonacular API actually expects.
         diet      = profile.get("diet", "omnivore")
         allergies = profile.get("allergies", [])
 
-        # "vegan" implies vegetarian too, so we set both flags when diet is vegan.
         veg = diet in ("vegetarian", "vegan")
         vgn = diet == "vegan"
-        # Allergies come from a separate multiselect in onboarding — "gluten"
-        # maps to gluten_free and "lactose" maps to dairy_free for Spoonacular.
         gf  = "gluten" in allergies
         df  = "lactose" in allergies
 
@@ -206,30 +193,19 @@ with tab_search:
         if not results:
             empty_state("No recipes found — try another word.")
         else:
-            # ── ML ranking ───────────────────────────────────────────────────
-            # Because the model now uses ingredients as features (not nutrition
-            # numbers), we can score ANY recipe that has an ingredient list —
-            # not just ones that happen to exist in our local catalogue.
-            # TheMealDB results always include ingredients; Spoonacular results
-            # currently don't, so those fall back to unscored.
+            recipes_df   = pd.DataFrame(LOCAL_RECIPES).rename(columns={"name": "title"})
+            rec          = Recommender(recipes_df)
+            top_results  = results[:10]
 
-            recipes_df      = pd.DataFrame(LOCAL_RECIPES).rename(columns={"name": "title"})
-            rec             = Recommender(recipes_df)
-            top_results     = results[:10]
-
-            # Extract ingredient lists for every result.
-            # extract_ingredients() returns [] for Spoonacular results —
-            # those will get a score of None and appear at the bottom.
             ingredient_lists = [extract_ingredients(m) for m in top_results]
 
-            # score_external() uses the ingredient-based k-NN model to compare
-            # each recipe's ingredient vector against the user's taste profile.
-            # Returns None for every recipe when there's no taste profile yet.
+            # Jaccard-based scoring: compares ingredient strings directly, so
+            # "spaghetti" in a saved recipe correctly matches "spaghetti" in
+            # new results — no local vocabulary filter needed.
             raw_scores = rec.score_external(
                 ingredient_lists, history_df, wishlist_ids, liked_ingredients
             ) if has_taste_profile else [None] * len(top_results)
 
-            # Sort: scored recipes first (highest score first), unscored last.
             scored_results = sorted(
                 zip(top_results, raw_scores),
                 key=lambda pair: (0, -(pair[1] or 0)) if pair[1] is not None else (1, 0),
@@ -247,12 +223,10 @@ with tab_search:
                     "so ML ranking isn't available here."
                 )
 
-            # Load the user's pantry once so we can show pantry-friendly badges.
-            pantry = get_pantry()
+            user_pantry = get_pantry()
 
             for meal, score in scored_results:
-                p_score = pantry_score(meal, pantry) if pantry else None
-                render_meal_card(meal, ml_score=score, pantry_pct=p_score)
+                render_meal_card(meal, ml_score=score, pantry=pantry_pct(meal, user_pantry))
 
 
 # ── Cuisine tab ───────────────────────────────────────────────────────────────
