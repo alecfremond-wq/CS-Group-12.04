@@ -200,21 +200,11 @@ with tab_search:
         if not results:
             empty_state("No recipes found — try another word.")
         else:
-            # Temporary debug: clear cache so fresh Spoonacular results are fetched.
-            st.cache_data.clear()
-
             recipes_df   = pd.DataFrame(LOCAL_RECIPES).rename(columns={"name": "title"})
             rec          = Recommender(recipes_df)
             top_results  = results[:10]
 
             ingredient_lists = [extract_ingredients(m) for m in top_results]
-
-            # Temporary debug: show how many results have ingredients.
-            with st.expander("🔍 Debug: ingredient data per result"):
-                for m in top_results:
-                    ing = extract_ingredients(m)
-                    source = m.get("source", "themealdb")
-                    st.write(f"**{m.get('strMeal')}** ({source}): {len(ing)} ingredients — {ing[:3]}")
 
             # Jaccard-based scoring: compares ingredient strings directly, so
             # "spaghetti" in a saved recipe correctly matches "spaghetti" in
