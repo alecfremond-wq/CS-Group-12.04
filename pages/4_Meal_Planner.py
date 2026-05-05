@@ -138,73 +138,62 @@ for meal_type in MEALS:
                 # Show the meal title and a delete button
                 meal_title = plan[key].get("title", "Unknown meal")
                 meal_id    = plan[key]["id"]
-                st.markdown(f"🍽 {meal_title}")
+                icons = {
+                    "Breakfast": "🍳",
+                    "Lunch": "🥗",
+                    "Dinner": "🍝",
+                    "Dessert": "🍰"
+                }
+                st.markdown(f"{icons.get(meal_type,'🍽')} **{meal_title}**")
                 if st.button("✕", key=f"del_{meal_id}"):
                     delete_meal(meal_id)
                     st.rerun()
             else:
-                # Show add button
-                if st.button("＋", key=f"add_{meal_type}_{i}"):
-                    st.session_state["adding_slot"] = (day_date, meal_type)
+                select_key = f"select_{meal_type}_{i}_{day_date}"
+
+                recipe_options = recipes_df.set_index("id")["title"].to_dict()
+
+                selected = st.selectbox(
+                    " ",
+                    options=[None] + list(recipe_options.keys()),
+                    format_func=lambda x: "Select..." if x is None else recipe_options[x],
+                    key=select_key,
+                    label_visibility="collapsed"
+                )   
+
+                prev_key = f"{select_key}_prev"
+
+                if selected and st.session_state.get(prev_key) != selected:
+                    st.session_state[prev_key] = selected
+                    add_meal(day_date, meal_type, selected)
+                    st.rerun()
 
 st.divider()
-
-
-# ── ADD MEAL FLOW ────────────────────────────
-
-if "adding_slot" in st.session_state:
-    chosen_day, chosen_meal = st.session_state["adding_slot"]
-
-    st.subheader(f"Add {chosen_meal} for {chosen_day.strftime('%A, %d %b')}")
-
-    if recipes_df.empty:
-        st.warning("No recipes found. Go to the Recipes page and save some first.")
-    else:
-        # Filter by meal type if the planner_pool has type info
-        pool_df = query_df(
-            "SELECT recipe_id FROM planner_pool WHERE user_id = ? AND meal_type = ?",
-            (st.session_state.user_id, chosen_meal)
-        )
-
-        if pool_df is not None and not pool_df.empty:
-            allowed = set(pool_df["recipe_id"].tolist())
-            filtered = recipes_df[recipes_df["id"].isin(allowed)]
-        else:
-            filtered = recipes_df  # fall back to all recipes
-
-        if filtered.empty:
-            st.info(f"No recipes tagged for {chosen_meal}. Showing all recipes instead.")
-            filtered = recipes_df
-
-        for _, recipe in filtered.iterrows():
-            col_name, col_btn = st.columns([4, 1])
-            col_name.write(recipe["title"])
-            if col_btn.button("Add", key=f"pick_{recipe['id']}_{chosen_day}_{chosen_meal}"):
-                add_meal(chosen_day, chosen_meal, recipe["id"])
-                del st.session_state["adding_slot"]
-                st.rerun()
-
-    if st.button("Cancel"):
-        del st.session_state["adding_slot"]
-        st.rerun()
-
-    st.divider()
-
 
 # ── SUMMARY ──────────────────────────────────
 
 st.subheader("Summary")
- 
+
 if meals_df.empty:
     st.info("No meals planned yet this week.")
 else:
     st.success(f"You have {len(meals_df)} meal(s) planned this week.")
- 
-    for meal_type in MEALS:
-        subset = meals_df[meals_df["meal_type"] == meal_type]
-        if subset.empty:
+
+    meals_df["meal_date"] = pd.to_datetime(meals_df["meal_date"])
+    meals_df = meals_df.sort_values("meal_date")
+
+    for i in range(7):
+        day_date = week_start + timedelta(days=i)
+        day_name = day_date.strftime("%A")
+
+        day_meals = meals_df[
+            meals_df["meal_date"].dt.date == day_date
+        ]
+
+        if day_meals.empty:
             continue
-        st.markdown(f"**{meal_type}**")
-        for _, m in subset.iterrows():
-            day_name = pd.to_datetime(m["meal_date"]).strftime("%A")
-            st.write(f"• {day_name}: {m['title']}")
+
+        st.markdown(f"### {day_name}")
+
+        for _, m in day_meals.iterrows():
+            st.write(f"- **{m['meal_type']}**: {m['title']}")
