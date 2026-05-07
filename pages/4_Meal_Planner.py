@@ -11,20 +11,13 @@ from src.utils.session import init_session_state, require_profile
 from src.components.ui import page_header
 
 st.set_page_config(page_title="Meal Planner", page_icon="📅", layout="wide")
-
 init_session_state()
+# --- FORCE WEEK STATE RESET ---
+if "active_week" not in st.session_state:
+    st.session_state.active_week = None
 
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 MEALS = ["Breakfast", "Lunch", "Dinner", "Dessert"]
-
-# clear old session state keys for meal widgets
-for k in list(st.session_state.keys()):
-    if k.startswith(tuple(MEALS)):
-        del st.session_state[k]
-
-require_profile()
-
-page_header("📅 Meal Planner", "Plan your week simply")
 
 # --- WEEK START ---
 if "week_start" not in st.session_state:
@@ -32,7 +25,23 @@ if "week_start" not in st.session_state:
     st.session_state.week_start = today - timedelta(days=today.weekday())
 
 week_start = st.session_state.week_start
+
 week_end = week_start + timedelta(days=6)
+week_id = week_start.isoformat()
+if st.session_state.get("active_week") != week_id:
+    keys_to_delete = [
+        k for k in list(st.session_state.keys())
+        if isinstance(k, str) and k.startswith("meal_")
+    ]
+
+    for k in keys_to_delete:
+        del st.session_state[k]
+
+    st.session_state.active_week = week_id
+
+require_profile()
+page_header("📅 Meal Planner", "Plan your week simply")
+
 
 # --- LOAD MEALS ---
 meals_df = query_df(
@@ -43,7 +52,11 @@ meals_df = query_df(
     WHERE mp.user_id = ?
     AND mp.meal_date BETWEEN ? AND ?
     """,
-    (st.session_state.user_id, week_start.isoformat(), week_end.isoformat())
+    ( 
+        st.session_state.user_id,
+        week_start.isoformat(),
+        week_end.isoformat()
+    )
 )
 
 if meals_df is None:
@@ -108,7 +121,7 @@ icons = {
     "Dinner": "🍝",
     "Dessert": "🍰"
 }
-
+            
 for meal in MEALS:
     row = st.columns(8)
     row[0].markdown(f"**{meal}**")
@@ -133,7 +146,7 @@ for meal in MEALS:
 
             # --- IF EMPTY SLOT ---
             else:
-                select_key = f"{week_start.isoformat()}_{d.isoformat()}_{meal}_{i}"
+                select_key = select_key = f"meal_{week_id}_{meal}_{d.isoformat()}_{i}"
 
                 selected = st.selectbox(
                     " ",
