@@ -11,9 +11,9 @@ page_header(
     "this personalises every other page.",
 )
 
-DIETS = ["omnivore", "vegetarian", "vegan", "pescatarian"]
-ALLERGY_OPTIONS = ["gluten", "lactose", "nuts", "eggs", "soy", "shellfish"]
-SKILLS = ["beginner", "intermediate", "advanced"]
+DIETS = ["Omnivore", "Vegetarian", "Vegan", "Pescatarian", "Low-Carb", "High-Protein"]
+ALLERGY_OPTIONS = ["Gluten", "Lactose", "Nuts", "Peanut", "Eggs", "Soy", "Shellfish", "Celiac"]
+SKILLS = ["Beginner", "Intermediate", "Advanced"]
 
 def _render_form(existing: dict) -> None:
 
