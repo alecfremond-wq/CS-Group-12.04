@@ -179,6 +179,19 @@ def render_meal_card(
 
             user_id = st.session_state.get("user_id")
             local_id = local_title_to_id.get(meal_title.lower())
+            if local_id is None:
+                existing_recipe = query_df(
+                    """
+                    SELECT id
+                    FROM recipes
+                    WHERE LOWER(title) = LOWER(?)
+                    LIMIT 1
+                    """,
+                    (meal_title,),
+                )
+
+                if not existing_recipe.empty:
+                    local_id = int(existing_recipe.iloc[0]["id"])
 
             already_in_planner = False
 
@@ -194,6 +207,7 @@ def render_meal_card(
                 )
 
                 already_in_planner = not planner_check.empty
+
 
             if already_in_planner:
                 st.caption("🍽️ Added to Meal Planner")
