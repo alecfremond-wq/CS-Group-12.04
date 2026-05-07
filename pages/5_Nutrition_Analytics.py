@@ -58,7 +58,6 @@ st.caption("⚠️  Demo data — owner: wire up real cooking_history in Sprint 
 # and the line of dashes right before it was breaking Python's parser entirely,
 # causing the whole page to crash on load. Removed it cleanly — if you want
 # that CLI tool back, it belongs in its own separate file, not here.
--------
 
 st.subheader ("Calorie intake of the past 7 days")
 """
