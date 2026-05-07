@@ -43,7 +43,6 @@ meals_df = query_df(
 if meals_df is None:
     meals_df = pd.DataFrame(columns=["id", "meal_date", "meal_type", "recipe_id", "title"])
 
-st.write(meals_df)
 
 # --- LOAD RECIPES ---
 recipes1 = query_df("SELECT id, title FROM recipes LIMIT 100", ())
@@ -129,7 +128,7 @@ for meal in MEALS:
 
             # --- IF EMPTY SLOT ---
             else:
-                select_key =  f"{week_start.isoformat()}_{meal}_{i}_{d.isoformat()}"
+                select_key = f"{week_start.isoformat()}_{d.isoformat()}_{meal}_{i}"
 
                 selected = st.selectbox(
                     " ",
