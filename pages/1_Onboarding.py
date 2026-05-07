@@ -13,7 +13,7 @@ page_header(
 
 DIETS = ["Omnivore", "Vegetarian", "Vegan", "Pescatarian", "Low-Carb", "High-Protein"]
 ALLERGY_OPTIONS = ["Gluten", "Lactose", "Nuts", "Peanut", "Eggs", "Soy", "Shellfish", "Celiac"]
-SKILLS = ["Beginner", "Intermediate", "Advanced"]
+SKILLS = ["beginner", "intermediate", "advanced"]
 
 def _render_form(existing: dict) -> None:
 
