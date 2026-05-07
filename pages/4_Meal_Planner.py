@@ -28,6 +28,21 @@ if "week_start" not in st.session_state:
 week_start = st.session_state.week_start
 week_end = week_start + timedelta(days=6)
 
+# --- RESET DROPDOWNS WHEN WEEK CHANGES ---
+current_week_key = week_start.isoformat()
+
+if st.session_state.get("last_week_key") != current_week_key:
+    # remove old selectbox states
+    keys_to_remove = [
+        k for k in st.session_state.keys()
+        if any(meal in k for meal in MEALS)
+    ]
+
+    for k in keys_to_remove:
+        del st.session_state[k]
+
+    st.session_state.last_week_key = current_week_key
+
 # --- LOAD MEALS ---
 meals_df = query_df(
     """
