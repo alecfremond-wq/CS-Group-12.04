@@ -11,7 +11,10 @@
 #  This file centralises the default values so that every page can assume
 #  the keys already exist, instead of checking "if 'pantry' not in ..." over
 #  and over.
-
+# ============================================================================
+#  AI-ASSISTED AUTHORSHIP: scaffold drafted with Anthropic Claude (04/2026),
+#  reviewed by Group 12.04. See README.md.
+# ============================================================================
 
 import streamlit as st                     # we need st.session_state from Streamlit
 
@@ -20,14 +23,16 @@ import streamlit as st                     # we need st.session_state from Strea
 # and what its initial value should be.
 # Add new keys here instead of scattering `if "..." not in ...` checks everywhere.
 DEFAULTS = {
-    "user_id":        1,        # integer primary key from the `users` table.
-                                # Set to 1 as a safe placeholder; Onboarding.py
-                                # should overwrite this after INSERT/login.
-    "user_profile":   None,     # will become a dict like {"name": ..., "diet": ...} after onboarding
-    "pantry":         [],       # list of ingredient dicts: {"name":..., "quantity":..., "unit":..., "expires_on":...}
-    "meal_plan":      {},       # dict mapping a date string ("2026-04-21") to a list of meal names
-    "cooking_history":[],       # list of dicts: {"recipe_id":..., "cooked_on":..., "rating":...}
-    "wishlist":       [],       # list of recipe IDs the user wants to try
+    # Integer primary key from the `users` table. Defaults to 1 as a safe
+    # placeholder so the Pantry / Meal Planner pages (which key their rows
+    # on user_id) work out of the box. The Onboarding page should keep
+    # this in sync with the actual id of the saved user.
+    "user_id": 1,
+    "user_profile": None,       # will become a dict like {"name": ..., "diet": ...} after onboarding
+    "pantry": [],               # list of ingredient dicts: {"name":..., "quantity":..., "unit":..., "expires_on":...}
+    "meal_plan": {},            # dict mapping a date string ("2026-04-21") to a list of meal names
+    "cooking_history": [],      # list of dicts: {"recipe_id":..., "cooked_on":..., "rating":...}
+    "wishlist": [],             # list of recipe IDs the user wants to try
 }
 
 
@@ -36,6 +41,11 @@ def init_session_state():
 
     Safe to call from every page — it only adds keys that don't exist yet,
     so we never overwrite data the user has already entered.
+
+    After the defaults are set, this also tries to LOAD the saved profile
+    from the SQLite `users` table. That way the user only has to fill in
+    Onboarding once: on every subsequent reload of the app the profile is
+    pulled out of the database back into session_state.
     """
     # Loop over every (key, default_value) pair in the DEFAULTS dictionary.
     for key, default in DEFAULTS.items():
@@ -45,6 +55,22 @@ def init_session_state():
             # (otherwise different pages could share the same list object).
             st.session_state[key] = _copy_default(default)
 
+    # If we've just filled in user_profile with its default of None (i.e.
+    # this is a fresh Streamlit session), try to hydrate it from the DB.
+    # We import lazily to avoid a circular import (database.py -> session.py
+    # would be a cycle if user_repo were imported at the top of this file).
+    if st.session_state.get("user_profile") is None:
+        try:
+            from src.data.user_repo import load_profile
+            saved = load_profile()
+            if saved is not None:
+                st.session_state["user_profile"] = saved
+        except Exception:
+            # The DB might not exist yet (e.g. very first run before
+            # init_db()). In that case we silently fall back to the empty
+            # default — the user will simply complete Onboarding once.
+            pass
+
 
 def require_profile():
     """Stop the page and show a warning if the user hasn't completed Onboarding.
@@ -52,7 +78,9 @@ def require_profile():
     Call this at the top of any page that needs a user profile.
     Returns the profile dictionary if it exists.
     """
-    # Make sure all session keys exist before we try to read them
+    # Make sure all session keys exist before we try to read them — also
+    # gives us the chance to hydrate user_profile from the DB on the very
+    # first call from any page.
     init_session_state()
 
     # Try to read the profile from session_state. `.get()` returns None if missing.
