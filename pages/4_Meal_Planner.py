@@ -13,12 +13,18 @@ from src.components.ui import page_header
 st.set_page_config(page_title="Meal Planner", page_icon="📅", layout="wide")
 
 init_session_state()
-require_profile()
-
-page_header("📅 Meal Planner", "Plan your week simply")
 
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 MEALS = ["Breakfast", "Lunch", "Dinner", "Dessert"]
+
+# clear old session state keys for meal widgets
+for k in list(st.session_state.keys()):
+    if k.startswith(tuple(MEALS)):
+        del st.session_state[k]
+
+require_profile()
+
+page_header("📅 Meal Planner", "Plan your week simply")
 
 # --- WEEK START ---
 if "week_start" not in st.session_state:
@@ -42,7 +48,6 @@ meals_df = query_df(
 
 if meals_df is None:
     meals_df = pd.DataFrame(columns=["id", "meal_date", "meal_type", "recipe_id", "title"])
-
 
 # --- LOAD RECIPES ---
 recipes1 = query_df("SELECT id, title FROM recipes LIMIT 100", ())
@@ -138,11 +143,7 @@ for meal in MEALS:
                     label_visibility="collapsed"
                 )
 
-                prev_key = select_key + "_prev"
-
-                if selected and st.session_state.get(prev_key) != selected:
-                    st.session_state[prev_key] = selected
-
+                if selected:
                     execute(
                         """
                         INSERT OR REPLACE INTO meal_plan
