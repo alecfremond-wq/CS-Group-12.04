@@ -28,25 +28,9 @@ if "week_start" not in st.session_state:
 week_start = st.session_state.week_start
 week_end = week_start + timedelta(days=6)
 
-# --- RESET WEEK STATE WHEN WEEK CHANGES ---
-current_week_key = week_start.isoformat()
-
-if st.session_state.get("last_week_key") != current_week_key:
-
-    keys_to_remove = [
-        k for k in list(st.session_state.keys())
-        if any(
-            k.startswith(meal)
-            for meal in MEALS
-        )
-    ]
-
-    for k in keys_to_remove:
-        del st.session_state[k]
-
-    st.session_state.last_week_key = current_week_key
-
 # --- LOAD MEALS ---
+st.write(meals_df)
+
 meals_df = query_df(
     """
     SELECT mp.id, mp.meal_date, mp.meal_type, mp.recipe_id, r.title
@@ -145,7 +129,7 @@ for meal in MEALS:
 
             # --- IF EMPTY SLOT ---
             else:
-                select_key = f"{week_start.isoformat()}_{meal}_{i}_{d}"
+                select_key =  f"{week_start.isoformat()}_{meal}_{i}_{d.isoformat()}
 
                 selected = st.selectbox(
                     " ",
