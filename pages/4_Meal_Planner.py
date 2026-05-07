@@ -129,7 +129,7 @@ for meal in MEALS:
 
             # --- IF EMPTY SLOT ---
             else:
-                select_key =  f"{week_start.isoformat()}_{meal}_{i}_{d.isoformat()}
+                select_key =  f"{week_start.isoformat()}_{meal}_{i}_{d.isoformat()}"
 
                 selected = st.selectbox(
                     " ",
