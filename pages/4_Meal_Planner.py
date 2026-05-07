@@ -13,6 +13,7 @@ from src.components.ui import page_header
 st.set_page_config(page_title="Meal Planner", page_icon="📅", layout="wide")
 
 init_session_state()
+st.session_state.clear()
 require_profile()
 
 page_header("📅 Meal Planner", "Plan your week simply")
