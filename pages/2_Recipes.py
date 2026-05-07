@@ -175,6 +175,81 @@ def render_meal_card(
                         }
                     )
                     st.rerun()
+      # ── Add / Remove from meal planner pool ─────────────────────────────
+
+            user_id = st.session_state.get("user_id")
+            local_id = local_title_to_id.get(meal_title.lower())
+
+            already_in_planner = False
+
+            if user_id and local_id:
+                planner_check = query_df(
+                    """
+                    SELECT 1
+                    FROM planner_pool
+                    WHERE user_id = ? AND recipe_id = ?
+                    LIMIT 1
+                    """,
+                    (user_id, local_id),
+                )
+
+                already_in_planner = not planner_check.empty
+
+            if already_in_planner:
+                st.caption("🍽️ Added to Meal Planner")
+
+                if st.button(
+                    "❌ Remove from Meal Planner",
+                    key=f"remove_planner_{meal_title}",
+                ):
+                    execute(
+                        """
+                        DELETE FROM planner_pool
+                        WHERE user_id = ? AND recipe_id = ?
+                        """,
+                        (user_id, local_id),
+                    )
+
+                    st.rerun()
+
+            else:
+                if st.button(
+                    "➕ Add to Meal Planner",
+                    key=f"planner_{meal_title}",
+                ):
+
+                    if local_id is None:
+                        execute(
+                            """
+                            INSERT INTO recipes (title)
+                            VALUES (?)
+                            """,
+                            (meal_title,),
+                        )
+
+                        new_row = query_df(
+                            """
+                            SELECT id FROM recipes
+                            WHERE title = ?
+                            ORDER BY id DESC LIMIT 1
+                            """,
+                            (meal_title,),
+                        )
+
+                        if not new_row.empty:
+                            local_id = int(new_row.iloc[0]["id"])
+
+                    if local_id:
+                        execute(
+                            """
+                            INSERT OR IGNORE INTO planner_pool (user_id, recipe_id)
+                            VALUES (?, ?)
+                            """,
+                            (user_id, local_id),
+                        )
+
+                    st.success("Added to Meal Planner 🍽️")
+                    st.rerun()
 
             # ── Add to meal planner pool ─────────────────────────────
 
