@@ -29,8 +29,6 @@ week_start = st.session_state.week_start
 week_end = week_start + timedelta(days=6)
 
 # --- LOAD MEALS ---
-st.write(meals_df)
-
 meals_df = query_df(
     """
     SELECT mp.id, mp.meal_date, mp.meal_type, mp.recipe_id, r.title
@@ -44,6 +42,8 @@ meals_df = query_df(
 
 if meals_df is None:
     meals_df = pd.DataFrame(columns=["id", "meal_date", "meal_type", "recipe_id", "title"])
+
+st.write(meals_df)
 
 # --- LOAD RECIPES ---
 recipes1 = query_df("SELECT id, title FROM recipes LIMIT 100", ())
