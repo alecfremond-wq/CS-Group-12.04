@@ -519,6 +519,10 @@ def render_meal_card(
 # ── Search tab ────────────────────────────────────────────────────────────────
 
 with tab_search:
+    st.subheader("🔎 Hungry? Let's find something delicious!")
+    st.markdown("- Search for any dish by name")
+    st.markdown("- Get info on the dish and how to make it")
+    st.markdown("- Add it to your Meal Planner or Wishlist for later")
     query = st.text_input(
         "What would you like to cook?",
         placeholder="e.g. pasta, curry…",
