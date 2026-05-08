@@ -12,33 +12,11 @@ from src.components.ui import page_header
 
 st.set_page_config(page_title="Meal Planner", page_icon="📅", layout="wide")
 init_session_state()
-# --- FORCE WEEK STATE RESET ---
-if "active_week" not in st.session_state:
-    st.session_state.active_week = None
 
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 MEALS = ["Breakfast", "Lunch", "Dinner", "Snack"]
 
 # --- WEEK START ---
-if "week_start" not in st.session_state:
-    today = date.today()
-    st.session_state.week_start = today - timedelta(days=today.weekday())
-
-week_start = st.session_state.week_start
-
-week_end = week_start + timedelta(days=6)
-week_id = week_start.isoformat()
-if st.session_state.get("active_week") != week_id:
-    keys_to_delete = [
-        k for k in list(st.session_state.keys())
-        if isinstance(k, str) and k.startswith("meal_")
-    ]
-
-    for k in keys_to_delete:
-        del st.session_state[k]
-
-    st.session_state.active_week = week_id
-
 require_profile()
 page_header("📅 Meal Planner", "Choose your meals in the recipe page and plan your week")
 
