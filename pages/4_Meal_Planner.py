@@ -40,7 +40,7 @@ if st.session_state.get("active_week") != week_id:
     st.session_state.active_week = week_id
 
 require_profile()
-page_header("📅 Meal Planner", "Choose you meals in the recipe page and plan your week")
+page_header("📅 Meal Planner", "Choose your meals in the recipe page and plan your week")
 
 
 # --- LOAD MEALS ---
