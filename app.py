@@ -1,5 +1,5 @@
 # ============================================================================
-#  CookTogether — HOME PAGE  (this file is the entry point of the whole app)
+#  CookTogether — HOME PAGE + ONBOARDING (combined entry point)
 #  Run it from the terminal with:   streamlit run app.py
 # ============================================================================
 #  NOTE ON AUTHORSHIP (required by HSG plagiarism rules):
@@ -8,40 +8,53 @@
 #  by Group 12.04. See README.md for full citation.
 # ============================================================================
 
-# --- imports ---------------------------------------------------------------
+import streamlit as st
 
-
-import streamlit as st                              # the library that turns this Python file into a web app
-
-# We import two helper functions from our own source folder.
-# "from src.data.database import init_db" means: in the file src/data/database.py,
-# take the function called init_db and make it available here.
-from src.data.database import init_db               # creates the SQLite tables on first run
-from src.utils.session import init_session_state    # puts default values into Streamlit's memory
+from src.data.database import init_db
+from src.data.user_repo import delete_profile, save_profile
+from src.utils.session import init_session_state
 
 
 # --- page configuration (MUST be the very first Streamlit command) ---------
-st.set_page_config(                                 # configures the browser tab + layout
-    page_title="Cooktogether",                      # title shown in the browser tab
-    page_icon="🍳",                                 # emoji favicon
-    layout="wide",                                  # use the full screen width instead of a narrow centred column
-    initial_sidebar_state="expanded",               # sidebar is open by default so users see the navigation
+st.set_page_config(
+    page_title="Cooktogether",
+    page_icon="🍳",
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-
 # --- one-time initialisation -----------------------------------------------
-# Both of these functions are safe to call on every page reload: they only
-# create things that don't exist yet (idempotent).
-init_db()                                           # make sure the database file and tables exist
-init_session_state()                                # make sure user_profile, pantry, etc. have default values
+init_db()
+init_session_state()
 
 
-# --- home page content ------------------------------------------------------
-st.title("🍳 CookTogether")                         # big page title
-st.subheader("Cook, plan, and eat well — together.")  # smaller tagline under the title
+# ===========================================================================
+#  SIDEBAR
+# ===========================================================================
+with st.sidebar:
+    st.markdown("### 🗺️ Getting started")
+    st.markdown(
+        "1. Fill out **Onboarding** below.\n"
+        "2. Add items to your **Pantry**.\n"
+        "3. Browse **Recipes** and add favourites to your **Meal Planner**.\n"
+        "4. Check **Nutrition** and **Recommendations** to see insights."
+    )
+    st.divider()
 
-# st.markdown writes text formatted with Markdown (**bold**, lists, etc.).
-# Triple-quoted strings (""" ... """) let us write multi-line text in Python.
+    if st.session_state.get("user_profile"):
+        st.success(
+            f"Signed in as **{st.session_state['user_profile'].get('name', 'you')}**"
+        )
+    else:
+        st.info("No profile yet — complete Onboarding below ⬇️")
+
+
+# ===========================================================================
+#  SECTION 1 — HOME / APP OVERVIEW
+# ===========================================================================
+st.title("🍳 CookTogether")
+st.subheader("Cook, plan, and eat well — together.")
+
 st.markdown(
     """
     **CookTogether** helps students cook more joyfully by combining:
@@ -53,28 +66,129 @@ st.markdown(
     - a world map to explore recipes by origin, and
     - ML-powered **recommendations** that learn from your cooking history.
 
-    Use the sidebar on the left to navigate.
+    Use the sidebar on the left to navigate between pages.
     """
 )
 
-# --- sidebar content (shown on every page, but we define it here) ----------
-# "with st.sidebar:" puts everything indented under it into the left sidebar.
-with st.sidebar:
-    st.markdown("### Getting started")              # small heading inside the sidebar
-    st.markdown(                                    # step-by-step guidance for new users
-        "1. Fill out **Onboarding** first.\n"
-        "2. Add items to your **Pantry**.\n"
-        "3. Browse **Recipes** and add favourites to your **Meal Planner**.\n"
-        "4. Check **Nutrition** and **Recommendations** to see insights."
-    )
-    st.divider()                                    # horizontal line separator
 
-    # st.session_state is a dictionary Streamlit keeps in memory between clicks.
-    # .get("user_profile") returns the value if the key exists, or None otherwise.
-    if st.session_state.get("user_profile"):        # if the user has already completed Onboarding
-        # f-strings (the f before the quote) let us embed variables in text with {}.
-        st.success(                                 # green success message
-            f"Signed in as **{st.session_state['user_profile'].get('name', 'you')}**"
+# ===========================================================================
+#  TRANSITION
+# ===========================================================================
+st.divider()
+
+st.markdown("## 🚀 Start now — create your account below!")
+st.caption(
+    "Tell us a bit about yourself so every page is personalised just for you."
+)
+
+
+# ===========================================================================
+#  SECTION 2 — ONBOARDING
+# ===========================================================================
+
+DIETS = ["Omnivore", "Vegetarian", "Vegan", "Pescatarian", "Low-Carb", "High-Protein"]
+ALLERGY_OPTIONS = ["Gluten", "Lactose", "Nuts", "Peanut", "Eggs", "Soy", "Shellfish", "Celiac"]
+SKILLS = ["beginner", "intermediate", "advanced"]
+
+
+def _render_form(existing: dict) -> None:
+    with st.form("onboarding_form", clear_on_submit=False):
+        name = st.text_input("Your name", value=existing.get("name", ""))
+
+        diet = st.selectbox(
+            "Diet",
+            DIETS,
+            index=DIETS.index(existing.get("diet", "Omnivore"))
+            if existing.get("diet", "Omnivore") in DIETS else 0,
         )
-    else:                                           # otherwise, prompt them to onboard
-        st.info("No profile yet — head to Onboarding.")   # blue info message
+
+        allergies = st.multiselect(
+            "Allergies / intolerances",
+            ALLERGY_OPTIONS,
+            default=[a for a in existing.get("allergies", []) if a in ALLERGY_OPTIONS],
+        )
+
+        budget = st.slider(
+            "Weekly food budget (CHF)",
+            min_value=20, max_value=200, step=10,
+            value=int(existing.get("budget_weekly", 80)),
+        )
+
+        skill = st.radio(
+            "Cooking skill",
+            SKILLS,
+            horizontal=True,
+            index=SKILLS.index(existing.get("skill_level", "beginner"))
+            if existing.get("skill_level", "beginner") in SKILLS else 0,
+        )
+
+        submitted = st.form_submit_button("Save profile", type="primary")
+
+    if submitted:
+        if not name.strip():
+            st.error("Please enter your name so we can personalise things.")
+            return
+
+        profile = {
+            "name": name.strip(),
+            "diet": diet,
+            "allergies": allergies,
+            "budget_weekly": budget,
+            "skill_level": skill,
+        }
+
+        save_profile(profile)
+        st.session_state["user_profile"] = profile
+        st.session_state["onboarding_editing"] = False
+        st.success("✅ Profile saved! You can now use the other pages.")
+        st.rerun()
+
+
+def _render_summary(profile: dict) -> None:
+    with st.container(border=True):
+        st.markdown(f"### Welcome back, **{profile.get('name') or 'friend'}** 👋")
+        st.caption("Your profile is saved. Other pages are already personalised for you.")
+
+        left, right = st.columns(2)
+        with left:
+            st.markdown(f"**Diet:** {profile.get('diet', '—')}")
+            st.markdown(f"**Weekly budget:** {int(profile.get('budget_weekly', 0))} CHF")
+        with right:
+            allergies = profile.get("allergies") or []
+            st.markdown(
+                "**Allergies:** " + (", ".join(allergies) if allergies else "_none_")
+            )
+            st.markdown(f"**Skill level:** {profile.get('skill_level', '—')}")
+
+    edit_col, delete_col, _ = st.columns([1, 1, 3])
+
+    with edit_col:
+        if st.button("✏️ Edit profile", use_container_width=True):
+            st.session_state["onboarding_editing"] = True
+            st.rerun()
+
+    with delete_col:
+        if st.button(
+            "🗑️ Delete profile",
+            use_container_width=True,
+            help="Removes the saved profile from the database and resets onboarding.",
+        ):
+            delete_profile()
+            st.session_state["user_profile"] = None
+            st.session_state["onboarding_editing"] = False
+            st.toast("Profile deleted.")
+            st.rerun()
+
+
+# --- render onboarding (form or summary) -----------------------------------
+profile = st.session_state.get("user_profile") or {}
+editing = st.session_state.get("onboarding_editing", False)
+
+if not profile or editing:
+    _render_form(existing=profile)
+    if profile and editing:
+        if st.button("Cancel", type="secondary"):
+            st.session_state["onboarding_editing"] = False
+            st.rerun()
+else:
+    _render_summary(profile)
