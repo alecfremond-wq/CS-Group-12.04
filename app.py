@@ -66,7 +66,7 @@ st.markdown(
     - a world map to explore recipes by origin, and
     - ML-powered **recommendations** that learn from your cooking history.
 
-    Use the sidebar on the left to navigate between pages.
+
     """
 )
 
