@@ -15,7 +15,7 @@ from src.data.user_repo import delete_profile, save_profile
 from src.utils.session import init_session_state
 
 
-# --- page configuration (MUST be the very first Streamlit command) ---------
+# --- page configuration ----------------------------------------------------
 st.set_page_config(
     page_title="Cooktogether",
     page_icon="🍳",
@@ -76,14 +76,20 @@ st.markdown(
 # ===========================================================================
 st.divider()
 
-st.markdown("## 🚀 Start now — create your account below!")
-st.caption(
-    "Tell us a bit about yourself so every page is personalised just for you."
-)
+st.markdown("## Ready to get started?")
+st.caption("Create your profile to personalise every page of CookTogether.")
+
+if "show_onboarding" not in st.session_state:
+    st.session_state["show_onboarding"] = False
+
+if not st.session_state["show_onboarding"]:
+    if st.button("🚀 Get Started", type="primary"):
+        st.session_state["show_onboarding"] = True
+        st.rerun()
 
 
 # ===========================================================================
-#  SECTION 2 — ONBOARDING
+#  SECTION 2 — ONBOARDING (appears only after button click)
 # ===========================================================================
 
 DIETS = ["Omnivore", "Vegetarian", "Vegan", "Pescatarian", "Low-Carb", "High-Protein"]
@@ -140,6 +146,7 @@ def _render_form(existing: dict) -> None:
         save_profile(profile)
         st.session_state["user_profile"] = profile
         st.session_state["onboarding_editing"] = False
+        st.session_state["show_onboarding"] = False
         st.success("✅ Profile saved! You can now use the other pages.")
         st.rerun()
 
@@ -176,19 +183,22 @@ def _render_summary(profile: dict) -> None:
             delete_profile()
             st.session_state["user_profile"] = None
             st.session_state["onboarding_editing"] = False
+            st.session_state["show_onboarding"] = False
             st.toast("Profile deleted.")
             st.rerun()
 
 
-# --- render onboarding (form or summary) -----------------------------------
-profile = st.session_state.get("user_profile") or {}
-editing = st.session_state.get("onboarding_editing", False)
+# --- render onboarding section ---------------------------------------------
+if st.session_state.get("show_onboarding") or st.session_state.get("user_profile"):
 
-if not profile or editing:
-    _render_form(existing=profile)
-    if profile and editing:
-        if st.button("Cancel", type="secondary"):
-            st.session_state["onboarding_editing"] = False
-            st.rerun()
-else:
-    _render_summary(profile)
+    profile = st.session_state.get("user_profile") or {}
+    editing = st.session_state.get("onboarding_editing", False)
+
+    if not profile or editing:
+        _render_form(existing=profile)
+        if profile and editing:
+            if st.button("Cancel", type="secondary"):
+                st.session_state["onboarding_editing"] = False
+                st.rerun()
+    else:
+        _render_summary(profile)
