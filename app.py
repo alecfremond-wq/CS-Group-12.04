@@ -66,7 +66,7 @@ st.markdown(
     - a world map to explore recipes by origin, and
     - ML-powered **recommendations** that learn from your cooking history.
 
-
+    Use the sidebar on the left to navigate between pages.
     """
 )
 
@@ -83,7 +83,28 @@ if "show_onboarding" not in st.session_state:
     st.session_state["show_onboarding"] = False
 
 if not st.session_state["show_onboarding"]:
-    if st.button("🚀 Get Started", type="primary"):
+    st.markdown("""
+        <style>
+        div.stButton > button {
+            background: linear-gradient(135deg, #FF6B35, #F7931E);
+            color: white;
+            border: none;
+            padding: 0.75rem 2.5rem;
+            font-size: 1.1rem;
+            font-weight: 600;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(255, 107, 53, 0.4);
+            transition: all 0.3s ease;
+        }
+        div.stButton > button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 107, 53, 0.6);
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    if st.button("🚀 Get Started — it's free!"):
         st.session_state["show_onboarding"] = True
         st.rerun()
 
