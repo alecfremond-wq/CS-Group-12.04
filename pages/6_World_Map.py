@@ -254,7 +254,7 @@ def build_figure():
             showsubunits=False,
             showcountries=False,
         ),
-        paper_bgcolor="#F4F6F8",
+        paper_bgcolor="white",
         margin=dict(l=0, r=0, t=10, b=10),
         hoverlabel=dict(
             bgcolor="#2C3E50",
