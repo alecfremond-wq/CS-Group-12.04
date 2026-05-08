@@ -9,11 +9,14 @@ Grading coverage:
 
 import json
 import os
+from datetime import date, timedelta
 
+import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
 from src.components.ui import page_header
+from src.data.database import query_df
 from src.utils.session import init_session_state, require_profile
 
 init_session_state()
@@ -42,10 +45,60 @@ def save_data(data: dict) -> None:
 def day_total(data: dict, day: str) -> int:
     return sum(data[day].values())
 
+# Meal Planner uses full day names and "Dessert"; map both to our format.
+_DAY_MAP  = {d: d[:3] for d in ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]}
+_MEAL_MAP = {"Breakfast": "Breakfast", "Lunch": "Lunch", "Dinner": "Dinner", "Dessert": "Snacks"}
+
+def load_from_meal_plan(user_id) -> dict:
+    """Read this week's planned meals from the DB and return calories per day/meal.
+
+    When a recipe is in the meal plan and has calorie data (kcal_per_serv),
+    we use that to pre-fill the tracker so the user doesn't have to type it
+    in manually. Days or meals with no planned recipe stay at 0.
+    """
+    today      = date.today()
+    week_start = today - timedelta(days=today.weekday())
+    week_end   = week_start + timedelta(days=6)
+    try:
+        df = query_df(
+            """
+            SELECT mp.meal_date, mp.meal_type, r.kcal_per_serv
+            FROM meal_plan mp
+            JOIN recipes r ON mp.recipe_id = r.id
+            WHERE mp.user_id = ?
+              AND mp.meal_date BETWEEN ? AND ?
+              AND r.kcal_per_serv IS NOT NULL
+            """,
+            (user_id, week_start.isoformat(), week_end.isoformat()),
+        )
+        if df is None or df.empty:
+            return {}
+        result: dict = {}
+        for _, row in df.iterrows():
+            # Convert the date to a short day name (e.g. "Monday" → "Mon").
+            full_day = pd.to_datetime(row["meal_date"]).strftime("%A")
+            day  = _DAY_MAP.get(full_day)
+            meal = _MEAL_MAP.get(row["meal_type"])
+            if day and meal:
+                result.setdefault(day, {})
+                result[day][meal] = result[day].get(meal, 0) + int(row["kcal_per_serv"])
+        return result
+    except Exception:
+        return {}
+
 # ── Session state ──────────────────────────────────────────────────────────────
 
 if "cal_data" not in st.session_state:
-    st.session_state.cal_data = load_data()
+    base = load_data()
+    user_id = st.session_state.get("user_id")
+    if user_id:
+        # Pre-fill any slot that is still 0 with calories from the meal plan.
+        # Manual edits saved in the JSON always take priority over auto-fill.
+        for day, meals in load_from_meal_plan(user_id).items():
+            for meal, kcal in meals.items():
+                if base.get(day, {}).get(meal, 0) == 0:
+                    base[day][meal] = kcal
+    st.session_state.cal_data = base
 if "cal_selected" not in st.session_state:
     st.session_state.cal_selected = DAYS[0]
 
