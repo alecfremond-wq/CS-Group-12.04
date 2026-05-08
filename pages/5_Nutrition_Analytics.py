@@ -101,7 +101,7 @@ fig.add_hline(y=GOAL, line_dash="dash", line_color="#AAAAAA", line_width=1)
 fig.update_layout(
     barmode="overlay",
     showlegend=False,
-    yaxis_range=[1200, max(max(totals, default=GOAL), GOAL) + 300],
+    yaxis_range=[0, max(max(totals, default=GOAL), GOAL) + 300],
     plot_bgcolor="white",
     margin=dict(l=0, r=0, t=10, b=0),
     height=260,
