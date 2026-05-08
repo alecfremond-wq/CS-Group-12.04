@@ -137,9 +137,7 @@ for i, (day, total) in enumerate(zip(DAYS, totals)):
             f"</div>",
             unsafe_allow_html=True,
         )
-        # Invisible button sits below the card — clicking it selects this day.
-        if st.button(day, key=f"pill_{day}", use_container_width=True,
-                     label_visibility="collapsed"):
+        if st.button(day, key=f"pill_{day}", use_container_width=True):
             st.session_state.cal_selected = day
             st.rerun()
 
