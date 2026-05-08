@@ -78,15 +78,14 @@ def get_pantry() -> set[str]:
 def pantry_pct(meal: dict, pantry: set[str]) -> float | None:
     """Return what fraction of the recipe's ingredients the user already has.
 
-    Returns None when the pantry is empty so we don't show a misleading badge.
+    Delegates the matching rules to pantry_repo.coverage(), which handles
+    plurals, substrings and word-level matches so that pantry items added
+    with simple names ("pasta", "olive oil") still match API recipes that
+    use specific names ("spaghetti", "extra virgin olive oil"). Returns
+    None when the pantry is empty so we don't show a misleading badge.
     """
-    if not pantry:
-        return None
-    ingredients = extract_ingredients(meal)
-    if not ingredients:
-        return None
-    names = [i.lower() for i in ingredients]
-    return sum(1 for n in names if n in pantry) / len(names)
+    from src.data.pantry_repo import coverage
+    return coverage(extract_ingredients(meal), pantry)
 
 
 # ── Wishlist / taste-profile setup ────────────────────────────────────────────

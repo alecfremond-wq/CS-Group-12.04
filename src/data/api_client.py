@@ -156,3 +156,21 @@ def search_spoonacular(query="", vegetarian=False, vegan=False,
     except Exception as exc:
         st.warning(f"Spoonacular unavailable: {exc}")
         return []
+
+
+@st.cache_data(ttl=24 * 60 * 60)
+def get_spoonacular_ingredients():
+    """Return a sorted list of ingredient names pulled from Spoonacular.
+
+    We run a handful of common searches so the pantry dropdown is populated
+    with real Spoonacular names — the same strings that appear in recipe
+    results, so pantry matching is exact instead of fuzzy.
+    Cached for 24 h so we only spend API quota once per day.
+    """
+    ingredients = set()
+    for query in ["chicken", "pasta", "salad", "soup", "fish", "beef", "rice"]:
+        for meal in search_spoonacular(query=query):
+            for ing in meal.get("_ingredients", []):
+                if ing.strip():
+                    ingredients.add(ing.strip().lower())
+    return sorted(ingredients)
