@@ -618,6 +618,8 @@ with tab_cuisine:
         st.divider()
         st.subheader("🌍 Bites Across Borders")
         st.caption("A journey through international food traditions")
+        st.markdown("- Click on a country on the map to explore its traditional recipes") 
+        st.markdown("- Not sure where a country is? You can also search it manuelly using the selector above!")
         st.plotly_chart(
             build_figure(),
             use_container_width=True,
