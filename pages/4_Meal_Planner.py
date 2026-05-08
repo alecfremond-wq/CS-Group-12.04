@@ -1,5 +1,3 @@
-meal planner
-
 import streamlit as st
 from datetime import date, timedelta
 import sys
