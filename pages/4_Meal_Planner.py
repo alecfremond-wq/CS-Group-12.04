@@ -17,7 +17,7 @@ if "active_week" not in st.session_state:
     st.session_state.active_week = None
 
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-MEALS = ["Breakfast", "Lunch", "Dinner", "Dessert"]
+MEALS = ["Breakfast", "Lunch", "Dinner", "Snack"]
 
 # --- WEEK START ---
 if "week_start" not in st.session_state:
@@ -119,7 +119,7 @@ icons = {
     "Breakfast": "🍳",
     "Lunch": "🥗",
     "Dinner": "🍝",
-    "Dessert": "🍰"
+    "Snack": "🍰"
 }
             
 for meal in MEALS:
