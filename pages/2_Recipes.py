@@ -257,11 +257,6 @@ def build_figure() -> go.Figure:
 
     fig = go.Figure(data=[trace])
     fig.update_layout(
-        title={
-            "text": "Bites Across Borders",
-            "x": 0.5,
-            "font": {"size": 20, "family": "Georgia, serif", "color": "#2C3E50"},
-        },
         geo=dict(
             showframe=False,
             showcoastlines=True,
@@ -281,8 +276,8 @@ def build_figure() -> go.Figure:
             showsubunits=False,
             showcountries=False,
         ),
-        paper_bgcolor="#F4F6F8",
-        margin=dict(l=0, r=0, t=55, b=10),
+        paper_bgcolor="white",
+        margin=dict(l=0, r=0, t=10, b=10),
         hoverlabel=dict(
             bgcolor="#2C3E50",
             font=dict(size=12, color="white", family="monospace"),
@@ -611,15 +606,11 @@ with tab_cuisine:
     if not cuisines:
         empty_state("Cuisine list couldn't be loaded — check your internet.")
     else:
-        choice = st.selectbox("Cuisine", cuisines)
-        st.caption(f"(Owner: render recipes for cuisine = **{choice}**)")
-
         # ── World Map ──────────────────────────────────────────────────────
-        st.divider()
         st.subheader("🌍 Bites Across Borders")
         st.caption("A journey through international food traditions")
-        st.markdown("- Click on a country on the map to explore its traditional recipes") 
-        st.markdown("- Not sure where a country is? You can also search it manuelly using the selector above!")
+        st.markdown("- Click on a country on the map to explore its traditional recipes")
+        st.markdown("- Not sure where a country is? You can also search it manuelly using the selector below!")
         st.plotly_chart(
             build_figure(),
             use_container_width=True,
@@ -646,4 +637,10 @@ with tab_cuisine:
                     unsafe_allow_html=True,
                 )
             col_idx += 1
+
+        st.divider()
+        choice = st.selectbox("Cuisine", cuisines)
+        st.caption(f"(Owner: render recipes for cuisine = **{choice}**)")
+
+
 
