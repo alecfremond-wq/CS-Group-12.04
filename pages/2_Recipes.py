@@ -613,7 +613,7 @@ with tab_cuisine:
         # ── World Map ──────────────────────────────────────────────────────
         st.subheader("🌍 Bites Across Borders")
         st.markdown("- Click on a country on the map to explore its traditional recipes")
-        st.markdown("- Not sure where a country is? You can also search it manuelly using the selector below!")
+        st.markdown("- Not sure where a country is? You can also search it manually using the selector below!")
         st.plotly_chart(
             build_figure(),
             use_container_width=True,
