@@ -119,7 +119,7 @@ icons = {
     "Breakfast": "🍳",
     "Lunch": "🥗",
     "Dinner": "🍝",
-    "Snack": "🍰"
+    "Snacks": "🍰"
 }
             
 for meal in MEALS:
