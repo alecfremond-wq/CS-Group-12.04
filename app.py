@@ -82,29 +82,30 @@ st.caption("Create your profile to personalise every page of CookTogether.")
 if "show_onboarding" not in st.session_state:
     st.session_state["show_onboarding"] = False
 
-if not st.session_state["show_onboarding"]:
+# Show the "Get Started" button only if there is no profile yet
+if not st.session_state.get("user_profile") and not st.session_state["show_onboarding"]:
     st.markdown("""
         <style>
         div.stButton > button {
-            background: linear-gradient(135deg, #FF6B35, #F7931E);
-            color: white;
-            border: none;
+            background: white;
+            color: #FF6B35;
+            border: 2px solid #FF6B35;
             padding: 0.75rem 2.5rem;
             font-size: 1.1rem;
             font-weight: 600;
             border-radius: 50px;
             cursor: pointer;
-            box-shadow: 0 4px 15px rgba(255, 107, 53, 0.4);
-            transition: all 0.3s ease;
+            transition: all 0.25s ease;
         }
         div.stButton > button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(255, 107, 53, 0.6);
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(255, 107, 53, 0.3);
+            background: #fff5f2;
         }
         </style>
     """, unsafe_allow_html=True)
 
-    if st.button("🚀 Get Started — it's free!"):
+    if st.button("Get Started"):
         st.session_state["show_onboarding"] = True
         st.rerun()
 
@@ -149,7 +150,7 @@ def _render_form(existing: dict) -> None:
             if existing.get("skill_level", "beginner") in SKILLS else 0,
         )
 
-        submitted = st.form_submit_button("Save profile", type="primary")
+        submitted = st.form_submit_button("Save profile")
 
     if submitted:
         if not name.strip():
@@ -191,14 +192,15 @@ def _render_summary(profile: dict) -> None:
     edit_col, delete_col, _ = st.columns([1, 1, 3])
 
     with edit_col:
-        if st.button("✏️ Edit profile", use_container_width=True):
+        if st.button("Edit profile", use_container_width=True):
             st.session_state["onboarding_editing"] = True
             st.rerun()
 
     with delete_col:
         if st.button(
-            "🗑️ Delete profile",
+            "Delete profile",
             use_container_width=True,
+            type="secondary",
             help="Removes the saved profile from the database and resets onboarding.",
         ):
             delete_profile()
