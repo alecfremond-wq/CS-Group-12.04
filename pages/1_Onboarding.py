@@ -22,7 +22,6 @@ def _render_form(existing: dict) -> None:
         diet = st.selectbox(
             "Diet",
             DIETS,
-
             index=DIETS.index(existing.get("diet", "omnivore"))
             if existing.get("diet", "omnivore") in DIETS else 0,
         )
@@ -43,7 +42,7 @@ def _render_form(existing: dict) -> None:
             index=SKILLS.index(existing.get("skill_level", "beginner"))
             if existing.get("skill_level", "beginner") in SKILLS else 0,
         )
-        submitted = st.form_submit_button("Save profile", type="primary")
+        submitted = st.form_submit_button("Get started", type="primary")
 
     if submitted:
 
@@ -93,13 +92,13 @@ def _render_summary(profile: dict) -> None:
 
     edit_col, delete_col, _ = st.columns([1, 1, 3])
     with edit_col:
-        if st.button("✏️ Edit profile", use_container_width=True):
+        if st.button("Edit profile", use_container_width=True):
 
             st.session_state["onboarding_editing"] = True
             st.rerun()
     with delete_col:
         if st.button(
-            "🗑️ Delete profile",
+            "Delete profile",
             use_container_width=True,
             help="Removes the saved profile from the database and resets onboarding.",
         ):
@@ -124,3 +123,4 @@ if not profile or editing:
             st.rerun()
 else:
     _render_summary(profile)
+
