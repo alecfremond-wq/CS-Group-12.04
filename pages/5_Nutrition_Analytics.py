@@ -47,7 +47,7 @@ def day_total(data: dict, day: str) -> int:
 
 # Meal Planner uses full day names and "Dessert"; map both to our format.
 _DAY_MAP  = {d: d[:3] for d in ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]}
-_MEAL_MAP = {"Breakfast": "Breakfast", "Lunch": "Lunch", "Dinner": "Dinner", "Dessert": "Snacks"}
+_MEAL_MAP = {"Breakfast": "Breakfast", "Lunch": "Lunch", "Dinner": "Dinner", "Snacks": "Snacks"}
 
 def load_from_meal_plan(user_id) -> dict:
     """Read this week's planned meals from the DB and return calories per day/meal.
