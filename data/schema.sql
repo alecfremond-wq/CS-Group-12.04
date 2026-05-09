@@ -112,7 +112,7 @@ CREATE TABLE meal_plan_new (
     id INTEGER PRIMARY KEY,
     user_id INTEGER,
     meal_date TEXT,
-    meal_type TEXT CHECK(meal_type IN ('Breakfast','Lunch','Dinner','Dessert')),
+    meal_type TEXT CHECK(meal_type IN ('Breakfast','Lunch','Dinner','Snacks')),
     recipe_id INTEGER
 );
 
