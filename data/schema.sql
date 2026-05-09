@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS planner_pool (
     title TEXT,
     meal_type TEXT
 );
-CREATE TABLE meal_plan_new (
+CREATE TABLE IF NOT EXISTS meal_plan_new (
     id INTEGER PRIMARY KEY,
     user_id INTEGER,
     meal_date TEXT,
