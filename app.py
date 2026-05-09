@@ -46,7 +46,7 @@ with st.sidebar:
             f"Signed in as **{st.session_state['user_profile'].get('name', 'you')}**"
         )
     else:
-        st.info("No profile yet — complete Onboarding below ⬇️")
+        st.info("No profile yet — Create your profile to access the platform")
 
 
 # ===========================================================================
