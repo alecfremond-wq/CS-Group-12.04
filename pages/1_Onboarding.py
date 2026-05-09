@@ -42,7 +42,7 @@ def _render_form(existing: dict) -> None:
             index=SKILLS.index(existing.get("skill_level", "beginner"))
             if existing.get("skill_level", "beginner") in SKILLS else 0,
         )
-        submitted = st.form_submit_button("Get started", type="primary")
+        submitted = st.form_submit_button("Save profile")
 
     if submitted:
 
@@ -92,19 +92,17 @@ def _render_summary(profile: dict) -> None:
 
     edit_col, delete_col, _ = st.columns([1, 1, 3])
     with edit_col:
-        if st.button("Edit profile", use_container_width=True):
-
+        if st.button("Edit profile", use_container_width=True, type="secondary"):
             st.session_state["onboarding_editing"] = True
             st.rerun()
     with delete_col:
         if st.button(
             "Delete profile",
             use_container_width=True,
+            type="secondary",
             help="Removes the saved profile from the database and resets onboarding.",
         ):
-
             delete_profile()
-
             st.session_state["user_profile"] = None
             st.session_state["onboarding_editing"] = False
             st.toast("Profile deleted.")
@@ -123,4 +121,3 @@ if not profile or editing:
             st.rerun()
 else:
     _render_summary(profile)
-
