@@ -13,16 +13,44 @@ from src.components.ui import page_header
 st.set_page_config(page_title="Meal Planner", page_icon="📅", layout="wide")
 init_session_state()
 # --- FORCE WEEK STATE RESET ---
-if "active_week" not in st.session_state:
-    st.session_state.active_week = None
+#if "active_week" not in st.session_state:
+#    st.session_state.active_week = None
 
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-MEALS = ["Breakfast", "Lunch", "Dinner", "Snack"]
+MEALS = ["Breakfast", "Lunch", "Dinner", "Snacks"]
 
+def load_meals_for_week(user_id: int, week_start: date, week_end: date):
+    query = """
+        SELECT mp.id, mp.meal_date, mp.meal_type, mp.recipe_id, r.title
+        FROM meal_plan mp
+        JOIN recipes r ON mp.recipe_id = r.id
+        WHERE mp.user_id = ?
+        AND mp.meal_date BETWEEN ? AND ?
+        ORDER BY mp.meal_date, mp.meal_type
+    """
+
+    meals_df = query_df(
+        query,
+        (
+            user_id,
+            week_start.isoformat(),
+            week_end.isoformat()
+        )
+    )
+
+    if meals_df is None:
+        meals_df = pd.DataFrame(
+            columns=["id", "meal_date", "meal_type", "recipe_id", "title"]
+        )
+
+    return meals_df
+    
 # --- WEEK START ---
 if "week_start" not in st.session_state:
     today = date.today()
     st.session_state.week_start = today - timedelta(days=today.weekday())
+
+week_current = date.today() - timedelta(days=date.today().weekday())
 
 week_start = st.session_state.week_start
 
@@ -42,42 +70,58 @@ if st.session_state.get("active_week") != week_id:
 require_profile()
 page_header("📅 Meal Planner", "Choose your meals in the recipe page and plan your week")
 
-
-# --- LOAD MEALS ---
-meals_df = query_df(
-    """
-    SELECT mp.id, mp.meal_date, mp.meal_type, mp.recipe_id, r.title
-    FROM meal_plan mp
-    JOIN recipes r ON mp.recipe_id = r.id
-    WHERE mp.user_id = ?
-    AND mp.meal_date BETWEEN ? AND ?
-    """,
-    ( 
-        st.session_state.user_id,
-        week_start.isoformat(),
-        week_end.isoformat()
+print(week_current,st.session_state.active_week)
+print(type(week_current))
+print(type(st.session_state.active_week))
+if st.session_state.active_week ==  week_current.isoformat():
+    print("Sono in")  
+    # --- LOAD MEALS ---
+    meals_df = query_df(
+        """
+        SELECT mp.id, mp.meal_date, mp.meal_type, mp.recipe_id, r.title
+        FROM meal_plan mp
+        JOIN recipes r ON mp.recipe_id = r.id
+        WHERE mp.user_id = ?
+        AND mp.meal_date BETWEEN ? AND ?
+        """,
+        (
+            st.session_state.user_id,
+            week_start.isoformat(),
+            week_end.isoformat()
+        )
     )
-)
 
-if meals_df is None:
-    meals_df = pd.DataFrame(columns=["id", "meal_date", "meal_type", "recipe_id", "title"])
+    if meals_df is None:
+        meals_df = pd.DataFrame(columns=["id", "meal_date", "meal_type", "recipe_id", "title"])
 
-# --- LOAD RECIPES ---
-recipes1 = query_df("SELECT id, title FROM recipes LIMIT 100", ())
+    # --- LOAD RECIPES ---
+    recipes1 = query_df("SELECT id, title FROM recipes LIMIT 100", ())
+    recipes2 = query_df(
+        "SELECT recipe_id AS id, title FROM planner_pool WHERE user_id = ?",
+        (st.session_state.user_id,)
+    )
 
-recipes2 = query_df(
-    "SELECT recipe_id AS id, title FROM planner_pool WHERE user_id = ?",
-    (st.session_state.user_id,)
-)
+    if recipes1 is None:
+        recipes1 = pd.DataFrame(columns=["id", "title"])
+    if recipes2 is None:
+        recipes2 = pd.DataFrame(columns=["id", "title"])
 
-if recipes1 is None:
-    recipes1 = pd.DataFrame(columns=["id", "title"])
+    recipes_df = pd.concat([recipes1, recipes2]).drop_duplicates(subset=["id"])
+    recipe_dict = recipes_df.set_index("id")["title"].to_dict()
+else:
+    print("Sono qua") 
+    
+    meals_df = load_meals_for_week(
+        user_id=st.session_state.user_id,
+        week_start=week_start,
+        week_end=week_end
+    )   
+    
+    # --- EMPTY STRUCTURES ---
+    #meals_df = pd.DataFrame(columns=["id", "meal_date", "meal_type", "recipe_id", "title"])
+    recipes_df = pd.DataFrame(columns=["id", "title"])
+    recipe_dict = {}
 
-if recipes2 is None:
-    recipes2 = pd.DataFrame(columns=["id", "title"])
-
-recipes_df = pd.concat([recipes1, recipes2]).drop_duplicates(subset=["id"])
-recipe_dict = recipes_df.set_index("id")["title"].to_dict()
 
 # --- PLAN DICT ---
 plan = {}
@@ -97,9 +141,13 @@ with c2:
     st.markdown(f"### {week_start.strftime('%b %d')} – {week_end.strftime('%b %d, %Y')}")
 
 with c3:
-    if st.button("Next week →"):
-        st.session_state.week_start = week_start + timedelta(days=7)
-        st.rerun()
+    disable_next = week_start >= week_current
+
+    if st.button("Next week →", disabled=disable_next):
+        if not disable_next:
+            st.session_state.week_start = week_start + timedelta(days=7)
+            st.rerun()
+
 
 st.divider()
 
@@ -119,7 +167,7 @@ icons = {
     "Breakfast": "🍳",
     "Lunch": "🥗",
     "Dinner": "🍝",
-    "Snacks": "🍰"
+    "Snack": "🍰"
 }
             
 for meal in MEALS:
@@ -196,3 +244,4 @@ else:
 
         for _, m in day_meals.iterrows():
             st.write(f"- **{m['meal_type']}**: {m['title']}")
+
