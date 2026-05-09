@@ -25,11 +25,89 @@ from src.data.database import query_df, execute
 from src.models.recommender import Recommender
 from src.utils.session import init_session_state, require_profile
 
+
+# ── Planner helpers ───────────────────────────────────────────────────────────
+
+def get_my_planner_meals(user_id: int) -> list[dict]:
+    """
+    Load all recipes saved in the Meal Planner for the given user.
+    Returns a list of dicts with 'title' and 'recipe_id'.
+    """
+    if not user_id:
+        return []
+    try:
+        df = query_df(
+            """
+            SELECT r.id AS recipe_id, r.title
+            FROM planner_pool pp
+            JOIN recipes r ON pp.recipe_id = r.id
+            WHERE pp.user_id = ?
+            ORDER BY r.title
+            """,
+            (user_id,),
+        )
+        if df.empty:
+            return []
+        return df.to_dict("records")
+    except Exception:
+        return []
+
+
+def show_my_planner_banner() -> None:
+    """
+    Show a summary banner at the top of the Recipes page listing all
+    recipes already saved to the Meal Planner. Always visible — persists
+    across navigation.
+    """
+    user_id = st.session_state.get("user_id")
+    if not user_id:
+        return
+
+    saved_meals = get_my_planner_meals(user_id)
+    count = len(saved_meals)
+    label = "dish" if count == 1 else "dishes"
+
+    with st.expander(
+        f"🍽️ My Meal Planner  ·  **{count} {label} saved**",
+        expanded=count > 0,
+    ):
+        if not saved_meals:
+            st.info("You haven't saved any dishes to the Meal Planner yet.")
+            return
+
+        # Show saved dishes in a compact 3-column grid
+        cols = st.columns(3)
+        for idx, meal in enumerate(saved_meals):
+            with cols[idx % 3]:
+                col_text, col_btn = st.columns([3, 1])
+                with col_text:
+                    st.markdown(f"✅ **{meal['title']}**")
+                with col_btn:
+                    if st.button(
+                        "✕",
+                        key=f"banner_remove_{meal['recipe_id']}",
+                        help="Remove from Meal Planner",
+                    ):
+                        execute(
+                            "DELETE FROM planner_pool WHERE user_id = ? AND recipe_id = ?",
+                            (user_id, meal["recipe_id"]),
+                        )
+                        st.toast(f"❌ '{meal['title']}' removed from Meal Planner", icon="🗑️")
+                        st.rerun()
+
+        st.caption("Go to the **Meal Planner** page to schedule them across the week.")
+
+
+# ── App init ──────────────────────────────────────────────────────────────────
+
 init_session_state()
 
 profile = require_profile()
 
 page_header("🍲 Recipes", "Search recipes or browse by cuisine.")
+
+# Always show the Meal Planner summary at the top of the page
+show_my_planner_banner()
 
 local_title_to_id = {r["name"].lower(): r["id"] for r in LOCAL_RECIPES}
 
@@ -406,6 +484,7 @@ def render_meal_card(
             with st.expander("Instructions"):
                 st.write(meal.get("strInstructions", ""))
 
+            # ── Wishlist ──────────────────────────────────────────────────
             already_saved = any(
                 isinstance(w, dict) and w.get("title") == meal_title
                 for w in st.session_state.get("wishlist", [])
@@ -416,7 +495,6 @@ def render_meal_card(
             else:
                 if st.button("❤️ Save to wishlist", key=f"wish_{meal_title}"):
                     local_id = local_title_to_id.get(meal_title.lower())
-
                     st.session_state["wishlist"].append(
                         {
                             "title": meal_title,
@@ -428,8 +506,11 @@ def render_meal_card(
                     )
                     st.rerun()
 
+            # ── Meal Planner ──────────────────────────────────────────────
             user_id = st.session_state.get("user_id")
             local_id = local_title_to_id.get(meal_title.lower())
+
+            # If not in the local recipe list, check the DB
             if local_id is None:
                 existing_recipe = query_df(
                     """
@@ -440,12 +521,11 @@ def render_meal_card(
                     """,
                     (meal_title,),
                 )
-
                 if not existing_recipe.empty:
                     local_id = int(existing_recipe.iloc[0]["id"])
 
+            # Check whether this recipe is already in the planner
             already_in_planner = False
-
             if user_id and local_id:
                 planner_check = query_df(
                     """
@@ -456,24 +536,22 @@ def render_meal_card(
                     """,
                     (user_id, local_id),
                 )
-
                 already_in_planner = not planner_check.empty
 
             if already_in_planner:
-                st.caption("🍽️ Added to Meal Planner")
+                # Green badge so the user can immediately see it's saved
+                st.success("🍽️ Already in your Meal Planner!")
 
                 if st.button(
                     "❌ Remove from Meal Planner",
                     key=f"remove_planner_{meal_title}",
                 ):
                     execute(
-                        """
-                        DELETE FROM planner_pool
-                        WHERE user_id = ? AND recipe_id = ?
-                        """,
+                        "DELETE FROM planner_pool WHERE user_id = ? AND recipe_id = ?",
                         (user_id, local_id),
                     )
-
+                    # Toast persists across the rerun so the user sees it
+                    st.toast(f"'{meal_title}' removed from Meal Planner 🗑️", icon="❌")
                     st.rerun()
 
             else:
@@ -481,38 +559,27 @@ def render_meal_card(
                     "➕ Add to Meal Planner",
                     key=f"planner_{meal_title}",
                 ):
-
+                    # If the recipe doesn't exist in the DB yet, create it
                     if local_id is None:
                         execute(
-                            """
-                            INSERT INTO recipes (title)
-                            VALUES (?)
-                            """,
+                            "INSERT INTO recipes (title) VALUES (?)",
                             (meal_title,),
                         )
-
                         new_row = query_df(
-                            """
-                            SELECT id FROM recipes
-                            WHERE title = ?
-                            ORDER BY id DESC LIMIT 1
-                            """,
+                            "SELECT id FROM recipes WHERE title = ? ORDER BY id DESC LIMIT 1",
                             (meal_title,),
                         )
-
                         if not new_row.empty:
                             local_id = int(new_row.iloc[0]["id"])
 
                     if local_id:
                         execute(
-                            """
-                            INSERT OR IGNORE INTO planner_pool (user_id, recipe_id)
-                            VALUES (?, ?)
-                            """,
+                            "INSERT OR IGNORE INTO planner_pool (user_id, recipe_id) VALUES (?, ?)",
                             (user_id, local_id),
                         )
 
-                    st.success("Added to Meal Planner 🍽️")
+                    # Toast persists across the rerun — much more visible than st.success
+                    st.toast(f"✅ '{meal_title}' added to Meal Planner!", icon="🍽️")
                     st.rerun()
 
 
@@ -644,6 +711,3 @@ with tab_cuisine:
         st.divider()
         choice = st.selectbox("Cuisine", cuisines)
         st.caption(f"(Owner: render recipes for cuisine = **{choice}**)")
-
-
-
