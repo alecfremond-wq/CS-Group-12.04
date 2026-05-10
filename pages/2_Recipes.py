@@ -628,6 +628,21 @@ def render_meal_card(
                     # this when addRecipeNutrition=True is set in api_client.py).
                     if local_id is None:
                         kcal = meal.get("kcal_per_serv")
+
+                        # TheMealDB recipes don't carry kcal_per_serv.
+                        # Try Spoonacular as a fallback so Nutrition Analytics
+                        # can show real calories instead of 0.
+                        if kcal is None:
+                            try:
+                                spoon_results = search_spoonacular(
+                                    query=meal_title,
+                                    addRecipeNutrition=True,
+                                )
+                                if spoon_results:
+                                    kcal = spoon_results[0].get("kcal_per_serv")
+                            except Exception:
+                                pass  # leave kcal as None if the call fails
+
                         execute(
                             "INSERT INTO recipes (title, kcal_per_serv) VALUES (?, ?)",
                             (meal_title, kcal),
@@ -642,6 +657,19 @@ def render_meal_card(
                         # Recipe already exists — update kcal if we now have it
                         # (e.g. user previously saved it without nutrition data).
                         kcal = meal.get("kcal_per_serv")
+
+                        # If still missing, try Spoonacular as a fallback
+                        if kcal is None:
+                            try:
+                                spoon_results = search_spoonacular(
+                                    query=meal_title,
+                                    addRecipeNutrition=True,
+                                )
+                                if spoon_results:
+                                    kcal = spoon_results[0].get("kcal_per_serv")
+                            except Exception:
+                                pass
+
                         if kcal is not None:
                             execute(
                                 "UPDATE recipes SET kcal_per_serv = ? WHERE id = ? AND kcal_per_serv IS NULL",
@@ -656,6 +684,12 @@ def render_meal_card(
 
                     # Toast persists across the rerun — much more visible than st.success
                     st.toast(f"✅ '{meal_title}' added to Meal Planner!", icon="🍽️")
+                    if kcal is None:
+                        st.toast(
+                            "⚠️ Calorie non trovate per questa ricetta. "
+                            "Inseriscile manualmente in Nutrition Analytics.",
+                            icon="ℹ️",
+                        )
                     st.rerun()
 
 
@@ -908,3 +942,4 @@ with tab_cuisine:
                     )
         else:
             st.info("👆 Click a country on the map to explore its recipes.")
+
