@@ -420,117 +420,149 @@ tab_search, tab_cuisine = st.tabs(["🔎 Search", "🌍 Browse by cuisine"])
 
 # ── Search tab ────────────────────────────────────────────────────────────────
 
-with tab_search:
+@st.fragment
+def search_tab() -> None:
     st.subheader("🔎 Hungry? Let's find something delicious!")
     st.markdown("- Search for any dish by name")
     st.markdown("- Get info on the dish and how to make it")
     st.markdown("- Add it to your Meal Planner or Wishlist for later")
 
-    query = st.text_input("What would you like to cook?", placeholder="e.g. pasta, curry…")
+    col_input, col_btn = st.columns([5, 1])
+    with col_input:
+        query = st.text_input(
+            "What would you like to cook?",
+            placeholder="e.g. pasta, curry…",
+            label_visibility="collapsed",
+        )
+    with col_btn:
+        search_clicked = st.button("🔎 Search", use_container_width=True)
 
-    if query:
-        results = search_recipes_by_name(query)   # cached 1 h
+    # Only fire the API call when the user explicitly clicks Search or
+    # presses Enter (query changes). Store last query in fragment state
+    # so results persist across card-button reruns without re-fetching.
+    if "last_query" not in st.session_state:
+        st.session_state["last_query"] = ""
+    if "last_results" not in st.session_state:
+        st.session_state["last_results"] = []
 
-        if not results:
-            empty_state("No recipes found — try another word.")
-        else:
-            recipes_df  = pd.DataFrame(LOCAL_RECIPES).rename(columns={"name": "title"})
-            rec         = Recommender(recipes_df)
-            top_results = results[:10]
-            ing_lists   = [extract_ingredients(m) for m in top_results]
+    if search_clicked and query:
+        st.session_state["last_query"]   = query
+        st.session_state["last_results"] = search_recipes_by_name(query)
 
-            raw_scores = (
-                rec.score_external(ing_lists, history_df, wishlist_ids, liked_ingredients)
-                if has_taste_profile else [None] * len(top_results)
-            )
+    results    = st.session_state["last_results"]
+    last_query = st.session_state["last_query"]
 
-            scored = sorted(
-                zip(top_results, raw_scores),
-                key=lambda p: (0, -(p[1] or 0)) if p[1] is not None else (1, 0),
-            )
+    if last_query and not results:
+        empty_state("No recipes found — try another word.")
+    elif results:
+        recipes_df  = pd.DataFrame(LOCAL_RECIPES).rename(columns={"name": "title"})
+        rec         = Recommender(recipes_df)
+        top_results = results[:10]
+        ing_lists   = [extract_ingredients(m) for m in top_results]
 
-            if any(s is not None for _, s in scored):
-                st.caption("🎯 Results ranked by ingredient similarity to your taste profile.")
-            elif has_taste_profile:
-                st.caption("ℹ️ No ingredient data — ML ranking unavailable for these results.")
+        raw_scores = (
+            rec.score_external(ing_lists, history_df, wishlist_ids, liked_ingredients)
+            if has_taste_profile else [None] * len(top_results)
+        )
 
-            for idx, (meal, score) in enumerate(scored):
-                render_meal_card(meal, ml_score=score, card_key=f"s{idx}")
+        scored = sorted(
+            zip(top_results, raw_scores),
+            key=lambda p: (0, -(p[1] or 0)) if p[1] is not None else (1, 0),
+        )
+
+        if any(s is not None for _, s in scored):
+            st.caption("🎯 Results ranked by ingredient similarity to your taste profile.")
+        elif has_taste_profile:
+            st.caption("ℹ️ No ingredient data — ML ranking unavailable for these results.")
+
+        for idx, (meal, score) in enumerate(scored):
+            render_meal_card(meal, ml_score=score, card_key=f"s{idx}")
+
+
+with tab_search:
+    search_tab()
 
 
 # ── Cuisine tab ───────────────────────────────────────────────────────────────
 
-with tab_cuisine:
+@st.fragment
+def cuisine_tab() -> None:
     cuisines = list_cuisines()   # cached 24 h
 
     if not cuisines:
         empty_state("Cuisine list couldn't be loaded — check your internet.")
-    else:
-        st.subheader("🌍 Bites Across Borders")
-        st.markdown("- Click on a country on the map to explore its traditional recipes")
-        st.markdown("- Not sure where a country is? You can also use the selector below!")
+        return
 
-        from streamlit_plotly_events import plotly_events
+    st.subheader("🌍 Bites Across Borders")
+    st.markdown("- Click on a country on the map to explore its traditional recipes")
+    st.markdown("- Not sure where a country is? You can also use the selector below!")
 
-        all_locations = list(ISO_CONTINENT.keys())
-        cuisine_isos  = set(ISO_TO_CUISINE.keys())
-        colored_locs  = [iso for iso in all_locations if iso in cuisine_isos]
+    from streamlit_plotly_events import plotly_events
 
-        clicked_points = plotly_events(
-            build_figure(),   # cached 24 h — no rebuild on every render
-            click_event=True, hover_event=False, select_event=False,
-            override_width="100%", override_height=450, key="world_map",
-        )
+    all_locations = list(ISO_CONTINENT.keys())
+    cuisine_isos  = set(ISO_TO_CUISINE.keys())
+    colored_locs  = [iso for iso in all_locations if iso in cuisine_isos]
 
-        legend_cols = st.columns(len(CONTINENT_DATA) - 1)
-        for col_idx, (cont, info) in enumerate(
-            (c, i) for c, i in CONTINENT_DATA.items() if c != "Antarctica"
-        ):
-            with legend_cols[col_idx]:
-                st.markdown(
-                    f'<div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#2C3E50;">'
-                    f'<span style="width:12px;height:12px;border-radius:50%;background:{info["color"]};display:inline-block;flex-shrink:0;"></span>'
-                    f'{cont} <span style="color:#999;font-size:11px;">({len(info["countries"])})</span></div>',
-                    unsafe_allow_html=True,
-                )
+    clicked_points = plotly_events(
+        build_figure(),   # cached 24 h
+        click_event=True, hover_event=False, select_event=False,
+        override_width="100%", override_height=450, key="world_map",
+    )
 
-        st.divider()
+    legend_cols = st.columns(len(CONTINENT_DATA) - 1)
+    for col_idx, (cont, info) in enumerate(
+        (c, i) for c, i in CONTINENT_DATA.items() if c != "Antarctica"
+    ):
+        with legend_cols[col_idx]:
+            st.markdown(
+                f'<div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#2C3E50;">'
+                f'<span style="width:12px;height:12px;border-radius:50%;background:{info["color"]};display:inline-block;flex-shrink:0;"></span>'
+                f'{cont} <span style="color:#999;font-size:11px;">({len(info["countries"])})</span></div>',
+                unsafe_allow_html=True,
+            )
 
-        if clicked_points:
-            ci = clicked_points[0].get("curveNumber", 0)
-            pi = clicked_points[0].get("pointIndex")
-            if ci == 1 and pi is not None and pi < len(colored_locs):
-                iso = colored_locs[pi]
-                if iso in ISO_TO_CUISINE:
-                    st.session_state["map_selected_iso"] = iso
+    st.divider()
 
-        selected_iso          = st.session_state.get("map_selected_iso")
-        active_cuisine        = ISO_TO_CUISINE.get(selected_iso) if selected_iso else None
-        selected_country_name = ISO_NAME.get(selected_iso) if selected_iso else None
+    if clicked_points:
+        ci = clicked_points[0].get("curveNumber", 0)
+        pi = clicked_points[0].get("pointIndex")
+        if ci == 1 and pi is not None and pi < len(colored_locs):
+            iso = colored_locs[pi]
+            if iso in ISO_TO_CUISINE:
+                st.session_state["map_selected_iso"] = iso
+                st.rerun()  # reruns fragment only — updates selectbox to match map click
 
-        CUISINE_TO_ISO  = {v: k for k, v in ISO_TO_CUISINE.items()}
-        cuisine_options = ["— click the map or choose here —"] + sorted(ISO_TO_CUISINE.values())
-        default_idx     = cuisine_options.index(active_cuisine) if active_cuisine in cuisine_options else 0
+    selected_iso          = st.session_state.get("map_selected_iso")
+    active_cuisine        = ISO_TO_CUISINE.get(selected_iso) if selected_iso else None
+    selected_country_name = ISO_NAME.get(selected_iso) if selected_iso else None
 
-        manual_choice = st.selectbox(
-            "Or pick a cuisine manually:",
-            options=cuisine_options, index=default_idx, key="cuisine_selectbox",
-        )
-        if manual_choice != "— click the map or choose here —":
-            active_cuisine        = manual_choice
-            selected_iso          = CUISINE_TO_ISO.get(active_cuisine)
-            selected_country_name = ISO_NAME.get(selected_iso, active_cuisine)
-            st.session_state["map_selected_iso"] = selected_iso
+    CUISINE_TO_ISO  = {v: k for k, v in ISO_TO_CUISINE.items()}
+    cuisine_options = ["— click the map or choose here —"] + sorted(ISO_TO_CUISINE.values())
+    default_idx     = cuisine_options.index(active_cuisine) if active_cuisine in cuisine_options else 0
 
-        if active_cuisine:
-            st.subheader(f"🍽️ Recipes from {selected_country_name}")
-            with st.spinner(f"Loading {active_cuisine} recipes…"):
-                cuisine_results = fetch_cuisine_meals(active_cuisine)   # cached 1 h
+    manual_choice = st.selectbox(
+        "Or pick a cuisine manually:",
+        options=cuisine_options, index=default_idx, key="cuisine_selectbox",
+    )
+    if manual_choice != "— click the map or choose here —":
+        active_cuisine        = manual_choice
+        selected_iso          = CUISINE_TO_ISO.get(active_cuisine)
+        selected_country_name = ISO_NAME.get(selected_iso, active_cuisine)
+        st.session_state["map_selected_iso"] = selected_iso
 
-            if not cuisine_results:
-                empty_state(f"No recipes found for {active_cuisine} — try another country.")
-            else:
-                for idx, meal in enumerate(cuisine_results):
-                    render_meal_card(meal, card_key=f"c{idx}")
+    if active_cuisine:
+        st.subheader(f"🍽️ Recipes from {selected_country_name}")
+        with st.spinner(f"Loading {active_cuisine} recipes…"):
+            cuisine_results = fetch_cuisine_meals(active_cuisine)   # cached 1 h
+
+        if not cuisine_results:
+            empty_state(f"No recipes found for {active_cuisine} — try another country.")
         else:
-            st.info("👆 Click a country on the map to explore its recipes.")
+            for idx, meal in enumerate(cuisine_results):
+                render_meal_card(meal, card_key=f"c{idx}")
+    else:
+        st.info("👆 Click a country on the map to explore its recipes.")
+
+
+with tab_cuisine:
+    cuisine_tab()
