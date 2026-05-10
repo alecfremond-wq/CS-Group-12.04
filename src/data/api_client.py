@@ -112,6 +112,92 @@ def get_meal_by_id(meal_id: str) -> dict | None:
         return None
 
 
+
+def extract_ingredients_from_meal(meal: dict) -> list[str]:
+    """Extract ingredient names from a TheMealDB meal dict.
+
+    TheMealDB stores ingredients in strIngredient1 … strIngredient20
+    and measures in strMeasure1 … strMeasure20.
+    Returns a list of "measure ingredient" strings, e.g. ["2 cups Rice", "1 clove Garlic"].
+    Empty/null slots are skipped.
+    """
+    ingredients = []
+    for i in range(1, 21):
+        name    = (meal.get(f"strIngredient{i}") or "").strip()
+        measure = (meal.get(f"strMeasure{i}")    or "").strip()
+        if name:
+            ingredients.append(f"{measure} {name}".strip() if measure else name)
+    return ingredients
+
+
+def fetch_nutrition_from_ingredients(ingredients: list[str]) -> dict:
+    """Send a list of ingredient strings to Spoonacular's nutrition parser.
+
+    Uses the /recipes/parseIngredients endpoint to get per-ingredient
+    nutrition, then sums up calories, protein, carbs and fat across all
+    ingredients to produce recipe-level totals.
+
+    Returns a dict with keys: kcal, protein_g, carbs_g, fat_g.
+    All values are ints (rounded). Returns all zeros on failure.
+    """
+    empty = {"kcal": None, "protein_g": None, "carbs_g": None, "fat_g": None}
+    if not ingredients:
+        return empty
+
+    try:
+        # Join ingredients as a newline-separated list — that's what the
+        # Spoonacular parseIngredients endpoint expects.
+        ingredient_list = "\n".join(ingredients)
+
+        resp = requests.post(
+            "https://api.spoonacular.com/recipes/parseIngredients",
+            params={
+                "apiKey": st.secrets["SPOONACULAR_API_KEY"],
+                "includeNutrition": True,
+            },
+            data={"ingredientList": ingredient_list, "servings": 1},
+            timeout=20,
+        )
+        resp.raise_for_status()
+        parsed = resp.json()
+
+        kcal = protein = carbs = fat = 0.0
+        for item in parsed:
+            nutrients = item.get("nutrition", {}).get("nutrients", [])
+            for n in nutrients:
+                name   = n.get("name", "")
+                amount = n.get("amount", 0) or 0
+                if name == "Calories":
+                    kcal    += amount
+                elif name == "Protein":
+                    protein += amount
+                elif name == "Carbohydrates":
+                    carbs   += amount
+                elif name == "Fat":
+                    fat     += amount
+
+        return {
+            "kcal":      int(round(kcal)),
+            "protein_g": round(protein, 1),
+            "carbs_g":   round(carbs, 1),
+            "fat_g":     round(fat, 1),
+        }
+
+    except Exception:
+        return empty
+
+
+def fetch_nutrition_for_meal(meal: dict) -> dict:
+    """High-level helper: given a TheMealDB meal dict, return its nutrition.
+
+    Combines extract_ingredients_from_meal() + fetch_nutrition_from_ingredients()
+    into a single call so 2_Recipes.py only needs to call this one function.
+
+    Returns a dict with keys: kcal, protein_g, carbs_g, fat_g.
+    """
+    ingredients = extract_ingredients_from_meal(meal)
+    return fetch_nutrition_from_ingredients(ingredients)
+
 def fetch_kcal_for_title(title: str) -> "int | None":
     """Look up calorie data for a recipe title using Spoonacular.
 
@@ -227,3 +313,4 @@ def search_spoonacular(query="", vegetarian=False, vegan=False,
     except Exception as exc:
         st.warning(f"Spoonacular unavailable: {exc}")
         return []
+
