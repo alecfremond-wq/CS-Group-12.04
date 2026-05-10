@@ -129,6 +129,7 @@ def extract_ingredients_from_meal(meal: dict) -> list[str]:
     return ingredients
 
 
+@st.cache_data(ttl=24 * 60 * 60)
 def fetch_nutrition_from_ingredients(ingredients: list[str]) -> dict:
     """Send a list of ingredient strings to Spoonacular's nutrition parser.
 
@@ -188,6 +189,7 @@ def fetch_nutrition_from_ingredients(ingredients: list[str]) -> dict:
         return empty
 
 
+@st.cache_data(ttl=24 * 60 * 60)
 def fetch_nutrition_by_title(title: str) -> dict:
     """Look up accurate per-serving nutrition for a dish by name via Spoonacular.
 
