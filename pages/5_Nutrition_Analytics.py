@@ -204,7 +204,7 @@ fig = go.Figure()
 
 fig.add_trace(go.Bar(
     x=DAYS, y=[GOAL] * 7,
-    name="Goal", marker_color="#D0CFC8", width=0.55,
+    name="Goal", marker_color="#4D9078", width=0.55,
 ))
 
 fig.add_trace(go.Bar(
