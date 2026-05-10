@@ -23,6 +23,7 @@ from src.data.api_client import (
     get_meal_by_id,
     list_cuisines,
     search_recipes_by_name,
+    search_spoonacular,
 )
 from src.data.database import query_df, execute
 from src.models.recommender import Recommender
@@ -32,6 +33,10 @@ from src.utils.session import init_session_state, require_profile
 # ── Planner helpers ───────────────────────────────────────────────────────────
 
 def get_my_planner_meals(user_id: int) -> list[dict]:
+    """
+    Load all recipes saved in the Meal Planner for the given user.
+    Returns a list of dicts with 'title' and 'recipe_id'.
+    """
     if not user_id:
         return []
     try:
@@ -53,6 +58,11 @@ def get_my_planner_meals(user_id: int) -> list[dict]:
 
 
 def show_my_planner_banner() -> None:
+    """
+    Show a summary banner at the top of the Recipes page listing all
+    recipes already saved to the Meal Planner. Always visible — persists
+    across navigation.
+    """
     user_id = st.session_state.get("user_id")
     if not user_id:
         return
@@ -69,6 +79,7 @@ def show_my_planner_banner() -> None:
             st.info("You haven't saved any dishes to the Meal Planner yet.")
             return
 
+        # Show saved dishes in a compact 3-column grid
         cols = st.columns(3)
         for idx, meal in enumerate(saved_meals):
             with cols[idx % 3]:
@@ -81,10 +92,13 @@ def show_my_planner_banner() -> None:
                         key=f"banner_remove_{meal['recipe_id']}",
                         help="Remove from Meal Planner",
                     ):
+                        # Remove from the pool (dropdown options)
                         execute(
                             "DELETE FROM planner_pool WHERE user_id = ? AND recipe_id = ?",
                             (user_id, meal["recipe_id"]),
                         )
+                        # Also remove any scheduled slots for this recipe
+                        # so it disappears from the weekly grid too
                         execute(
                             "DELETE FROM meal_plan WHERE user_id = ? AND recipe_id = ?",
                             (user_id, meal["recipe_id"]),
@@ -103,6 +117,7 @@ profile = require_profile()
 
 page_header("🍲 Recipes", "Search recipes or browse by cuisine.")
 
+# Always show the Meal Planner summary at the top of the page
 show_my_planner_banner()
 
 local_title_to_id = {r["name"].lower(): r["id"] for r in LOCAL_RECIPES}
@@ -291,9 +306,21 @@ ISO_NAME = {
 
 
 def build_figure() -> go.Figure:
+    """
+    Build the Plotly choropleth world map.
+
+    - Countries available on TheMealDB are coloured by continent and
+      show a 'click to explore' prompt on hover.
+    - All other countries are rendered in a neutral grey and show only
+      the country name (no cuisine available).
+    Two separate Choropleth traces are used so the two groups can have
+    independent colours and hover templates without affecting the shared
+    colour-scale logic.
+    """
     all_locations = list(ISO_CONTINENT.keys())
     cuisine_isos  = set(ISO_TO_CUISINE.keys())
 
+    # ── Coloured trace: countries with TheMealDB recipes ──────────────
     colored_locs  = [iso for iso in all_locations if iso in cuisine_isos]
     continent_list = list(CONTINENT_DATA.keys())
     colors_list    = [CONTINENT_DATA[c]["color"] for c in continent_list]
@@ -333,6 +360,7 @@ def build_figure() -> go.Figure:
         name="",
     )
 
+    # ── Grey trace: countries without TheMealDB recipes ───────────────
     grey_locs  = [iso for iso in all_locations if iso not in cuisine_isos]
     grey_hover = []
     for iso in grey_locs:
@@ -396,8 +424,10 @@ def build_figure() -> go.Figure:
 # ── Pantry helper ─────────────────────────────────────────────────────────────
 
 def extract_ingredients(meal: dict) -> list[str]:
+    """Pull the ingredient list out of a TheMealDB or Spoonacular result."""
     if meal.get("_ingredients"):
         return [i.strip() for i in meal["_ingredients"] if i.strip()]
+
     return [
         meal[f"strIngredient{i}"].strip()
         for i in range(1, 21)
@@ -406,9 +436,11 @@ def extract_ingredients(meal: dict) -> list[str]:
 
 
 def get_pantry() -> set[str]:
+    """Load the user's pantry from the database."""
     user_id = st.session_state.get("user_id")
     if not user_id:
         return set()
+
     try:
         df = query_df(
             """
@@ -421,17 +453,21 @@ def get_pantry() -> set[str]:
         )
         if df.empty:
             return set()
+
         return set(df["name"].str.lower())
     except Exception:
         return set()
 
 
 def pantry_pct(meal: dict, pantry: set[str]) -> float | None:
+    """Return fraction of ingredients already in pantry."""
     if not pantry:
         return None
+
     ingredients = extract_ingredients(meal)
     if not ingredients:
         return None
+
     names = [i.lower() for i in ingredients]
     return sum(1 for n in names if n in pantry) / len(names)
 
@@ -473,8 +509,14 @@ def render_meal_card(
     meal: dict,
     ml_score: float | None = None,
     pantry: float | None = None,
-    card_key: str = "",
+    card_key: str = "",  # unique prefix to avoid StreamlitDuplicateElementKey
 ) -> None:
+    """Draw a single recipe card.
+
+    card_key must be unique for every card rendered in a single Streamlit
+    run (e.g. "search_0", "cuisine_3"). Without it, two cards with the
+    same meal title produce duplicate widget keys and crash the app.
+    """
     meal_title = meal["strMeal"]
 
     with st.container(border=True):
@@ -527,36 +569,54 @@ def render_meal_card(
             user_id = st.session_state.get("user_id")
             local_id = local_title_to_id.get(meal_title.lower())
 
+            # If not in the local recipe list, check the DB
             if local_id is None:
                 existing_recipe = query_df(
-                    "SELECT id FROM recipes WHERE LOWER(title) = LOWER(?) LIMIT 1",
+                    """
+                    SELECT id
+                    FROM recipes
+                    WHERE LOWER(title) = LOWER(?)
+                    LIMIT 1
+                    """,
                     (meal_title,),
                 )
                 if not existing_recipe.empty:
                     local_id = int(existing_recipe.iloc[0]["id"])
 
+            # Check whether this recipe is already in the planner
             already_in_planner = False
             if user_id and local_id:
                 planner_check = query_df(
-                    "SELECT 1 FROM planner_pool WHERE user_id = ? AND recipe_id = ? LIMIT 1",
+                    """
+                    SELECT 1
+                    FROM planner_pool
+                    WHERE user_id = ? AND recipe_id = ?
+                    LIMIT 1
+                    """,
                     (user_id, local_id),
                 )
                 already_in_planner = not planner_check.empty
 
             if already_in_planner:
+                # Green badge so the user can immediately see it's saved
                 st.success("🍽️ Already in your Meal Planner!")
+
                 if st.button(
                     "❌ Remove from Meal Planner",
                     key=f"{card_key}_remove_planner_{meal_title}",
                 ):
+                    # Remove from the pool (dropdown options)
                     execute(
                         "DELETE FROM planner_pool WHERE user_id = ? AND recipe_id = ?",
                         (user_id, local_id),
                     )
+                    # Also remove any scheduled slots for this recipe
+                    # so it disappears from the weekly grid too
                     execute(
                         "DELETE FROM meal_plan WHERE user_id = ? AND recipe_id = ?",
                         (user_id, local_id),
                     )
+                    # Toast persists across the rerun so the user sees it
                     st.toast(f"'{meal_title}' removed from Meal Planner 🗑️", icon="❌")
                     st.rerun()
 
@@ -565,21 +625,24 @@ def render_meal_card(
                     "➕ Add to Meal Planner",
                     key=f"{card_key}_planner_{meal_title}",
                 ):
+                    # If the recipe doesn't exist in the DB yet, create it.
+                    # Also save kcal_per_serv if available (Spoonacular provides
+                    # this when addRecipeNutrition=True is set in api_client.py).
                     if local_id is None:
                         kcal      = meal.get("kcal_per_serv")
                         protein_g = meal.get("protein_g")
                         carbs_g   = meal.get("carbs_g")
                         fat_g     = meal.get("fat_g")
 
+                        # TheMealDB recipes don't carry nutrition data.
+                        # We extract their ingredients and send them to
+                        # Spoonacular's nutrition parser to get real values.
                         if kcal is None:
                             nutrition = fetch_nutrition_for_meal(meal)
-                            # MealDB quantities are for ~4 servings — divide
-                            # so kcal_per_serv reflects one actual portion.
-                            _srv      = 4
-                            kcal      = round(nutrition["kcal"] / _srv)           if nutrition["kcal"]      else None
-                            protein_g = round(nutrition["protein_g"] / _srv, 1)   if nutrition["protein_g"] else None
-                            carbs_g   = round(nutrition["carbs_g"] / _srv, 1)     if nutrition["carbs_g"]   else None
-                            fat_g     = round(nutrition["fat_g"] / _srv, 1)       if nutrition["fat_g"]     else None
+                            kcal      = nutrition["kcal"]
+                            protein_g = nutrition["protein_g"]
+                            carbs_g   = nutrition["carbs_g"]
+                            fat_g     = nutrition["fat_g"]
 
                         execute(
                             """INSERT INTO recipes
@@ -594,20 +657,19 @@ def render_meal_card(
                         if not new_row.empty:
                             local_id = int(new_row.iloc[0]["id"])
                     else:
+                        # Recipe already exists — update nutrition if missing.
                         kcal      = meal.get("kcal_per_serv")
                         protein_g = meal.get("protein_g")
                         carbs_g   = meal.get("carbs_g")
                         fat_g     = meal.get("fat_g")
 
+                        # If still missing (TheMealDB recipe), fetch via Spoonacular
                         if kcal is None:
                             nutrition = fetch_nutrition_for_meal(meal)
-                            # MealDB quantities are for ~4 servings — divide
-                            # so kcal_per_serv reflects one actual portion.
-                            _srv      = 4
-                            kcal      = round(nutrition["kcal"] / _srv)           if nutrition["kcal"]      else None
-                            protein_g = round(nutrition["protein_g"] / _srv, 1)   if nutrition["protein_g"] else None
-                            carbs_g   = round(nutrition["carbs_g"] / _srv, 1)     if nutrition["carbs_g"]   else None
-                            fat_g     = round(nutrition["fat_g"] / _srv, 1)       if nutrition["fat_g"]     else None
+                            kcal      = nutrition["kcal"]
+                            protein_g = nutrition["protein_g"]
+                            carbs_g   = nutrition["carbs_g"]
+                            fat_g     = nutrition["fat_g"]
 
                         if kcal is not None:
                             execute(
@@ -624,6 +686,7 @@ def render_meal_card(
                             (user_id, local_id),
                         )
 
+                    # Toast persists across the rerun — much more visible than st.success
                     st.toast(f"✅ '{meal_title}' added to Meal Planner!", icon="🍽️")
                     if kcal is None:
                         st.toast(
@@ -641,29 +704,41 @@ with tab_search:
     st.markdown("- Search for any dish by name")
     st.markdown("- Get info on the dish and how to make it")
     st.markdown("- Add it to your Meal Planner or Wishlist for later")
-
     query = st.text_input(
         "What would you like to cook?",
         placeholder="e.g. pasta, curry…",
     )
 
     if query:
-        # ── Search — MealDB only ──────────────────────────────────────────
-        # Spoonacular is not called here to preserve daily API quota.
-        # It only fires when a user explicitly saves a recipe to the
-        # Meal Planner (fetch_nutrition_for_meal), which is infrequent
-        # and user-triggered — not automatic on every search.
-        results = search_recipes_by_name(query)
-        # ─────────────────────────────────────────────────────────────────
+        diet = profile.get("diet", "omnivore")
+        allergies = profile.get("allergies", [])
+
+        veg = diet in ("vegetarian", "vegan")
+        vgn = diet == "vegan"
+        gf = "gluten" in allergies
+        df = "lactose" in allergies
+
+        results = search_recipes_by_name(query) + search_spoonacular(
+            query=query,
+            vegetarian=veg,
+            vegan=vgn,
+            gluten_free=gf,
+            dairy_free=df,
+        )
 
         if not results:
             empty_state("No recipes found — try another word.")
         else:
-            recipes_df = pd.DataFrame(LOCAL_RECIPES).rename(columns={"name": "title"})
+            recipes_df = pd.DataFrame(LOCAL_RECIPES).rename(
+                columns={"name": "title"}
+            )
+
             rec = Recommender(recipes_df)
             top_results = results[:10]
 
-            ingredient_lists = [extract_ingredients(m) for m in top_results]
+            ingredient_lists = [
+                extract_ingredients(m) for m in top_results
+            ]
 
             raw_scores = (
                 rec.score_external(
@@ -700,6 +775,7 @@ with tab_search:
 
             user_pantry = get_pantry()
 
+            # ── FIX: pass card_key with index so each card has unique widget keys
             for idx, (meal, score) in enumerate(scored_results):
                 render_meal_card(
                     meal,
@@ -711,6 +787,8 @@ with tab_search:
 
 # ── Cuisine tab ───────────────────────────────────────────────────────────────
 
+# Map from ISO-3 country code → TheMealDB area name
+# Only countries that TheMealDB actually has recipes for are listed.
 ISO_TO_CUISINE = {
     "CAN": "Canadian",
     "CHN": "Chinese",
@@ -744,6 +822,14 @@ ISO_TO_CUISINE = {
 
 
 def fetch_cuisine_recipes(cuisine: str, limit: int = 10) -> list[dict]:
+    """
+    Fetch full recipe details for a given cuisine using TheMealDB.
+
+    filter_by_cuisine() returns stubs (id + thumbnail only).
+    We then call get_meal_by_id() for each to get instructions,
+    ingredients, area, and category — everything render_meal_card() needs.
+    Results are cached inside each called function so this is fast.
+    """
     stubs = filter_by_cuisine(cuisine)[:limit]
     full_meals = []
     for stub in stubs:
@@ -752,19 +838,22 @@ def fetch_cuisine_recipes(cuisine: str, limit: int = 10) -> list[dict]:
             full_meals.append(meal)
     return full_meals
 
-
 with tab_cuisine:
     cuisines = list_cuisines()
 
     if not cuisines:
         empty_state("Cuisine list couldn't be loaded — check your internet.")
     else:
+        # ── World Map ──────────────────────────────────────────────────────
         st.subheader("🌍 Bites Across Borders")
         st.markdown("- Click on a country on the map to explore its traditional recipes")
         st.markdown("- Not sure where a country is? You can also use the selector below!")
 
         from streamlit_plotly_events import plotly_events
 
+        # Render the map and capture clicks. plotly_events returns a list of
+        # dicts — one per clicked point — each containing the customdata we
+        # embedded (the ISO-3 code).
         clicked_points = plotly_events(
             build_figure(),
             click_event=True,
@@ -775,7 +864,8 @@ with tab_cuisine:
             key="world_map",
         )
 
-        legend_cols = st.columns(len(CONTINENT_DATA) - 1)
+        # Legend
+        legend_cols = st.columns(len(CONTINENT_DATA) - 1)  # skip Antarctica
         col_idx = 0
         for cont, info in CONTINENT_DATA.items():
             if cont == "Antarctica":
@@ -793,6 +883,12 @@ with tab_cuisine:
 
         st.divider()
 
+        # plotly_events returns pointIndex relative to the clicked trace.
+        # curveNumber tells us which trace was clicked:
+        #   0 → grey trace (countries without TheMealDB recipes) — ignore
+        #   1 → coloured trace (countries with TheMealDB recipes) — use it
+        # The coloured trace contains only TheMealDB-linked ISOs in the same
+        # order as colored_locs (built inside build_figure).
         all_locations = list(ISO_CONTINENT.keys())
         cuisine_isos  = set(ISO_TO_CUISINE.keys())
         colored_locs  = [iso for iso in all_locations if iso in cuisine_isos]
@@ -800,6 +896,7 @@ with tab_cuisine:
         if clicked_points:
             curve_number = clicked_points[0].get("curveNumber", 0)
             point_index  = clicked_points[0].get("pointIndex")
+            # Only act on clicks on the coloured (TheMealDB) trace
             if curve_number == 1 and point_index is not None and point_index < len(colored_locs):
                 iso = colored_locs[point_index]
                 if iso in ISO_TO_CUISINE:
@@ -809,6 +906,7 @@ with tab_cuisine:
         active_cuisine = ISO_TO_CUISINE.get(selected_iso) if selected_iso else None
         selected_country_name = ISO_NAME.get(selected_iso) if selected_iso else None
 
+        # ── Also allow manual fallback via selectbox ──────────────────────
         CUISINE_TO_ISO = {v: k for k, v in ISO_TO_CUISINE.items()}
         cuisine_options = ["— click the map or choose here —"] + sorted(ISO_TO_CUISINE.values())
         default_idx = 0
@@ -828,6 +926,7 @@ with tab_cuisine:
             selected_country_name = ISO_NAME.get(selected_iso, active_cuisine)
             st.session_state["map_selected_iso"] = selected_iso
 
+        # ── Show results ──────────────────────────────────────────────────
         if active_cuisine:
             st.subheader(f"🍽️ Recipes from {selected_country_name}")
 
@@ -838,6 +937,7 @@ with tab_cuisine:
                 empty_state(f"No recipes found for {active_cuisine} — try another country.")
             else:
                 user_pantry = get_pantry()
+                # ── FIX: pass card_key with index so each card has unique widget keys
                 for idx, meal in enumerate(cuisine_results[:10]):
                     render_meal_card(
                         meal,
