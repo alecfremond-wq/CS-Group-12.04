@@ -234,7 +234,7 @@ has_signal = bool(liked_ingredients) or bool(wishlist_ids)
 
 if has_signal:
     # Ask for a large candidate pool so filtering by saved titles
-    # still leaves enough results to fill 8 slots.
+    # still leaves enough results to fill 5 slots.
     candidates = rec.recommend(
         history_df,
         top_n=len(recipes_df),
@@ -254,10 +254,10 @@ if has_signal:
         if max_score > 0:
             filtered["score"] = filtered["score"] / max_score
 
-    picks = filtered.head(8).reset_index(drop=True)
+    picks = filtered.head(5).reset_index(drop=True)
 else:
     # Cold start — no wishlist yet, return top recipes unscored
-    picks = rec.recommend(history_df, top_n=8)
+    picks = rec.recommend(history_df, top_n=5)
 
 if picks.empty:
     st.info(
