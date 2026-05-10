@@ -469,6 +469,23 @@ tab_search, tab_cuisine = st.tabs(["🔎 Search", "🌍 Browse by cuisine"])
 
 # ── Helper: render one recipe card ────────────────────────────────────────────
 
+def _fetch_and_save_nutrition(meal: dict, meal_title: str, local_id: int | None):
+    """Fetch nutrition via Spoonacular by dish name (accurate per-serving),
+    persist to the DB, and return (kcal, protein_g, carbs_g, fat_g).
+
+    Uses fetch_nutrition_for_meal which calls complexSearch by title first,
+    falling back to the ingredient parser only for obscure dishes.
+    No manual division is applied here — the helper already returns
+    correct per-serving values.
+    """
+    nutrition = fetch_nutrition_for_meal(meal)
+    kcal      = nutrition["kcal"]
+    protein_g = nutrition["protein_g"]
+    carbs_g   = nutrition["carbs_g"]
+    fat_g     = nutrition["fat_g"]
+    return kcal, protein_g, carbs_g, fat_g
+
+
 def render_meal_card(
     meal: dict,
     ml_score: float | None = None,
@@ -524,7 +541,7 @@ def render_meal_card(
                     st.rerun()
 
             # ── Meal Planner ──────────────────────────────────────────────
-            user_id = st.session_state.get("user_id")
+            user_id  = st.session_state.get("user_id")
             local_id = local_title_to_id.get(meal_title.lower())
 
             if local_id is None:
@@ -566,21 +583,12 @@ def render_meal_card(
                     key=f"{card_key}_planner_{meal_title}",
                 ):
                     if local_id is None:
-                        kcal      = meal.get("kcal_per_serv")
-                        protein_g = meal.get("protein_g")
-                        carbs_g   = meal.get("carbs_g")
-                        fat_g     = meal.get("fat_g")
-
-                        if kcal is None:
-                            nutrition = fetch_nutrition_for_meal(meal)
-                            # MealDB quantities are for ~4 servings — divide
-                            # so kcal_per_serv reflects one actual portion.
-                            _srv      = 4
-                            kcal      = round(nutrition["kcal"] / _srv)           if nutrition["kcal"]      else None
-                            protein_g = round(nutrition["protein_g"] / _srv, 1)   if nutrition["protein_g"] else None
-                            carbs_g   = round(nutrition["carbs_g"] / _srv, 1)     if nutrition["carbs_g"]   else None
-                            fat_g     = round(nutrition["fat_g"] / _srv, 1)       if nutrition["fat_g"]     else None
-
+                        # Recipe doesn't exist in DB yet — fetch nutrition and insert it.
+                        # fetch_nutrition_for_meal searches Spoonacular by dish name,
+                        # returning accurate per-serving macros (no ÷4 hack needed).
+                        kcal, protein_g, carbs_g, fat_g = _fetch_and_save_nutrition(
+                            meal, meal_title, local_id
+                        )
                         execute(
                             """INSERT INTO recipes
                                (title, kcal_per_serv, protein_g, carbs_g, fat_g)
@@ -594,20 +602,16 @@ def render_meal_card(
                         if not new_row.empty:
                             local_id = int(new_row.iloc[0]["id"])
                     else:
+                        # Recipe exists — backfill nutrition if missing.
                         kcal      = meal.get("kcal_per_serv")
                         protein_g = meal.get("protein_g")
                         carbs_g   = meal.get("carbs_g")
                         fat_g     = meal.get("fat_g")
 
                         if kcal is None:
-                            nutrition = fetch_nutrition_for_meal(meal)
-                            # MealDB quantities are for ~4 servings — divide
-                            # so kcal_per_serv reflects one actual portion.
-                            _srv      = 4
-                            kcal      = round(nutrition["kcal"] / _srv)           if nutrition["kcal"]      else None
-                            protein_g = round(nutrition["protein_g"] / _srv, 1)   if nutrition["protein_g"] else None
-                            carbs_g   = round(nutrition["carbs_g"] / _srv, 1)     if nutrition["carbs_g"]   else None
-                            fat_g     = round(nutrition["fat_g"] / _srv, 1)       if nutrition["fat_g"]     else None
+                            kcal, protein_g, carbs_g, fat_g = _fetch_and_save_nutrition(
+                                meal, meal_title, local_id
+                            )
 
                         if kcal is not None:
                             execute(
