@@ -623,11 +623,14 @@ def render_meal_card(
                     "➕ Add to Meal Planner",
                     key=f"{card_key}_planner_{meal_title}",
                 ):
-                    # If the recipe doesn't exist in the DB yet, create it
+                    # If the recipe doesn't exist in the DB yet, create it.
+                    # Also save kcal_per_serv if available (Spoonacular provides
+                    # this when addRecipeNutrition=True is set in api_client.py).
                     if local_id is None:
+                        kcal = meal.get("kcal_per_serv")
                         execute(
-                            "INSERT INTO recipes (title) VALUES (?)",
-                            (meal_title,),
+                            "INSERT INTO recipes (title, kcal_per_serv) VALUES (?, ?)",
+                            (meal_title, kcal),
                         )
                         new_row = query_df(
                             "SELECT id FROM recipes WHERE title = ? ORDER BY id DESC LIMIT 1",
@@ -635,6 +638,15 @@ def render_meal_card(
                         )
                         if not new_row.empty:
                             local_id = int(new_row.iloc[0]["id"])
+                    else:
+                        # Recipe already exists — update kcal if we now have it
+                        # (e.g. user previously saved it without nutrition data).
+                        kcal = meal.get("kcal_per_serv")
+                        if kcal is not None:
+                            execute(
+                                "UPDATE recipes SET kcal_per_serv = ? WHERE id = ? AND kcal_per_serv IS NULL",
+                                (kcal, local_id),
+                            )
 
                     if local_id:
                         execute(
@@ -896,4 +908,3 @@ with tab_cuisine:
                     )
         else:
             st.info("👆 Click a country on the map to explore its recipes.")
-
