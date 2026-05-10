@@ -30,6 +30,11 @@ from src.utils.session import init_session_state, require_profile
 init_session_state()
 profile = require_profile()
 
+# Deferred rerun: planner buttons set this flag; we act on it here at the
+# very top of the next render cycle — after the previous frame is complete.
+if st.session_state.pop("_needs_rerun", False):
+    st.rerun()
+
 page_header("🍲 Recipes", "Search recipes or browse by cuisine.")
 
 local_title_to_id: dict[str, int] = {r["name"].lower(): r["id"] for r in LOCAL_RECIPES}
@@ -338,34 +343,19 @@ def render_meal_card(meal: dict, ml_score: float | None = None, card_key: str = 
                     execute("DELETE FROM planner_pool WHERE user_id=? AND recipe_id=?", (_user_id, local_id))
                     execute("DELETE FROM meal_plan WHERE user_id=? AND recipe_id=?",    (_user_id, local_id))
                     st.session_state["_planner_ids_ss"].discard(local_id)
-                    st.toast(f"'{meal_title}' removed from Meal Planner 🗑️", icon="❌")
+                    st.session_state["_needs_rerun"] = True
             else:
                 if st.button("➕ Add to Meal Planner", key=f"{card_key}_add_{meal_title}"):
                     resolved_id = local_id
 
                     if resolved_id is None:
-                        n = fetch_nutrition_for_meal(meal)
-                        execute(
-                            "INSERT INTO recipes (title, kcal_per_serv, protein_g, carbs_g, fat_g) VALUES (?,?,?,?,?)",
-                            (meal_title, n["kcal"], n["protein_g"], n["carbs_g"], n["fat_g"]),
-                        )
+                        execute("INSERT OR IGNORE INTO recipes (title) VALUES (?)", (meal_title,))
                         row = query_df(
                             "SELECT id FROM recipes WHERE title=? ORDER BY id DESC LIMIT 1",
                             (meal_title,),
                         )
                         if not row.empty:
                             resolved_id = int(row.iloc[0]["id"])
-                        kcal = n["kcal"]
-                    else:
-                        kcal = meal.get("kcal_per_serv")
-                        if kcal is None:
-                            n    = fetch_nutrition_for_meal(meal)
-                            kcal = n["kcal"]
-                            if kcal is not None:
-                                execute(
-                                    "UPDATE recipes SET kcal_per_serv=?, protein_g=?, carbs_g=?, fat_g=? WHERE id=?",
-                                    (kcal, n["protein_g"], n["carbs_g"], n["fat_g"], resolved_id),
-                                )
 
                     if resolved_id:
                         execute(
@@ -374,10 +364,7 @@ def render_meal_card(meal: dict, ml_score: float | None = None, card_key: str = 
                         )
                         st.session_state["_planner_ids_ss"].add(resolved_id)
 
-                    if kcal is None:
-                        st.toast("⚠️ Calories not found — enter them manually in Nutrition Analytics.", icon="ℹ️")
-                    else:
-                        st.toast(f"✅ '{meal_title}' added to Meal Planner!", icon="🍽️")
+                    st.session_state["_needs_rerun"] = True
 
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
@@ -398,21 +385,18 @@ def search_tab() -> None:
     if "last_results" not in st.session_state:
         st.session_state["last_results"] = []
 
-    col_input, col_btn = st.columns([5, 1])
-    with col_input:
-        query = st.text_input(
-            "What would you like to cook?",
-            placeholder="e.g. pasta, curry…",
-            label_visibility="collapsed",
-            value=st.session_state["last_query"],
-        )
-    with col_btn:
-        search_clicked = st.button("🔎 Search", use_container_width=True)
+    def _do_search():
+        q = st.session_state["_search_input"].strip()
+        if q and q != st.session_state["last_query"]:
+            st.session_state["last_query"]   = q
+            st.session_state["last_results"] = search_recipes_by_name(q)
 
-    if search_clicked and query:
-        st.session_state["last_query"] = query
-        with st.spinner("Searching recipes…"):
-            st.session_state["last_results"] = search_recipes_by_name(query)
+    st.text_input(
+        "What would you like to cook?",
+        placeholder="e.g. pasta, curry… then press Enter",
+        key="_search_input",
+        on_change=_do_search,
+    )
 
     results    = st.session_state["last_results"]
     last_query = st.session_state["last_query"]
