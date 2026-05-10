@@ -207,13 +207,36 @@ st.divider()
 
 # ── Run the model ─────────────────────────────────────────────────────────────
 
-rec   = Recommender(recipes_df)
-picks = rec.recommend(
+rec = Recommender(recipes_df)
+
+# Step 1: get candidate recipes from k-NN (handles cold-start, seen filtering,
+# wishlist exclusion). We ask for more than top_n so we have room to re-rank.
+candidates = rec.recommend(
     history_df,
-    top_n=5,
+    top_n=20,
     wishlist=wishlist_ids,
     liked_ingredients=liked_ingredients,
 )
+
+# Step 2: overwrite the cosine scores with Jaccard scores.
+# Cosine relies on vocabulary overlap inside the small catalogue and produces
+# near-zero scores when liked ingredients don't match the training vocabulary.
+# Jaccard compares ingredient strings directly so it always gives meaningful
+# percentages — the same method used to rank search results.
+has_signal = bool(wishlist_ids) or bool(liked_ingredients)
+if not candidates.empty and has_signal:
+    jaccard_scores = rec.score_external(
+        candidates["ingredients"].tolist(),
+        history_df,
+        wishlist_ids,
+        liked_ingredients,
+    )
+    candidates = candidates.copy()
+    candidates["score"] = jaccard_scores
+    # Sort by Jaccard score descending, NaNs last
+    candidates = candidates.sort_values("score", ascending=False, na_position="last")
+
+picks = candidates.head(5).reset_index(drop=True)
 
 if picks.empty:
     st.success(
