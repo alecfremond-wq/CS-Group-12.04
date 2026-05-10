@@ -112,7 +112,6 @@ def get_meal_by_id(meal_id: str) -> dict | None:
         return None
 
 
-
 def extract_ingredients_from_meal(meal: dict) -> list[str]:
     """Extract ingredient names from a TheMealDB meal dict.
 
@@ -137,16 +136,18 @@ def fetch_nutrition_from_ingredients(ingredients: list[str]) -> dict:
     nutrition, then sums up calories, protein, carbs and fat across all
     ingredients to produce recipe-level totals.
 
+    NOTE: this returns TOTAL nutrition for the whole recipe, not per serving.
+    Only use this as a fallback — prefer fetch_nutrition_by_title() which
+    returns accurate per-serving values directly from Spoonacular.
+
     Returns a dict with keys: kcal, protein_g, carbs_g, fat_g.
-    All values are ints (rounded). Returns all zeros on failure.
+    All values are ints (rounded). Returns all-None on failure.
     """
     empty = {"kcal": None, "protein_g": None, "carbs_g": None, "fat_g": None}
     if not ingredients:
         return empty
 
     try:
-        # Join ingredients as a newline-separated list — that's what the
-        # Spoonacular parseIngredients endpoint expects.
         ingredient_list = "\n".join(ingredients)
 
         resp = requests.post(
@@ -187,16 +188,90 @@ def fetch_nutrition_from_ingredients(ingredients: list[str]) -> dict:
         return empty
 
 
-def fetch_nutrition_for_meal(meal: dict) -> dict:
-    """High-level helper: given a TheMealDB meal dict, return its nutrition.
+def fetch_nutrition_by_title(title: str) -> dict:
+    """Look up accurate per-serving nutrition for a dish by name via Spoonacular.
 
-    Combines extract_ingredients_from_meal() + fetch_nutrition_from_ingredients()
-    into a single call so 2_Recipes.py only needs to call this one function.
+    Uses complexSearch with addRecipeNutrition=True, which returns macros
+    already normalised to one serving — no manual division needed.
+
+    This is the primary nutrition source. fetch_nutrition_from_ingredients()
+    is only used as a fallback when this returns nothing.
+
+    Returns a dict with keys: kcal, protein_g, carbs_g, fat_g.
+    All values are None if the dish isn't found or the API is unavailable.
+    """
+    empty = {"kcal": None, "protein_g": None, "carbs_g": None, "fat_g": None}
+    if not title:
+        return empty
+
+    try:
+        resp = requests.get(
+            "https://api.spoonacular.com/recipes/complexSearch",
+            params={
+                "apiKey": st.secrets["SPOONACULAR_API_KEY"],
+                "query":  title,
+                "number": 1,
+                "addRecipeNutrition": True,
+            },
+            timeout=20,
+        )
+        resp.raise_for_status()
+        results = resp.json().get("results", [])
+        if not results:
+            return empty
+
+        nutrients = results[0].get("nutrition", {}).get("nutrients", [])
+
+        def _get(name):
+            return next((n["amount"] for n in nutrients if n.get("name") == name), None)
+
+        kcal    = _get("Calories")
+        protein = _get("Protein")
+        carbs   = _get("Carbohydrates")
+        fat     = _get("Fat")
+
+        return {
+            "kcal":      int(round(kcal))    if kcal    is not None else None,
+            "protein_g": round(protein, 1)   if protein is not None else None,
+            "carbs_g":   round(carbs, 1)     if carbs   is not None else None,
+            "fat_g":     round(fat, 1)       if fat     is not None else None,
+        }
+
+    except Exception:
+        return empty
+
+
+def fetch_nutrition_for_meal(meal: dict) -> dict:
+    """High-level helper: given a TheMealDB meal dict, return per-serving nutrition.
+
+    Strategy (in order):
+      1. Spoonacular complexSearch by dish name — returns accurate per-serving
+         macros directly, so no division is needed. This fixes the previous bug
+         where raw ingredient weights were summed and divided by a hardcoded 4,
+         producing wildly incorrect values (e.g. 3434 kcal for a mousse).
+      2. Fallback to ingredient parser only when step 1 finds nothing (e.g. very
+         obscure dishes). The parser returns whole-recipe totals, so we divide
+         by 4 as a rough estimate — still better than the inflated raw sum.
 
     Returns a dict with keys: kcal, protein_g, carbs_g, fat_g.
     """
+    # ── Primary: search by dish name (accurate per-serving) ──────────────────
+    title = meal.get("strMeal", "")
+    result = fetch_nutrition_by_title(title)
+    if result["kcal"] is not None:
+        return result
+
+    # ── Fallback: ingredient parser ÷ 4 servings (rough estimate) ────────────
     ingredients = extract_ingredients_from_meal(meal)
-    return fetch_nutrition_from_ingredients(ingredients)
+    raw = fetch_nutrition_from_ingredients(ingredients)
+    _srv = 4
+    return {
+        "kcal":      int(round(raw["kcal"] / _srv))      if raw["kcal"]      is not None else None,
+        "protein_g": round(raw["protein_g"] / _srv, 1)   if raw["protein_g"] is not None else None,
+        "carbs_g":   round(raw["carbs_g"] / _srv, 1)     if raw["carbs_g"]   is not None else None,
+        "fat_g":     round(raw["fat_g"] / _srv, 1)       if raw["fat_g"]     is not None else None,
+    }
+
 
 def fetch_kcal_for_title(title: str) -> "int | None":
     """Look up calorie data for a recipe title using Spoonacular.
@@ -207,29 +282,8 @@ def fetch_kcal_for_title(title: str) -> "int | None":
 
     Returns the kcal as an int, or None if not found / API unavailable.
     """
-    try:
-        params = {
-            "apiKey": st.secrets["SPOONACULAR_API_KEY"],
-            "query": title,
-            "number": 1,
-            "addRecipeNutrition": True,
-        }
-        resp = requests.get(
-            "https://api.spoonacular.com/recipes/complexSearch",
-            params=params,
-            timeout=20,
-        )
-        resp.raise_for_status()
-        results = resp.json().get("results", [])
-        if not results:
-            return None
-        nutrients = results[0].get("nutrition", {}).get("nutrients", [])
-        return next(
-            (int(n["amount"]) for n in nutrients if n.get("name") == "Calories"),
-            None,
-        )
-    except Exception:
-        return None
+    result = fetch_nutrition_by_title(title)
+    return result["kcal"]
 
 
 @st.cache_data(ttl=60 * 60)
@@ -313,4 +367,3 @@ def search_spoonacular(query="", vegetarian=False, vegan=False,
     except Exception as exc:
         st.warning(f"Spoonacular unavailable: {exc}")
         return []
-
