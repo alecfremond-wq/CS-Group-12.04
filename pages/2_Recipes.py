@@ -750,17 +750,62 @@ with tab_cuisine:
         st.markdown("- Click on a country on the map to explore its traditional recipes")
         st.markdown("- Not sure where a country is? You can also use the selector below!")
 
-        # on_select="rerun" makes Streamlit re-run the script when the user
-        # clicks a country, passing back the click data via the return value.
-        map_selection = st.plotly_chart(
-            build_figure(),
+        # ── Resolve selected cuisine from selectbox ────────────────────────
+        # Choropleth maps don't support click-to-select in Streamlit's
+        # st.plotly_chart. Instead the selectbox drives the selection,
+        # and the map highlights the chosen country.
+        cuisine_options = sorted(ISO_TO_CUISINE.values())
+
+        # Reverse lookup: cuisine name → ISO code
+        CUISINE_TO_ISO = {v: k for k, v in ISO_TO_CUISINE.items()}
+
+        choice = st.selectbox(
+            "Pick a cuisine — the map will highlight the country:",
+            options=cuisine_options,
+            key="cuisine_selectbox",
+        )
+
+        # Highlight the selected country on the map by re-rendering with
+        # a bright marker on top of the choropleth.
+        selected_iso = CUISINE_TO_ISO.get(choice)
+
+        def build_figure_with_highlight(highlight_iso: str | None) -> go.Figure:
+            fig = build_figure()
+            if highlight_iso:
+                CENTROIDS = {
+                    "CAN":(56,-96),"CHN":(35,105),"EGY":(27,30),
+                    "FRA":(46,2),"GRC":(39,22),"IND":(20,77),
+                    "IRL":(53,-8),"ITA":(42,12),"JAM":(18,-77),
+                    "JPN":(36,138),"KEN":(-1,38),"MYS":(4,109),
+                    "MEX":(23,-102),"MAR":(32,-6),"NLD":(52,5),
+                    "POL":(52,20),"PRT":(39,-8),"RUS":(60,100),
+                    "ESP":(40,-4),"THA":(15,101),"TUN":(34,9),
+                    "TUR":(39,35),"GBR":(54,-2),"USA":(38,-97),
+                    "VNM":(16,108),"PHL":(13,122),"HRV":(45,16),
+                    "URY":(-33,-56),
+                }
+                if highlight_iso in CENTROIDS:
+                    lat, lon = CENTROIDS[highlight_iso]
+                    country_name = ISO_NAME.get(highlight_iso, "")
+                    fig.add_trace(go.Scattergeo(
+                        lat=[lat], lon=[lon],
+                        mode="markers+text",
+                        marker=dict(size=18, color="red", symbol="star"),
+                        text=[country_name],
+                        textposition="top center",
+                        textfont=dict(size=13, color="red"),
+                        hoverinfo="skip",
+                        showlegend=False,
+                    ))
+            return fig
+
+        st.plotly_chart(
+            build_figure_with_highlight(selected_iso),
             use_container_width=True,
-            on_select="rerun",
-            selection_mode="points",
             config={
                 "scrollZoom": False,
                 "displayModeBar": False,
-                "staticPlot": False,
+                "staticPlot": True,
             },
         )
 
@@ -783,54 +828,12 @@ with tab_cuisine:
 
         st.divider()
 
-        # ── DEBUG — remove once working ───────────────────────────────────
-        st.write("**Raw map_selection:**", map_selection)
-        # ─────────────────────────────────────────────────────────────────
-
-        # ── Resolve clicked country → cuisine ─────────────────────────────
-        try:
-            points = map_selection.selection.get("points", [])
-            if points:
-                st.write("**First point keys:**", list(points[0].keys()))
-                st.write("**First point data:**", points[0])
-                iso = points[0].get("customdata")
-                if iso and ISO_TO_CUISINE.get(iso):
-                    st.session_state["map_selected_iso"] = iso
-        except Exception as e:
-            st.error(f"Click handler error: {e}")
-
-        # Read the persisted selection (falls back to None on first load)
-        selected_iso = st.session_state.get("map_selected_iso")
-        clicked_cuisine = ISO_TO_CUISINE.get(selected_iso) if selected_iso else None
-        clicked_country_name = ISO_NAME.get(selected_iso) if selected_iso else None
-
-        # ── Manual selector (always visible as fallback) ──────────────────
-        # If a country was clicked on the map, pre-select it in the dropdown.
-        cuisine_options = sorted(ISO_TO_CUISINE.values())
-        default_idx = 0
-        if clicked_cuisine and clicked_cuisine in cuisine_options:
-            default_idx = cuisine_options.index(clicked_cuisine)
-
-        choice = st.selectbox(
-            "Or pick a cuisine manually:",
-            options=cuisine_options,
-            index=default_idx,
-            key="cuisine_selectbox",
-        )
-
-        # If the user manually changes the dropdown, clear the map selection
-        # so the dropdown choice takes over cleanly.
-        if choice != clicked_cuisine:
-            st.session_state["map_selected_iso"] = None
-
+        # ── Show results ──────────────────────────────────────────────────
         active_cuisine = choice
 
-        # ── Show results ──────────────────────────────────────────────────
         if active_cuisine:
-            if clicked_country_name and clicked_cuisine == active_cuisine:
-                st.subheader(f"🍽️ Recipes from {clicked_country_name}")
-            else:
-                st.subheader(f"🍽️ {active_cuisine} recipes")
+            country_name = ISO_NAME.get(CUISINE_TO_ISO.get(active_cuisine, ""), active_cuisine)
+            st.subheader(f"🍽️ Recipes from {country_name}")
 
             with st.spinner(f"Loading {active_cuisine} recipes…"):
                 cuisine_results = fetch_cuisine_recipes(active_cuisine)
