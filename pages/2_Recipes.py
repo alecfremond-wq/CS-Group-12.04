@@ -784,15 +784,17 @@ with tab_cuisine:
 
         st.divider()
 
+        # plotly_events only returns pointIndex (not customdata/location).
+        # We look up the ISO code by index from our own locations list,
+        # which is in the exact same order as the choropleth trace.
+        locations_list = list(ISO_CONTINENT.keys())
+
         if clicked_points:
-            st.write("DEBUG clicked_points:", clicked_points)
-        # clicked_points is a list like [{"customdata": "ITA", ...}]
-        # We persist in session_state so the recipes don't vanish when
-        # the user interacts with recipe cards (which trigger reruns).
-        if clicked_points:
-            iso = clicked_points[0].get("customdata")
-            if iso and iso in ISO_TO_CUISINE:
-                st.session_state["map_selected_iso"] = iso
+            point_index = clicked_points[0].get("pointIndex")
+            if point_index is not None and point_index < len(locations_list):
+                iso = locations_list[point_index]
+                if iso in ISO_TO_CUISINE:
+                    st.session_state["map_selected_iso"] = iso
 
         selected_iso = st.session_state.get("map_selected_iso")
         active_cuisine = ISO_TO_CUISINE.get(selected_iso) if selected_iso else None
