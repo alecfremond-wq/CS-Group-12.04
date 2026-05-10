@@ -298,6 +298,7 @@ with st.expander(f"✏️ Edit calories manually for {selected}"):
     MAX_KCAL = 10000          # raised ceiling
     for i, meal in enumerate(MEALS):
         with ecols[i]:
+            current = min(int(day_data[meal]), MAX_KCAL)   # clamp to max
             new_vals[meal] = st.number_input(
                 meal, min_value=0, max_value=5000,
                 value=int(day_data[meal]), step=10,
