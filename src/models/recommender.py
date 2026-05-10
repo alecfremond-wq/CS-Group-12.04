@@ -19,12 +19,6 @@ How this actually works, in plain English:
     is that ANY recipe with a known ingredient list can be scored — including
     recipes that come from the TheMealDB or Spoonacular APIs.
 """
-python -c "
-import time, requests
-t = time.time()
-r = requests.get('https://www.themealdb.com/api/json/v1/1/search.php?s=pasta', timeout=20)
-print(f'TheMealDB: {time.time()-t:.2f}s')
-"
 
 from __future__ import annotations
 
