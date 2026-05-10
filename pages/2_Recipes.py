@@ -29,7 +29,31 @@ from src.models.recommender import Recommender
 from src.utils.session import init_session_state, require_profile
 
 
-# ── Planner helpers ───────────────────────────────────────────────────────────
+# ── App init ──────────────────────────────────────────────────────────────────
+
+init_session_state()
+profile = require_profile()
+
+# ── Deferred rerun — must be first UI statement after init ────────────────────
+# Buttons must never call st.rerun() or st.toast() mid-render — both corrupt
+# the WebSocket frame and cause "Cached ForwardMsg MISS" crashes.
+# Instead buttons write to session state; we action everything here at the
+# very top of the next clean render cycle:
+#   _needs_rerun  → True to trigger st.rerun()
+#   _toast        → (message, icon) to show before the rerun
+_pending_toast = st.session_state.pop("_toast", None)
+if _pending_toast:
+    st.toast(_pending_toast[0], icon=_pending_toast[1])
+
+if st.session_state.pop("_needs_rerun", False):
+    st.rerun()
+
+page_header("🍲 Recipes", "Search recipes or browse by cuisine.")
+
+local_title_to_id = {r["name"].lower(): r["id"] for r in LOCAL_RECIPES}
+
+
+# ── Planner banner ────────────────────────────────────────────────────────────
 
 def get_my_planner_meals(user_id: int) -> list[dict]:
     if not user_id:
@@ -45,9 +69,7 @@ def get_my_planner_meals(user_id: int) -> list[dict]:
             """,
             (user_id,),
         )
-        if df.empty:
-            return []
-        return df.to_dict("records")
+        return [] if df.empty else df.to_dict("records")
     except Exception:
         return []
 
@@ -89,23 +111,13 @@ def show_my_planner_banner() -> None:
                             "DELETE FROM meal_plan WHERE user_id = ? AND recipe_id = ?",
                             (user_id, meal["recipe_id"]),
                         )
-                        st.toast(f"❌ '{meal['title']}' removed from Meal Planner", icon="🗑️")
-                        st.rerun()
+                        st.session_state["_toast"] = (f"❌ '{meal['title']}' removed from Meal Planner", "🗑️")
+                        st.session_state["_needs_rerun"] = True
 
         st.caption("Go to the **Meal Planner** page to schedule them across the week.")
 
 
-# ── App init ──────────────────────────────────────────────────────────────────
-
-init_session_state()
-
-profile = require_profile()
-
-page_header("🍲 Recipes", "Search recipes or browse by cuisine.")
-
 show_my_planner_banner()
-
-local_title_to_id = {r["name"].lower(): r["id"] for r in LOCAL_RECIPES}
 
 
 # ── World Map data ────────────────────────────────────────────────────────────
@@ -183,7 +195,6 @@ CONTINENT_DATA = {
 }
 
 ISO_CONTINENT = {
-    # Africa
     "DZA":"Africa","AGO":"Africa","BEN":"Africa","BWA":"Africa","BFA":"Africa",
     "BDI":"Africa","CPV":"Africa","CMR":"Africa","CAF":"Africa","TCD":"Africa",
     "COM":"Africa","COD":"Africa","COG":"Africa","DJI":"Africa","EGY":"Africa",
@@ -195,7 +206,6 @@ ISO_CONTINENT = {
     "STP":"Africa","SEN":"Africa","SLE":"Africa","SOM":"Africa","ZAF":"Africa",
     "SSD":"Africa","SDN":"Africa","TZA":"Africa","TGO":"Africa","TUN":"Africa",
     "UGA":"Africa","ZMB":"Africa","ZWE":"Africa",
-    # Asia
     "AFG":"Asia","ARM":"Asia","AZE":"Asia","BHR":"Asia","BGD":"Asia",
     "BTN":"Asia","BRN":"Asia","KHM":"Asia","CHN":"Asia","CYP":"Asia",
     "GEO":"Asia","IND":"Asia","IDN":"Asia","IRN":"Asia","IRQ":"Asia",
@@ -206,7 +216,6 @@ ISO_CONTINENT = {
     "SGP":"Asia","KOR":"Asia","LKA":"Asia","SYR":"Asia","TWN":"Asia",
     "TJK":"Asia","THA":"Asia","TLS":"Asia","TUR":"Asia","TKM":"Asia",
     "ARE":"Asia","UZB":"Asia","VNM":"Asia","YEM":"Asia",
-    # Europe
     "ALB":"Europe","AND":"Europe","AUT":"Europe","BLR":"Europe","BEL":"Europe",
     "BIH":"Europe","BGR":"Europe","HRV":"Europe","CZE":"Europe","DNK":"Europe",
     "EST":"Europe","FIN":"Europe","FRA":"Europe","DEU":"Europe","GRC":"Europe",
@@ -216,7 +225,6 @@ ISO_CONTINENT = {
     "NOR":"Europe","POL":"Europe","PRT":"Europe","ROU":"Europe","RUS":"Europe",
     "SMR":"Europe","SRB":"Europe","SVK":"Europe","SVN":"Europe","ESP":"Europe",
     "SWE":"Europe","CHE":"Europe","UKR":"Europe","GBR":"Europe","VAT":"Europe",
-    # North America
     "ATG":"North America","BHS":"North America","BRB":"North America",
     "BLZ":"North America","CAN":"North America","CRI":"North America",
     "CUB":"North America","DMA":"North America","DOM":"North America",
@@ -225,17 +233,14 @@ ISO_CONTINENT = {
     "MEX":"North America","NIC":"North America","PAN":"North America",
     "KNA":"North America","LCA":"North America","VCT":"North America",
     "TTO":"North America","USA":"North America",
-    # South America
     "ARG":"South America","BOL":"South America","BRA":"South America",
     "CHL":"South America","COL":"South America","ECU":"South America",
     "GUY":"South America","PRY":"South America","PER":"South America",
     "SUR":"South America","URY":"South America","VEN":"South America",
-    # Oceania
     "AUS":"Oceania","FJI":"Oceania","KIR":"Oceania","MHL":"Oceania",
     "FSM":"Oceania","NRU":"Oceania","NZL":"Oceania","PLW":"Oceania",
     "PNG":"Oceania","WSM":"Oceania","SLB":"Oceania","TON":"Oceania",
     "TUV":"Oceania","VUT":"Oceania",
-    # Antarctica
     "ATA":"Antarctica",
 }
 
@@ -289,12 +294,25 @@ ISO_NAME = {
     "ATA":"Antarctica",
 }
 
+# Defined early so build_figure() can reference it
+ISO_TO_CUISINE = {
+    "CAN": "Canadian",  "CHN": "Chinese",    "EGY": "Egyptian",
+    "FRA": "French",    "GRC": "Greek",      "IND": "Indian",
+    "IRL": "Irish",     "ITA": "Italian",    "JAM": "Jamaican",
+    "JPN": "Japanese",  "KEN": "Kenyan",     "MYS": "Malaysian",
+    "MEX": "Mexican",   "MAR": "Moroccan",   "NLD": "Dutch",
+    "POL": "Polish",    "PRT": "Portuguese", "RUS": "Russian",
+    "ESP": "Spanish",   "THA": "Thai",       "TUN": "Tunisian",
+    "TUR": "Turkish",   "GBR": "British",    "USA": "American",
+    "VNM": "Vietnamese","PHL": "Filipino",   "HRV": "Croatian",
+    "URY": "Uruguayan",
+}
+
 
 def build_figure() -> go.Figure:
-    all_locations = list(ISO_CONTINENT.keys())
-    cuisine_isos  = set(ISO_TO_CUISINE.keys())
-
-    colored_locs  = [iso for iso in all_locations if iso in cuisine_isos]
+    all_locations  = list(ISO_CONTINENT.keys())
+    cuisine_isos   = set(ISO_TO_CUISINE.keys())
+    colored_locs   = [iso for iso in all_locations if iso in cuisine_isos]
     continent_list = list(CONTINENT_DATA.keys())
     colors_list    = [CONTINENT_DATA[c]["color"] for c in continent_list]
     n = len(continent_list)
@@ -318,82 +336,53 @@ def build_figure() -> go.Figure:
         )
 
     trace_colored = go.Choropleth(
-        locations=colored_locs,
-        locationmode="ISO-3",
-        z=colored_z,
-        text=colored_hover,
-        customdata=colored_locs,
+        locations=colored_locs, locationmode="ISO-3",
+        z=colored_z, text=colored_hover, customdata=colored_locs,
         hovertemplate="%{text}<extra></extra>",
-        colorscale=colorscale,
-        zmin=0,
-        zmax=n,
-        showscale=False,
-        marker_line_color="white",
-        marker_line_width=0.8,
-        name="",
+        colorscale=colorscale, zmin=0, zmax=n,
+        showscale=False, marker_line_color="white", marker_line_width=0.8, name="",
     )
 
     grey_locs  = [iso for iso in all_locations if iso not in cuisine_isos]
-    grey_hover = []
-    for iso in grey_locs:
-        name = ISO_NAME.get(iso, iso)
-        grey_hover.append(
-            f"<b style='font-size:14px'>{name}</b><br>"
-            f"<span style='color:#999'>No recipes available in TheMealDB</span>"
-        )
+    grey_hover = [
+        f"<b style='font-size:14px'>{ISO_NAME.get(iso, iso)}</b><br>"
+        f"<span style='color:#999'>No recipes available in TheMealDB</span>"
+        for iso in grey_locs
+    ]
 
     trace_grey = go.Choropleth(
-        locations=grey_locs,
-        locationmode="ISO-3",
-        z=[0] * len(grey_locs),
-        text=grey_hover,
-        customdata=grey_locs,
+        locations=grey_locs, locationmode="ISO-3",
+        z=[0] * len(grey_locs), text=grey_hover, customdata=grey_locs,
         hovertemplate="%{text}<extra></extra>",
-        colorscale=[[0, "#C8C8C8"], [1, "#C8C8C8"]],
-        zmin=0,
-        zmax=1,
-        showscale=False,
-        marker_line_color="white",
-        marker_line_width=0.5,
-        name="",
+        colorscale=[[0, "#C8C8C8"], [1, "#C8C8C8"]], zmin=0, zmax=1,
+        showscale=False, marker_line_color="white", marker_line_width=0.5, name="",
     )
 
     fig = go.Figure(data=[trace_grey, trace_colored])
     fig.update_layout(
         geo=dict(
-            showframe=False,
-            showcoastlines=True,
-            coastlinecolor="white",
-            showland=True,
-            landcolor="#D5D8DC",
-            showocean=True,
-            oceancolor="#AED6F1",
-            showlakes=True,
-            lakecolor="#AED6F1",
-            showrivers=False,
-            projection_type="natural earth",
+            showframe=False, showcoastlines=True, coastlinecolor="white",
+            showland=True, landcolor="#D5D8DC",
+            showocean=True, oceancolor="#AED6F1",
+            showlakes=True, lakecolor="#AED6F1",
+            showrivers=False, projection_type="natural earth",
             bgcolor="rgba(0,0,0,0)",
-            lataxis_range=[-60, 85],
-            lonaxis_range=[-180, 180],
-            projection_scale=1,
-            showsubunits=False,
-            showcountries=False,
+            lataxis_range=[-60, 85], lonaxis_range=[-180, 180],
+            projection_scale=1, showsubunits=False, showcountries=False,
         ),
         paper_bgcolor="white",
         margin=dict(l=0, r=0, t=10, b=10),
         hoverlabel=dict(
             bgcolor="#2C3E50",
             font=dict(size=12, color="white", family="monospace"),
-            bordercolor="#AAA",
-            align="left",
+            bordercolor="#AAA", align="left",
         ),
-        dragmode=False,
-        annotations=[],
+        dragmode=False, annotations=[],
     )
     return fig
 
 
-# ── Pantry helper ─────────────────────────────────────────────────────────────
+# ── Pantry helpers ────────────────────────────────────────────────────────────
 
 def extract_ingredients(meal: dict) -> list[str]:
     if meal.get("_ingredients"):
@@ -412,16 +401,13 @@ def get_pantry() -> set[str]:
     try:
         df = query_df(
             """
-            SELECT i.name
-            FROM pantry p
+            SELECT i.name FROM pantry p
             JOIN ingredients i ON p.ingredient_id = i.id
             WHERE p.user_id = ? AND p.quantity > 0
             """,
             (user_id,),
         )
-        if df.empty:
-            return set()
-        return set(df["name"].str.lower())
+        return set() if df.empty else set(df["name"].str.lower())
     except Exception:
         return set()
 
@@ -436,22 +422,18 @@ def pantry_pct(meal: dict, pantry: set[str]) -> float | None:
     return sum(1 for n in names if n in pantry) / len(names)
 
 
-# ── Wishlist / taste-profile setup ────────────────────────────────────────────
+# ── Taste profile ─────────────────────────────────────────────────────────────
 
 wishlist = st.session_state.get("wishlist", [])
 
 wishlist_ids = [
-    w["local_id"]
-    for w in wishlist
+    w["local_id"] for w in wishlist
     if isinstance(w, dict) and w.get("local_id") is not None
 ]
-
 liked_ingredients = [
-    w["ingredients"]
-    for w in wishlist
+    w["ingredients"] for w in wishlist
     if isinstance(w, dict) and w.get("ingredients")
 ]
-
 history_df = pd.DataFrame(st.session_state.get("cooking_history", []))
 
 has_taste_profile = (
@@ -464,27 +446,8 @@ has_taste_profile = (
     )
 )
 
-tab_search, tab_cuisine = st.tabs(["🔎 Search", "🌍 Browse by cuisine"])
 
-
-# ── Helper: render one recipe card ────────────────────────────────────────────
-
-def _fetch_and_save_nutrition(meal: dict, meal_title: str, local_id: int | None):
-    """Fetch nutrition via Spoonacular by dish name (accurate per-serving),
-    persist to the DB, and return (kcal, protein_g, carbs_g, fat_g).
-
-    Uses fetch_nutrition_for_meal which calls complexSearch by title first,
-    falling back to the ingredient parser only for obscure dishes.
-    No manual division is applied here — the helper already returns
-    correct per-serving values.
-    """
-    nutrition = fetch_nutrition_for_meal(meal)
-    kcal      = nutrition["kcal"]
-    protein_g = nutrition["protein_g"]
-    carbs_g   = nutrition["carbs_g"]
-    fat_g     = nutrition["fat_g"]
-    return kcal, protein_g, carbs_g, fat_g
-
+# ── Recipe card ───────────────────────────────────────────────────────────────
 
 def render_meal_card(
     meal: dict,
@@ -493,6 +456,26 @@ def render_meal_card(
     card_key: str = "",
 ) -> None:
     meal_title = meal["strMeal"]
+    user_id    = st.session_state.get("user_id")
+
+    # Resolve local DB id once per card (no mid-render DB calls on every rerun)
+    local_id = local_title_to_id.get(meal_title.lower())
+    if local_id is None:
+        existing = query_df(
+            "SELECT id FROM recipes WHERE LOWER(title) = LOWER(?) LIMIT 1",
+            (meal_title,),
+        )
+        if not existing.empty:
+            local_id = int(existing.iloc[0]["id"])
+
+    # Check planner membership once per card
+    already_in_planner = False
+    if user_id and local_id:
+        chk = query_df(
+            "SELECT 1 FROM planner_pool WHERE user_id = ? AND recipe_id = ? LIMIT 1",
+            (user_id, local_id),
+        )
+        already_in_planner = not chk.empty
 
     with st.container(border=True):
         col_img, col_meta = st.columns([1, 3])
@@ -502,9 +485,7 @@ def render_meal_card(
 
         with col_meta:
             st.subheader(meal_title)
-            st.caption(
-                f"{meal.get('strArea', '—')} · {meal.get('strCategory', '—')}"
-            )
+            st.caption(f"{meal.get('strArea', '—')} · {meal.get('strCategory', '—')}")
 
             if ml_score is not None and not pd.isna(ml_score):
                 st.progress(float(ml_score), text=f"Match score: {ml_score:.0%}")
@@ -528,38 +509,16 @@ def render_meal_card(
                 st.caption("❤️ Saved to wishlist")
             else:
                 if st.button("❤️ Save to wishlist", key=f"{card_key}_wish_{meal_title}"):
-                    local_id = local_title_to_id.get(meal_title.lower())
-                    st.session_state["wishlist"].append(
-                        {
-                            "title": meal_title,
-                            "image": meal.get("strMealThumb"),
-                            "area": meal.get("strArea", ""),
-                            "local_id": local_id,
-                            "ingredients": extract_ingredients(meal),
-                        }
-                    )
-                    st.rerun()
+                    st.session_state["wishlist"].append({
+                        "title":       meal_title,
+                        "image":       meal.get("strMealThumb"),
+                        "area":        meal.get("strArea", ""),
+                        "local_id":    local_id,
+                        "ingredients": extract_ingredients(meal),
+                    })
+                    st.session_state["_needs_rerun"] = True  # deferred — no mid-render rerun
 
             # ── Meal Planner ──────────────────────────────────────────────
-            user_id  = st.session_state.get("user_id")
-            local_id = local_title_to_id.get(meal_title.lower())
-
-            if local_id is None:
-                existing_recipe = query_df(
-                    "SELECT id FROM recipes WHERE LOWER(title) = LOWER(?) LIMIT 1",
-                    (meal_title,),
-                )
-                if not existing_recipe.empty:
-                    local_id = int(existing_recipe.iloc[0]["id"])
-
-            already_in_planner = False
-            if user_id and local_id:
-                planner_check = query_df(
-                    "SELECT 1 FROM planner_pool WHERE user_id = ? AND recipe_id = ? LIMIT 1",
-                    (user_id, local_id),
-                )
-                already_in_planner = not planner_check.empty
-
             if already_in_planner:
                 st.success("🍽️ Already in your Meal Planner!")
                 if st.button(
@@ -574,21 +533,23 @@ def render_meal_card(
                         "DELETE FROM meal_plan WHERE user_id = ? AND recipe_id = ?",
                         (user_id, local_id),
                     )
-                    st.toast(f"'{meal_title}' removed from Meal Planner 🗑️", icon="❌")
-                    st.rerun()
+                    st.session_state["_toast"] = (f"'{meal_title}' removed from Meal Planner 🗑️", "❌")
+                    st.session_state["_needs_rerun"] = True  # deferred
 
             else:
                 if st.button(
                     "➕ Add to Meal Planner",
                     key=f"{card_key}_planner_{meal_title}",
                 ):
-                    if local_id is None:
-                        # Recipe doesn't exist in DB yet — fetch nutrition and insert it.
-                        # fetch_nutrition_for_meal searches Spoonacular by dish name,
-                        # returning accurate per-serving macros (no ÷4 hack needed).
-                        kcal, protein_g, carbs_g, fat_g = _fetch_and_save_nutrition(
-                            meal, meal_title, local_id
-                        )
+                    resolved_id = local_id
+
+                    if resolved_id is None:
+                        # New recipe — fetch nutrition then insert into DB
+                        nutrition = fetch_nutrition_for_meal(meal)
+                        kcal      = nutrition["kcal"]
+                        protein_g = nutrition["protein_g"]
+                        carbs_g   = nutrition["carbs_g"]
+                        fat_g     = nutrition["fat_g"]
                         execute(
                             """INSERT INTO recipes
                                (title, kcal_per_serv, protein_g, carbs_g, fat_g)
@@ -600,42 +561,44 @@ def render_meal_card(
                             (meal_title,),
                         )
                         if not new_row.empty:
-                            local_id = int(new_row.iloc[0]["id"])
+                            resolved_id = int(new_row.iloc[0]["id"])
                     else:
-                        # Recipe exists — backfill nutrition if missing.
-                        kcal      = meal.get("kcal_per_serv")
-                        protein_g = meal.get("protein_g")
-                        carbs_g   = meal.get("carbs_g")
-                        fat_g     = meal.get("fat_g")
-
+                        # Existing recipe — backfill nutrition if missing
+                        kcal = meal.get("kcal_per_serv")
                         if kcal is None:
-                            kcal, protein_g, carbs_g, fat_g = _fetch_and_save_nutrition(
-                                meal, meal_title, local_id
-                            )
+                            nutrition = fetch_nutrition_for_meal(meal)
+                            kcal      = nutrition["kcal"]
+                            protein_g = nutrition["protein_g"]
+                            carbs_g   = nutrition["carbs_g"]
+                            fat_g     = nutrition["fat_g"]
+                            if kcal is not None:
+                                execute(
+                                    """UPDATE recipes
+                                       SET kcal_per_serv = ?, protein_g = ?,
+                                           carbs_g = ?, fat_g = ?
+                                       WHERE id = ?""",
+                                    (kcal, protein_g, carbs_g, fat_g, resolved_id),
+                                )
 
-                        if kcal is not None:
-                            execute(
-                                """UPDATE recipes
-                                   SET kcal_per_serv = ?, protein_g = ?,
-                                       carbs_g = ?, fat_g = ?
-                                   WHERE id = ?""",
-                                (kcal, protein_g, carbs_g, fat_g, local_id),
-                            )
-
-                    if local_id:
+                    if resolved_id:
                         execute(
                             "INSERT OR IGNORE INTO planner_pool (user_id, recipe_id) VALUES (?, ?)",
-                            (user_id, local_id),
+                            (user_id, resolved_id),
                         )
 
-                    st.toast(f"✅ '{meal_title}' added to Meal Planner!", icon="🍽️")
-                    if kcal is None:
-                        st.toast(
+                    if meal.get("kcal_per_serv") is None and kcal is None:
+                        st.session_state["_toast"] = (
                             "⚠️ Calorie non trovate per questa ricetta. "
-                            "Inseriscile manualmente in Nutrition Analytics.",
-                            icon="ℹ️",
+                            "Inseriscile manualmente in Nutrition Analytics.", "ℹ️"
                         )
-                    st.rerun()
+                    else:
+                        st.session_state["_toast"] = (f"✅ '{meal_title}' added to Meal Planner!", "🍽️")
+                    st.session_state["_needs_rerun"] = True  # deferred
+
+
+# ── Tabs ──────────────────────────────────────────────────────────────────────
+
+tab_search, tab_cuisine = st.tabs(["🔎 Search", "🌍 Browse by cuisine"])
 
 
 # ── Search tab ────────────────────────────────────────────────────────────────
@@ -652,45 +615,29 @@ with tab_search:
     )
 
     if query:
-        # ── Search — MealDB only ──────────────────────────────────────────
-        # Spoonacular is not called here to preserve daily API quota.
-        # It only fires when a user explicitly saves a recipe to the
-        # Meal Planner (fetch_nutrition_for_meal), which is infrequent
-        # and user-triggered — not automatic on every search.
+        # MealDB only — Spoonacular quota preserved for planner saves
         results = search_recipes_by_name(query)
-        # ─────────────────────────────────────────────────────────────────
 
         if not results:
             empty_state("No recipes found — try another word.")
         else:
-            recipes_df = pd.DataFrame(LOCAL_RECIPES).rename(columns={"name": "title"})
-            rec = Recommender(recipes_df)
-            top_results = results[:10]
-
+            recipes_df   = pd.DataFrame(LOCAL_RECIPES).rename(columns={"name": "title"})
+            rec          = Recommender(recipes_df)
+            top_results  = results[:10]
             ingredient_lists = [extract_ingredients(m) for m in top_results]
 
             raw_scores = (
-                rec.score_external(
-                    ingredient_lists,
-                    history_df,
-                    wishlist_ids,
-                    liked_ingredients,
-                )
+                rec.score_external(ingredient_lists, history_df, wishlist_ids, liked_ingredients)
                 if has_taste_profile
                 else [None] * len(top_results)
             )
 
             scored_results = sorted(
                 zip(top_results, raw_scores),
-                key=lambda pair: (
-                    (0, -(pair[1] or 0))
-                    if pair[1] is not None
-                    else (1, 0)
-                ),
+                key=lambda pair: (0, -(pair[1] or 0)) if pair[1] is not None else (1, 0),
             )
 
             any_scored = any(s is not None for _, s in scored_results)
-
             if any_scored:
                 st.caption(
                     "🎯 Results ranked by ingredient similarity to your taste profile. "
@@ -703,7 +650,6 @@ with tab_search:
                 )
 
             user_pantry = get_pantry()
-
             for idx, (meal, score) in enumerate(scored_results):
                 render_meal_card(
                     meal,
@@ -715,46 +661,9 @@ with tab_search:
 
 # ── Cuisine tab ───────────────────────────────────────────────────────────────
 
-ISO_TO_CUISINE = {
-    "CAN": "Canadian",
-    "CHN": "Chinese",
-    "EGY": "Egyptian",
-    "FRA": "French",
-    "GRC": "Greek",
-    "IND": "Indian",
-    "IRL": "Irish",
-    "ITA": "Italian",
-    "JAM": "Jamaican",
-    "JPN": "Japanese",
-    "KEN": "Kenyan",
-    "MYS": "Malaysian",
-    "MEX": "Mexican",
-    "MAR": "Moroccan",
-    "NLD": "Dutch",
-    "POL": "Polish",
-    "PRT": "Portuguese",
-    "RUS": "Russian",
-    "ESP": "Spanish",
-    "THA": "Thai",
-    "TUN": "Tunisian",
-    "TUR": "Turkish",
-    "GBR": "British",
-    "USA": "American",
-    "VNM": "Vietnamese",
-    "PHL": "Filipino",
-    "HRV": "Croatian",
-    "URY": "Uruguayan",
-}
-
-
 def fetch_cuisine_recipes(cuisine: str, limit: int = 10) -> list[dict]:
     stubs = filter_by_cuisine(cuisine)[:limit]
-    full_meals = []
-    for stub in stubs:
-        meal = get_meal_by_id(stub["idMeal"])
-        if meal:
-            full_meals.append(meal)
-    return full_meals
+    return [m for stub in stubs if (m := get_meal_by_id(stub["idMeal"]))]
 
 
 with tab_cuisine:
@@ -771,11 +680,8 @@ with tab_cuisine:
 
         clicked_points = plotly_events(
             build_figure(),
-            click_event=True,
-            hover_event=False,
-            select_event=False,
-            override_width="100%",
-            override_height=450,
+            click_event=True, hover_event=False, select_event=False,
+            override_width="100%", override_height=450,
             key="world_map",
         )
 
@@ -808,14 +714,15 @@ with tab_cuisine:
                 iso = colored_locs[point_index]
                 if iso in ISO_TO_CUISINE:
                     st.session_state["map_selected_iso"] = iso
+                    st.session_state["_needs_rerun"] = True  # deferred
 
-        selected_iso = st.session_state.get("map_selected_iso")
-        active_cuisine = ISO_TO_CUISINE.get(selected_iso) if selected_iso else None
+        selected_iso          = st.session_state.get("map_selected_iso")
+        active_cuisine        = ISO_TO_CUISINE.get(selected_iso) if selected_iso else None
         selected_country_name = ISO_NAME.get(selected_iso) if selected_iso else None
 
-        CUISINE_TO_ISO = {v: k for k, v in ISO_TO_CUISINE.items()}
+        CUISINE_TO_ISO  = {v: k for k, v in ISO_TO_CUISINE.items()}
         cuisine_options = ["— click the map or choose here —"] + sorted(ISO_TO_CUISINE.values())
-        default_idx = 0
+        default_idx     = 0
         if active_cuisine and active_cuisine in cuisine_options:
             default_idx = cuisine_options.index(active_cuisine)
 
@@ -827,14 +734,13 @@ with tab_cuisine:
         )
 
         if manual_choice != "— click the map or choose here —":
-            active_cuisine = manual_choice
-            selected_iso = CUISINE_TO_ISO.get(active_cuisine)
+            active_cuisine        = manual_choice
+            selected_iso          = CUISINE_TO_ISO.get(active_cuisine)
             selected_country_name = ISO_NAME.get(selected_iso, active_cuisine)
             st.session_state["map_selected_iso"] = selected_iso
 
         if active_cuisine:
             st.subheader(f"🍽️ Recipes from {selected_country_name}")
-
             with st.spinner(f"Loading {active_cuisine} recipes…"):
                 cuisine_results = fetch_cuisine_recipes(active_cuisine)
 
