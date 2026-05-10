@@ -33,10 +33,13 @@ DATA_FILE = "calorie_data.json"
 # ── Data helpers ───────────────────────────────────────────────────────────────
 
 def load_data() -> dict:
+    base = {day: {meal: 0 for meal in MEALS} for day in DAYS}
     if os.path.exists(DATA_FILE):
-        with open(DATA_FILE) as f:
-            return json.load(f)
-    return {day: {meal: 0 for meal in MEALS} for day in DAYS}
+        saved = json.load(open(DATA_FILE))
+        for day in DAYS:
+            for meal in MEALS:
+                base[day][meal] = saved.get(day, {}).get(meal, 0)
+    return base
 
 def save_data(data: dict) -> None:
     with open(DATA_FILE, "w") as f:
