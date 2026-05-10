@@ -79,7 +79,7 @@ recipes_df = query_df(
     (st.session_state.user_id,)
 )
 
-if recipes_df is None or recipes_df.empty:
+if recipes_df is None:
     recipes_df = pd.DataFrame(columns=["id", "title"])
 
 recipe_dict = recipes_df.set_index("id")["title"].to_dict()
