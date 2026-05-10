@@ -16,7 +16,6 @@ import streamlit as st
 from src.components.ui import page_header
 from src.data.api_client import (
     extract_ingredients_from_meal,
-    fetch_nutrition_for_meal,
     filter_by_cuisine,
     get_meal_by_id,
     search_spoonacular,
@@ -123,8 +122,7 @@ def _load_mealdb_recipes() -> list[dict]:
             if not meal:
                 continue
 
-            ingredients = _clean_ingredients(extract_ingredients_from_meal(meal))
-            nutrition   = fetch_nutrition_for_meal(meal)        # Spoonacular call
+            ingredients  = _clean_ingredients(extract_ingredients_from_meal(meal))
             instructions = meal.get("strInstructions", "")
             time_min     = _estimate_time(instructions)
 
@@ -132,7 +130,7 @@ def _load_mealdb_recipes() -> list[dict]:
                 "id":           recipe_id,
                 "title":        meal.get("strMeal", ""),
                 "ingredients":  ingredients,
-                "calories":     nutrition["kcal"],          # int | None
+                "calories":     None,   # skipped — parseIngredients costs quota
                 "time_minutes": time_min,
                 "difficulty":   _difficulty_from_time(time_min),
                 "country":      meal.get("strArea", cuisine),
