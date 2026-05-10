@@ -41,43 +41,10 @@ DAYS      = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 MEALS     = ["Breakfast", "Lunch", "Dinner", "Snacks"]
 DATA_FILE = "calorie_data.json"
 
-# ── Calorie goal banner ────────────────────────────────────────────────────────
-
-if "calorie_goal" not in st.session_state:
-    st.session_state.calorie_goal = load_saved_goal()
-
-with st.container(border=True):
-    banner_col1, banner_col2, banner_col3 = st.columns([3, 2, 1])
-    with banner_col1:
-        st.markdown("🎯 **Your daily calorie goal**")
-        st.caption("Set a personal target to track against the chart and stats.")
-    with banner_col2:
-        goal_input = st.number_input(
-            "kcal/day",
-            min_value=500,
-            max_value=10000,
-            value=st.session_state.calorie_goal,
-            step=50,
-            label_visibility="collapsed",
-            key="goal_input_widget",
-        )
-    with banner_col3:
-        if st.button("✅ Set goal", use_container_width=True):
-            st.session_state.calorie_goal = goal_input
-            save_goal(goal_input)
-            st.rerun()
-
-GOAL = st.session_state.calorie_goal
-
-# ── Persistence helpers (manual overrides only) ────────────────────────────────
+# ── Persistence helpers ────────────────────────────────────────────────────────
 
 def load_overrides() -> dict:
-    """Load manually-edited calorie values saved by the user.
-
-    We only store *overrides* here — values the user explicitly typed in
-    the edit panel. Meal-planner calories are always re-fetched live.
-    """
- def load_overrides() -> dict:
+    """Load manually-edited calorie values saved by the user."""
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE) as f:
             raw = json.load(f)
@@ -107,6 +74,34 @@ def save_goal(goal: int) -> None:
             "calorie_goal": goal,
             "manual_overrides": overrides,
         }, f, indent=2)
+
+# ── Calorie goal banner ────────────────────────────────────────────────────────
+
+if "calorie_goal" not in st.session_state:
+    st.session_state.calorie_goal = load_saved_goal()
+
+with st.container(border=True):
+    banner_col1, banner_col2, banner_col3 = st.columns([3, 2, 1])
+    with banner_col1:
+        st.markdown("🎯 **Your daily calorie goal**")
+        st.caption("Set a personal target to track against the chart and stats.")
+    with banner_col2:
+        goal_input = st.number_input(
+            "kcal/day",
+            min_value=500,
+            max_value=10000,
+            value=st.session_state.calorie_goal,
+            step=50,
+            label_visibility="collapsed",
+            key="goal_input_widget",
+        )
+    with banner_col3:
+        if st.button("✅ Set goal", use_container_width=True):
+            st.session_state.calorie_goal = goal_input
+            save_goal(goal_input)
+            st.rerun()
+
+GOAL = st.session_state.calorie_goal
 
 # ── Meal-planner sync ──────────────────────────────────────────────────────────
 
