@@ -222,8 +222,8 @@ def day_total(d: str) -> int:
 
 col_left, col_right = st.columns([3, 1])
 with col_left:
-    st.markdown("#### Average daily calorie intake across the past 7 days")
-    st.markdown(f"## {avg:,.0f} kcal avg/day")
+    st.caption("Current week")
+    st.markdown(f"## {avg:,.0f} kcal avg/day — Average daily calorie intake across the past 7 days")
 with col_right:
     st.markdown(
         '<div style="text-align:right;padding-top:16px">'
