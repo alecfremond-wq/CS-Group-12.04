@@ -371,7 +371,5 @@ for _, row in picks.iterrows():
                     st.rerun()
 
         with col_stats:
-            calories = row.get("calories")
-            st.metric("Calories",   f"{calories} kcal" if calories else "—")
             st.metric("Cook time",  f"{row.get('time_minutes', '—')} min")
             st.metric("Difficulty", row.get("difficulty", "—"))
