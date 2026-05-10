@@ -61,11 +61,11 @@ with st.container(border=True):
             label_visibility="collapsed",
             key="goal_input_widget",
         )
-      with banner_col3:                                          
-         if st.button("✅ Set goal", use_container_width=True):
-                st.session_state.calorie_goal = goal_input
-                save_goal(goal_input)
-                st.rerun()
+    with banner_col3:
+        if st.button("✅ Set goal", use_container_width=True):
+            st.session_state.calorie_goal = goal_input
+            save_goal(goal_input)
+            st.rerun()
 
 GOAL = st.session_state.calorie_goal
 
