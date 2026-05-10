@@ -333,6 +333,7 @@ def build_figure() -> go.Figure:
         locationmode="ISO-3",
         z=z_values,
         text=hover_texts,
+        customdata=locations,   # ← embed ISO code so click events can read it
         hovertemplate="%{text}<extra></extra>",
         colorscale=colorscale,
         zmin=0,
@@ -783,21 +784,27 @@ with tab_cuisine:
         st.divider()
 
         # ── Resolve clicked country → cuisine ─────────────────────────────
-        clicked_cuisine = None
-        clicked_country_name = None
-
+        # When the user clicks a country, Streamlit reruns the script and
+        # map_selection.selection contains the click data.
+        # We persist the result in session_state so it survives further reruns
+        # (e.g. when the user clicks a Save button on a recipe card).
         try:
             points = map_selection.selection.get("points", [])
             if points:
-                iso = points[0].get("location")  # e.g. "ITA"
-                if iso:
-                    clicked_cuisine = ISO_TO_CUISINE.get(iso)
-                    clicked_country_name = ISO_NAME.get(iso, iso)
+                # customdata holds the ISO-3 code we embedded in build_figure()
+                iso = points[0].get("customdata")
+                if iso and ISO_TO_CUISINE.get(iso):
+                    st.session_state["map_selected_iso"] = iso
         except Exception:
             pass
 
+        # Read the persisted selection (falls back to None on first load)
+        selected_iso = st.session_state.get("map_selected_iso")
+        clicked_cuisine = ISO_TO_CUISINE.get(selected_iso) if selected_iso else None
+        clicked_country_name = ISO_NAME.get(selected_iso) if selected_iso else None
+
         # ── Manual selector (always visible as fallback) ──────────────────
-        # Pre-select the clicked country in the dropdown if possible
+        # If a country was clicked on the map, pre-select it in the dropdown.
         cuisine_options = sorted(ISO_TO_CUISINE.values())
         default_idx = 0
         if clicked_cuisine and clicked_cuisine in cuisine_options:
@@ -807,16 +814,19 @@ with tab_cuisine:
             "Or pick a cuisine manually:",
             options=cuisine_options,
             index=default_idx,
+            key="cuisine_selectbox",
         )
 
-        # The manual selector overrides the map click if the user changes it
-        active_cuisine = choice  # choice always reflects the current selection
+        # If the user manually changes the dropdown, clear the map selection
+        # so the dropdown choice takes over cleanly.
+        if choice != clicked_cuisine:
+            st.session_state["map_selected_iso"] = None
+
+        active_cuisine = choice
 
         # ── Show results ──────────────────────────────────────────────────
         if active_cuisine:
-            if clicked_country_name and ISO_TO_CUISINE.get(
-                next((k for k, v in ISO_TO_CUISINE.items() if v == active_cuisine), ""), ""
-            ) == active_cuisine and clicked_cuisine == active_cuisine:
+            if clicked_country_name and clicked_cuisine == active_cuisine:
                 st.subheader(f"🍽️ Recipes from {clicked_country_name}")
             else:
                 st.subheader(f"🍽️ {active_cuisine} recipes")
