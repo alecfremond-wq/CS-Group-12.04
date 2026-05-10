@@ -295,6 +295,7 @@ with st.expander(f"✏️ Edit calories manually for {selected}"):
     )
     ecols = st.columns(4)
     new_vals = {}
+    MAX_KCAL = 10000          # raised ceiling
     for i, meal in enumerate(MEALS):
         with ecols[i]:
             new_vals[meal] = st.number_input(
