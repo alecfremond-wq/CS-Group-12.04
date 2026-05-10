@@ -26,26 +26,42 @@ from src.utils.session import init_session_state, require_profile
 
 
 def _strip_measures(ingredient: str) -> str:
-    """Remove leading quantities and units so Jaccard can find real overlaps.
+    """Normalise an ingredient string to a plain lowercase name.
 
-    MealDB returns '2 cups Rice' or '1 tsp Garlic Powder'.
-    Spoonacular returns plain names like 'garlic'.
-    Without stripping, Jaccard intersection between the two is always zero
-    because '2 cups rice' != 'rice'.
+    Handles all formats seen in MealDB and Spoonacular:
+      '2 tbsp Cajun'          → 'cajun'
+      '400g Chickpeas'        → 'chickpeas'
+      '1 x 300ml Salsa'       → 'salsa'
+      'Juice of 1 Lime'       → 'lime'
+      'to serve Coriander'    → 'coriander'
+      'finely chopped Garlic' → 'garlic'  (last word fallback)
     """
-    s = re.sub(r"^[\d\s½¼¾⅓⅔⅛]+", "", ingredient)
+    s = ingredient.strip()
+
+    # Remove leading noise phrases like "to serve", "juice of", "zest of"
+    s = re.sub(r"^(to serve|juice of|zest of|handful of|a pinch of)\s+", "", s, flags=re.IGNORECASE)
+
+    # Remove leading numbers, fractions, unicode fraction chars, and 'x'
+    s = re.sub(r"^[\d\s½¼¾⅓⅔⅛./-]+x?\s*", "", s)
+
+    # Remove amounts glued to unit with no space: '400g' '300ml'
+    s = re.sub(r"^\d+\s*(g|kg|ml|l|oz|lbs?)\s+", "", s, flags=re.IGNORECASE)
+
+    # Remove leading unit words
     units = (
         r"^(cups?|tbsp?|tsp?|tablespoons?|teaspoons?|grams?|g|kg|oz|lbs?|"
         r"pounds?|ml|liters?|litres?|cloves?|slices?|pieces?|pinch|handful|"
-        r"bunch|cans?|large|medium|small|whole)\s+"
+        r"bunch|cans?|large|medium|small|whole|finely|chopped|shredded|"
+        r"sliced|diced|minced|fresh|dried|ground|packed)\s+"
     )
     s = re.sub(units, "", s, flags=re.IGNORECASE)
+
     return s.strip().lower()
 
 
 def _clean_ingredients(raw: list[str]) -> list[str]:
-    """Strip measures from a list and drop empty strings."""
-    return [s for s in (_strip_measures(i) for i in raw) if s]
+    """Strip measures from a list and drop empty/short strings."""
+    return [s for s in (_strip_measures(i) for i in raw) if len(s) > 1]
 
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -162,26 +178,27 @@ def load_all_recipes() -> pd.DataFrame:
     Merge MealDB and Spoonacular catalogues, deduplicate by title,
     and return as a DataFrame ready for the Recommender.
 
-    The result is cached in st.session_state so the APIs are only
-    called once per session, not on every Streamlit rerun.
+    Cached in st.session_state so APIs are only hit once per session.
+    The cache key includes a version string — bump it whenever the
+    cleaning logic changes so stale uncleaned data is never used.
     """
-    if "rec_recipes_df" not in st.session_state:
+    CACHE_VERSION = "v3"  # bump this if ingredient cleaning logic changes
+    cache_key = f"rec_recipes_df_{CACHE_VERSION}"
+
+    # Invalidate any older cache versions left in session state
+    for old_key in [k for k in st.session_state if k.startswith("rec_recipes_df_") and k != cache_key]:
+        del st.session_state[old_key]
+
+    if cache_key not in st.session_state:
         with st.spinner("Loading recipe catalogue from MealDB & Spoonacular…"):
             rows = _load_mealdb_recipes() + _load_spoonacular_recipes()
 
         df = pd.DataFrame(rows)
-
-        # Drop exact-title duplicates (can happen if both sources return the
-        # same popular dish) — keep the first occurrence (MealDB wins).
         df = df.drop_duplicates(subset="title", keep="first").reset_index(drop=True)
-
-        # Re-assign sequential IDs after deduplication so the Recommender's
-        # index lookups are always consistent.
         df["id"] = range(1, len(df) + 1)
+        st.session_state[cache_key] = df
 
-        st.session_state["rec_recipes_df"] = df
-
-    return st.session_state["rec_recipes_df"]
+    return st.session_state[cache_key]
 
 
 # ── App init ──────────────────────────────────────────────────────────────────
@@ -235,32 +252,41 @@ st.divider()
 rec = Recommender(recipes_df)
 
 # Build the taste profile: one flat set of clean ingredient names from
-# everything the user has saved, regardless of where it came from.
-# We clean wishlist ingredients here too so measures are stripped consistently.
+# everything the user has saved. We clean here too — wishlist items saved
+# from the Recipes page still carry raw MealDB strings like '2 cups Rice'.
 ref_set: set[str] = set()
 for ing_list in liked_ingredients:
     ref_set.update(_clean_ingredients(ing_list))
 
 has_signal = bool(ref_set)
 
+# ── Debug (remove before submission) ─────────────────────────────────────────
+with st.expander("🔍 Debug: taste profile", expanded=False):
+    st.write(f"**Wishlist entries:** {len(wishlist)}")
+    st.write(f"**liked_ingredients lists:** {len(liked_ingredients)}")
+    st.write(f"**ref_set size:** {len(ref_set)}")
+    st.write(f"**ref_set sample:** {sorted(ref_set)[:20]}")
+# ─────────────────────────────────────────────────────────────────────────────
+
 if has_signal:
-    # Score every catalogue recipe by Jaccard similarity to the taste profile.
-    # Jaccard = |A ∩ B| / |A ∪ B| — works on plain ingredient names, no
-    # vocabulary required, so '2 cups rice' cleaned to 'rice' will match
-    # 'rice' from a Spoonacular recipe correctly.
-    def _jaccard(a: set[str], b: set[str]) -> float:
-        if not a or not b:
+    # Score by overlap coefficient: |A ∩ B| / min(|A|, |B|)
+    # This asks "what fraction of THIS recipe's ingredients appear in your
+    # taste profile?" — so a recipe sharing 8 of its 10 ingredients with
+    # things you've saved scores 80%, regardless of how large the profile is.
+    # Raw Jaccard penalises a large profile (the union grows fast) and produces
+    # scores like 2-3% that round to 0% — overlap coefficient avoids that.
+    def _overlap(profile: set[str], recipe_ings: set[str]) -> float:
+        if not profile or not recipe_ings:
             return 0.0
-        return len(a & b) / len(a | b)
+        return len(profile & recipe_ings) / min(len(profile), len(recipe_ings))
 
     scores = [
-        _jaccard(ref_set, set(row["ingredients"]))
+        _overlap(ref_set, set(row["ingredients"]))
         for _, row in recipes_df.iterrows()
     ]
     recipes_df = recipes_df.copy()
     recipes_df["score"] = scores
 
-    # Sort by score descending, exclude recipes already in wishlist
     saved_titles = {
         w["title"].lower()
         for w in wishlist
