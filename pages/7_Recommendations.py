@@ -230,7 +230,7 @@ liked_ingredients = [
 
 # ── Context message ───────────────────────────────────────────────────────────
 
-total_saved = len(wishlist_ids) + len(liked_ingredients)
+total_saved = len(wishlist)
 
 if total_saved == 0:
     st.info(
