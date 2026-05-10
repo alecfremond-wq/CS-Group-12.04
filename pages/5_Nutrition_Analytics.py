@@ -33,6 +33,14 @@ from src.utils.session import init_session_state, require_profile
 init_session_state()
 require_profile()
 page_header("📊 Nutrition Analytics", "Track your calorie intake.")
+
+# ── Constants ──────────────────────────────────────────────────────────────────
+
+DEFAULT_GOAL = 2000
+DAYS      = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+MEALS     = ["Breakfast", "Lunch", "Snacks", "Dinner"]
+DATA_FILE = "calorie_data.json"
+
 # ── Calorie goal banner ────────────────────────────────────────────────────────
 
 if "calorie_goal" not in st.session_state:
@@ -59,12 +67,6 @@ with st.container(border=True):
             st.rerun()
 
 GOAL = st.session_state.calorie_goal
-# ── Constants ──────────────────────────────────────────────────────────────────
-
-DEFAULT_GOAL = 2000
-DAYS      = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-MEALS     = ["Breakfast", "Lunch", "Snacks", "Dinner"]
-DATA_FILE = "calorie_data.json"
 
 # ── Persistence helpers (manual overrides only) ────────────────────────────────
 
