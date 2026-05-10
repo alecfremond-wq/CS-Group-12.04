@@ -304,36 +304,50 @@ ISO_NAME = {
 
 
 def build_figure() -> go.Figure:
-    """Build the Plotly choropleth world map coloured by continent."""
-    locations = list(ISO_CONTINENT.keys())
-    continents = [ISO_CONTINENT[c] for c in locations]
+    """
+    Build the Plotly choropleth world map.
+
+    - Countries available on TheMealDB are coloured by continent and
+      show a 'click to explore' prompt on hover.
+    - All other countries are rendered in a neutral grey and show only
+      the country name (no cuisine available).
+    Two separate Choropleth traces are used so the two groups can have
+    independent colours and hover templates without affecting the shared
+    colour-scale logic.
+    """
+    all_locations = list(ISO_CONTINENT.keys())
+    cuisine_isos  = set(ISO_TO_CUISINE.keys())
+
+    # ── Coloured trace: countries with TheMealDB recipes ──────────────
+    colored_locs  = [iso for iso in all_locations if iso in cuisine_isos]
     continent_list = list(CONTINENT_DATA.keys())
-    colors_list = [CONTINENT_DATA[c]["color"] for c in continent_list]
-
-    z_values = [continent_list.index(c) for c in continents]
-
+    colors_list    = [CONTINENT_DATA[c]["color"] for c in continent_list]
     n = len(continent_list)
+
     colorscale = []
     for i, col in enumerate(colors_list):
         colorscale.append([i / n, col])
         colorscale.append([(i + 1) / n, col])
 
-    hover_texts = []
-    for iso in locations:
-        cont = ISO_CONTINENT.get(iso, "")
-        name = ISO_NAME.get(iso, iso)
-        color = CONTINENT_DATA.get(cont, {}).get("color", "#999")
-        hover_texts.append(
+    colored_z     = [continent_list.index(ISO_CONTINENT[iso]) for iso in colored_locs]
+    colored_hover = []
+    for iso in colored_locs:
+        cont    = ISO_CONTINENT.get(iso, "")
+        name    = ISO_NAME.get(iso, iso)
+        cuisine = ISO_TO_CUISINE.get(iso, "")
+        color   = CONTINENT_DATA.get(cont, {}).get("color", "#999")
+        colored_hover.append(
             f"<b style='font-size:14px'>{name}</b><br>"
-            f"<span style='color:{color}'>&#9632;</span> {cont}"
+            f"<span style='color:{color}'>&#9632;</span> {cont}<br>"
+            f"<i style='color:#F1C40F'>🍽️ {cuisine} cuisine — click to explore!</i>"
         )
 
-    trace = go.Choropleth(
-        locations=locations,
+    trace_colored = go.Choropleth(
+        locations=colored_locs,
         locationmode="ISO-3",
-        z=z_values,
-        text=hover_texts,
-        customdata=locations,   # ← embed ISO code so click events can read it
+        z=colored_z,
+        text=colored_hover,
+        customdata=colored_locs,
         hovertemplate="%{text}<extra></extra>",
         colorscale=colorscale,
         zmin=0,
@@ -341,9 +355,36 @@ def build_figure() -> go.Figure:
         showscale=False,
         marker_line_color="white",
         marker_line_width=0.8,
+        name="",
     )
 
-    fig = go.Figure(data=[trace])
+    # ── Grey trace: countries without TheMealDB recipes ───────────────
+    grey_locs  = [iso for iso in all_locations if iso not in cuisine_isos]
+    grey_hover = []
+    for iso in grey_locs:
+        name = ISO_NAME.get(iso, iso)
+        grey_hover.append(
+            f"<b style='font-size:14px'>{name}</b><br>"
+            f"<span style='color:#999'>No recipes available in TheMealDB</span>"
+        )
+
+    trace_grey = go.Choropleth(
+        locations=grey_locs,
+        locationmode="ISO-3",
+        z=[0] * len(grey_locs),
+        text=grey_hover,
+        customdata=grey_locs,
+        hovertemplate="%{text}<extra></extra>",
+        colorscale=[[0, "#C8C8C8"], [1, "#C8C8C8"]],
+        zmin=0,
+        zmax=1,
+        showscale=False,
+        marker_line_color="white",
+        marker_line_width=0.5,
+        name="",
+    )
+
+    fig = go.Figure(data=[trace_grey, trace_colored])
     fig.update_layout(
         geo=dict(
             showframe=False,
@@ -784,15 +825,22 @@ with tab_cuisine:
 
         st.divider()
 
-        # plotly_events only returns pointIndex (not customdata/location).
-        # We look up the ISO code by index from our own locations list,
-        # which is in the exact same order as the choropleth trace.
-        locations_list = list(ISO_CONTINENT.keys())
+        # plotly_events returns pointIndex relative to the clicked trace.
+        # curveNumber tells us which trace was clicked:
+        #   0 → grey trace (countries without TheMealDB recipes) — ignore
+        #   1 → coloured trace (countries with TheMealDB recipes) — use it
+        # The coloured trace contains only TheMealDB-linked ISOs in the same
+        # order as colored_locs (built inside build_figure).
+        all_locations = list(ISO_CONTINENT.keys())
+        cuisine_isos  = set(ISO_TO_CUISINE.keys())
+        colored_locs  = [iso for iso in all_locations if iso in cuisine_isos]
 
         if clicked_points:
-            point_index = clicked_points[0].get("pointIndex")
-            if point_index is not None and point_index < len(locations_list):
-                iso = locations_list[point_index]
+            curve_number = clicked_points[0].get("curveNumber", 0)
+            point_index  = clicked_points[0].get("pointIndex")
+            # Only act on clicks on the coloured (TheMealDB) trace
+            if curve_number == 1 and point_index is not None and point_index < len(colored_locs):
+                iso = colored_locs[point_index]
                 if iso in ISO_TO_CUISINE:
                     st.session_state["map_selected_iso"] = iso
 
