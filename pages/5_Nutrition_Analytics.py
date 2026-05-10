@@ -198,7 +198,7 @@ for day, total in zip(DAYS, totals):
     if day == selected:
         bar_colors.append("#ED7D3A")   # arancione — giorno selezionato
     else:
-        bar_colors.append("#F5F5DC")   # grigio — tutti gli altri
+        bar_colors.append("white")   # grigio — tutti gli altri
 
 fig = go.Figure()
 
