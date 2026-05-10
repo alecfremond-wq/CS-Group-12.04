@@ -30,18 +30,6 @@ from src.utils.session import init_session_state, require_profile
 init_session_state()
 profile = require_profile()
 
-# ── Deferred rerun + toast ────────────────────────────────────────────────────
-# NEVER call st.rerun() or st.toast() inside a button callback — it corrupts
-# the WebSocket frame mid-render ("Cached ForwardMsg MISS" crash).
-# Instead, buttons write to session state; we act on them here at the very
-# top of the next clean render cycle.
-_pending_toast = st.session_state.pop("_toast", None)
-if _pending_toast:
-    st.toast(_pending_toast[0], icon=_pending_toast[1])
-
-if st.session_state.pop("_needs_rerun", False):
-    st.rerun()
-
 page_header("🍲 Recipes", "Search recipes or browse by cuisine.")
 
 local_title_to_id: dict[str, int] = {r["name"].lower(): r["id"] for r in LOCAL_RECIPES}
@@ -119,42 +107,44 @@ _planner_meals: list[dict] = _load_planner_meals(_user_id) if _user_id else []
 
 # ── Planner banner ────────────────────────────────────────────────────────────
 
+@st.fragment
 def show_my_planner_banner() -> None:
     if not _user_id:
         return
-    count = len(_planner_meals)
+    # Re-query inside fragment so banner stays fresh after removes
+    try:
+        df = query_df(
+            """
+            SELECT r.id AS recipe_id, r.title
+            FROM planner_pool pp
+            JOIN recipes r ON pp.recipe_id = r.id
+            WHERE pp.user_id = ? ORDER BY r.title
+            """,
+            (_user_id,),
+        )
+        meals = df.to_dict("records") if not df.empty else []
+    except Exception:
+        meals = []
+
+    count = len(meals)
     label = "dish" if count == 1 else "dishes"
 
-    with st.expander(
-        f"🍽️ My Meal Planner  ·  **{count} {label} saved**",
-        expanded=count > 0,
-    ):
-        if not _planner_meals:
+    with st.expander(f"🍽️ My Meal Planner  ·  **{count} {label} saved**", expanded=count > 0):
+        if not meals:
             st.info("You haven't saved any dishes to the Meal Planner yet.")
             return
-
         cols = st.columns(3)
-        for idx, meal in enumerate(_planner_meals):
+        for idx, meal in enumerate(meals):
             with cols[idx % 3]:
                 col_text, col_btn = st.columns([3, 1])
                 with col_text:
                     st.markdown(f"✅ **{meal['title']}**")
                 with col_btn:
-                    if st.button("✕", key=f"banner_remove_{meal['recipe_id']}",
-                                 help="Remove from Meal Planner"):
-                        execute(
-                            "DELETE FROM planner_pool WHERE user_id = ? AND recipe_id = ?",
-                            (_user_id, meal["recipe_id"]),
-                        )
-                        execute(
-                            "DELETE FROM meal_plan WHERE user_id = ? AND recipe_id = ?",
-                            (_user_id, meal["recipe_id"]),
-                        )
-                        st.session_state["_toast"] = (
-                            f"❌ '{meal['title']}' removed from Meal Planner", "🗑️"
-                        )
-                        st.session_state["_needs_rerun"] = True
-
+                    if st.button("✕", key=f"banner_remove_{meal['recipe_id']}", help="Remove from Meal Planner"):
+                        execute("DELETE FROM planner_pool WHERE user_id=? AND recipe_id=?", (_user_id, meal["recipe_id"]))
+                        execute("DELETE FROM meal_plan WHERE user_id=? AND recipe_id=?",    (_user_id, meal["recipe_id"]))
+                        st.toast(f"❌ '{meal['title']}' removed from Meal Planner", icon="🗑️")
+                        st.rerun()  # reruns fragment only
         st.caption("Go to the **Meal Planner** page to schedule them across the week.")
 
 
@@ -313,11 +303,27 @@ has_taste_profile = (
 
 
 # ── Recipe card ───────────────────────────────────────────────────────────────
+# @st.fragment isolates each card: clicking a button reruns ONLY this card,
+# not the whole page. This eliminates the WebSocket "Cached ForwardMsg MISS"
+# crash that happens when st.rerun() is called mid-full-page render.
 
+@st.fragment
 def render_meal_card(meal: dict, ml_score: float | None = None, card_key: str = "") -> None:
-    meal_title   = meal["strMeal"]
-    local_id     = resolve_local_id(meal_title)
-    in_planner   = local_id in _planner_ids if local_id else False
+    meal_title = meal["strMeal"]
+    local_id   = resolve_local_id(meal_title)
+
+    # Each fragment has its own rerun scope — read planner state fresh
+    # inside the fragment so it stays accurate after button clicks.
+    in_planner = False
+    if _user_id and local_id:
+        try:
+            chk = query_df(
+                "SELECT 1 FROM planner_pool WHERE user_id=? AND recipe_id=? LIMIT 1",
+                (_user_id, local_id),
+            )
+            in_planner = not chk.empty
+        except Exception:
+            pass
 
     with st.container(border=True):
         col_img, col_meta = st.columns([1, 3])
@@ -356,7 +362,7 @@ def render_meal_card(meal: dict, ml_score: float | None = None, card_key: str = 
                         "area": meal.get("strArea", ""), "local_id": local_id,
                         "ingredients": extract_ingredients(meal),
                     })
-                    st.session_state["_needs_rerun"] = True
+                    st.rerun()  # safe: reruns this fragment only, not the whole page
 
             # ── Meal Planner ──────────────────────────────────────────────
             if in_planner:
@@ -364,20 +370,22 @@ def render_meal_card(meal: dict, ml_score: float | None = None, card_key: str = 
                 if st.button("❌ Remove from Meal Planner", key=f"{card_key}_rm_{meal_title}"):
                     execute("DELETE FROM planner_pool WHERE user_id=? AND recipe_id=?", (_user_id, local_id))
                     execute("DELETE FROM meal_plan WHERE user_id=? AND recipe_id=?",    (_user_id, local_id))
-                    st.session_state["_toast"]       = (f"'{meal_title}' removed 🗑️", "❌")
-                    st.session_state["_needs_rerun"] = True
+                    st.toast(f"'{meal_title}' removed from Meal Planner 🗑️", icon="❌")
+                    st.rerun()  # reruns fragment only
             else:
                 if st.button("➕ Add to Meal Planner", key=f"{card_key}_add_{meal_title}"):
                     resolved_id = local_id
 
                     if resolved_id is None:
-                        # Recipe not in DB — fetch nutrition then insert
                         n = fetch_nutrition_for_meal(meal)
                         execute(
                             "INSERT INTO recipes (title, kcal_per_serv, protein_g, carbs_g, fat_g) VALUES (?,?,?,?,?)",
                             (meal_title, n["kcal"], n["protein_g"], n["carbs_g"], n["fat_g"]),
                         )
-                        row = query_df("SELECT id FROM recipes WHERE title=? ORDER BY id DESC LIMIT 1", (meal_title,))
+                        row = query_df(
+                            "SELECT id FROM recipes WHERE title=? ORDER BY id DESC LIMIT 1",
+                            (meal_title,),
+                        )
                         if not row.empty:
                             resolved_id = int(row.iloc[0]["id"])
                         kcal = n["kcal"]
@@ -399,12 +407,10 @@ def render_meal_card(meal: dict, ml_score: float | None = None, card_key: str = 
                         )
 
                     if kcal is None:
-                        st.session_state["_toast"] = (
-                            "⚠️ Calories not found — enter them manually in Nutrition Analytics.", "ℹ️"
-                        )
+                        st.toast("⚠️ Calories not found — enter them manually in Nutrition Analytics.", icon="ℹ️")
                     else:
-                        st.session_state["_toast"] = (f"✅ '{meal_title}' added to Meal Planner!", "🍽️")
-                    st.session_state["_needs_rerun"] = True
+                        st.toast(f"✅ '{meal_title}' added to Meal Planner!", icon="🍽️")
+                    st.rerun()  # reruns fragment only
 
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
@@ -497,7 +503,6 @@ with tab_cuisine:
                 iso = colored_locs[pi]
                 if iso in ISO_TO_CUISINE:
                     st.session_state["map_selected_iso"] = iso
-                    st.session_state["_needs_rerun"] = True
 
         selected_iso          = st.session_state.get("map_selected_iso")
         active_cuisine        = ISO_TO_CUISINE.get(selected_iso) if selected_iso else None
