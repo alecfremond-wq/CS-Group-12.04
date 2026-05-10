@@ -260,13 +260,6 @@ for ing_list in liked_ingredients:
 
 has_signal = bool(ref_set)
 
-# ── Debug (remove before submission) ─────────────────────────────────────────
-with st.expander("🔍 Debug: taste profile", expanded=False):
-    st.write(f"**Wishlist entries:** {len(wishlist)}")
-    st.write(f"**liked_ingredients lists:** {len(liked_ingredients)}")
-    st.write(f"**ref_set size:** {len(ref_set)}")
-    st.write(f"**ref_set sample:** {sorted(ref_set)[:20]}")
-# ─────────────────────────────────────────────────────────────────────────────
 
 if has_signal:
     # Score by overlap coefficient: |A ∩ B| / min(|A|, |B|)
