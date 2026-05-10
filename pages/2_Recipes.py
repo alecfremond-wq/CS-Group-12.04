@@ -397,12 +397,16 @@ tab_search, tab_cuisine = st.tabs(["🔎 Search", "🌍 Browse by cuisine"])
 
 # ── Search tab ────────────────────────────────────────────────────────────────
 
-@st.fragment
 def search_tab() -> None:
     st.subheader("🔎 Hungry? Let's find something delicious!")
     st.markdown("- Search for any dish by name")
     st.markdown("- Get info on the dish and how to make it")
     st.markdown("- Add it to your Meal Planner or Wishlist for later")
+
+    if "last_query" not in st.session_state:
+        st.session_state["last_query"] = ""
+    if "last_results" not in st.session_state:
+        st.session_state["last_results"] = []
 
     col_input, col_btn = st.columns([5, 1])
     with col_input:
@@ -410,20 +414,14 @@ def search_tab() -> None:
             "What would you like to cook?",
             placeholder="e.g. pasta, curry…",
             label_visibility="collapsed",
+            value=st.session_state["last_query"],
         )
     with col_btn:
         search_clicked = st.button("🔎 Search", use_container_width=True)
 
-    # Only fire the API call when the user explicitly clicks Search or
-    # presses Enter (query changes). Store last query in fragment state
-    # so results persist across card-button reruns without re-fetching.
-    if "last_query" not in st.session_state:
-        st.session_state["last_query"] = ""
-    if "last_results" not in st.session_state:
-        st.session_state["last_results"] = []
-
     if search_clicked and query:
         st.session_state["last_query"]   = query
+        # search_recipes_by_name is cached 1h so this is instant on repeat
         st.session_state["last_results"] = search_recipes_by_name(query)
 
     results    = st.session_state["last_results"]
@@ -462,7 +460,6 @@ with tab_search:
 
 # ── Cuisine tab ───────────────────────────────────────────────────────────────
 
-@st.fragment
 def cuisine_tab() -> None:
     cuisines = list_cuisines()   # cached 24 h
 
@@ -481,7 +478,7 @@ def cuisine_tab() -> None:
     colored_locs  = [iso for iso in all_locations if iso in cuisine_isos]
 
     clicked_points = plotly_events(
-        build_figure(),   # cached 24 h
+        build_figure(),
         click_event=True, hover_event=False, select_event=False,
         override_width="100%", override_height=450, key="world_map",
     )
@@ -500,6 +497,7 @@ def cuisine_tab() -> None:
 
     st.divider()
 
+    # Map click updates session state; selectbox picks it up on next render
     if clicked_points:
         ci = clicked_points[0].get("curveNumber", 0)
         pi = clicked_points[0].get("pointIndex")
@@ -507,7 +505,6 @@ def cuisine_tab() -> None:
             iso = colored_locs[pi]
             if iso in ISO_TO_CUISINE:
                 st.session_state["map_selected_iso"] = iso
-                st.rerun()  # reruns fragment only — updates selectbox to match map click
 
     selected_iso          = st.session_state.get("map_selected_iso")
     active_cuisine        = ISO_TO_CUISINE.get(selected_iso) if selected_iso else None
