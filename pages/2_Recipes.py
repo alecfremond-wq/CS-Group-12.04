@@ -636,6 +636,7 @@ def render_meal_card(
                         # so Nutrition Analytics shows real calories, not 0.
                         if kcal is None:
                             kcal = fetch_kcal_for_title(meal_title)
+                            st.write(f"DEBUG kcal fetched: {kcal}")  # ← aggiungi questa riga
 
                         execute(
                             "INSERT INTO recipes (title, kcal_per_serv) VALUES (?, ?)",
