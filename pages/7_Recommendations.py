@@ -8,6 +8,8 @@ Grading coverage:
 TODOs for the owner:
     - add a 👎 dislike button that removes a recipe from future results.
 """
+import re
+
 import pandas as pd
 import streamlit as st
 
@@ -21,6 +23,29 @@ from src.data.api_client import (
 )
 from src.models.recommender import Recommender
 from src.utils.session import init_session_state, require_profile
+
+
+def _strip_measures(ingredient: str) -> str:
+    """Remove leading quantities and units so Jaccard can find real overlaps.
+
+    MealDB returns '2 cups Rice' or '1 tsp Garlic Powder'.
+    Spoonacular returns plain names like 'garlic'.
+    Without stripping, Jaccard intersection between the two is always zero
+    because '2 cups rice' != 'rice'.
+    """
+    s = re.sub(r"^[\d\s½¼¾⅓⅔⅛]+", "", ingredient)
+    units = (
+        r"^(cups?|tbsp?|tsp?|tablespoons?|teaspoons?|grams?|g|kg|oz|lbs?|"
+        r"pounds?|ml|liters?|litres?|cloves?|slices?|pieces?|pinch|handful|"
+        r"bunch|cans?|large|medium|small|whole)\s+"
+    )
+    s = re.sub(units, "", s, flags=re.IGNORECASE)
+    return s.strip().lower()
+
+
+def _clean_ingredients(raw: list[str]) -> list[str]:
+    """Strip measures from a list and drop empty strings."""
+    return [s for s in (_strip_measures(i) for i in raw) if s]
 
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -82,7 +107,7 @@ def _load_mealdb_recipes() -> list[dict]:
             if not meal:
                 continue
 
-            ingredients = extract_ingredients_from_meal(meal)
+            ingredients = _clean_ingredients(extract_ingredients_from_meal(meal))
             nutrition   = fetch_nutrition_for_meal(meal)        # Spoonacular call
             instructions = meal.get("strInstructions", "")
             time_min     = _estimate_time(instructions)
@@ -122,7 +147,7 @@ def _load_spoonacular_recipes() -> list[dict]:
         rows.append({
             "id":           base_id + i,
             "title":        r.get("strMeal", ""),
-            "ingredients":  r.get("_ingredients", []),
+            "ingredients":  _clean_ingredients(r.get("_ingredients", [])),
             "calories":     kcal,
             "time_minutes": time_min,
             "difficulty":   _difficulty_from_time(time_min),
@@ -209,34 +234,47 @@ st.divider()
 
 rec = Recommender(recipes_df)
 
-# Step 1: get candidate recipes from k-NN (handles cold-start, seen filtering,
-# wishlist exclusion). We ask for more than top_n so we have room to re-rank.
-candidates = rec.recommend(
-    history_df,
-    top_n=20,
-    wishlist=wishlist_ids,
-    liked_ingredients=liked_ingredients,
-)
+# Build the taste profile: one flat set of clean ingredient names from
+# everything the user has saved, regardless of where it came from.
+# We clean wishlist ingredients here too so measures are stripped consistently.
+ref_set: set[str] = set()
+for ing_list in liked_ingredients:
+    ref_set.update(_clean_ingredients(ing_list))
 
-# Step 2: overwrite the cosine scores with Jaccard scores.
-# Cosine relies on vocabulary overlap inside the small catalogue and produces
-# near-zero scores when liked ingredients don't match the training vocabulary.
-# Jaccard compares ingredient strings directly so it always gives meaningful
-# percentages — the same method used to rank search results.
-has_signal = bool(wishlist_ids) or bool(liked_ingredients)
-if not candidates.empty and has_signal:
-    jaccard_scores = rec.score_external(
-        candidates["ingredients"].tolist(),
-        history_df,
-        wishlist_ids,
-        liked_ingredients,
+has_signal = bool(ref_set)
+
+if has_signal:
+    # Score every catalogue recipe by Jaccard similarity to the taste profile.
+    # Jaccard = |A ∩ B| / |A ∪ B| — works on plain ingredient names, no
+    # vocabulary required, so '2 cups rice' cleaned to 'rice' will match
+    # 'rice' from a Spoonacular recipe correctly.
+    def _jaccard(a: set[str], b: set[str]) -> float:
+        if not a or not b:
+            return 0.0
+        return len(a & b) / len(a | b)
+
+    scores = [
+        _jaccard(ref_set, set(row["ingredients"]))
+        for _, row in recipes_df.iterrows()
+    ]
+    recipes_df = recipes_df.copy()
+    recipes_df["score"] = scores
+
+    # Sort by score descending, exclude recipes already in wishlist
+    saved_titles = {
+        w["title"].lower()
+        for w in wishlist
+        if isinstance(w, dict) and w.get("title")
+    }
+    picks = (
+        recipes_df[~recipes_df["title"].str.lower().isin(saved_titles)]
+        .sort_values("score", ascending=False)
+        .head(5)
+        .reset_index(drop=True)
     )
-    candidates = candidates.copy()
-    candidates["score"] = jaccard_scores
-    # Sort by Jaccard score descending, NaNs last
-    candidates = candidates.sort_values("score", ascending=False, na_position="last")
-
-picks = candidates.head(5).reset_index(drop=True)
+else:
+    # Cold start — no wishlist yet, use k-NN default ordering
+    picks = rec.recommend(history_df, top_n=5)
 
 if picks.empty:
     st.success(
