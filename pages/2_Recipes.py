@@ -784,7 +784,8 @@ with tab_cuisine:
 
         st.divider()
 
-        # ── Resolve clicked country ───────────────────────────────────────
+        if clicked_points:
+            st.write("DEBUG clicked_points:", clicked_points)
         # clicked_points is a list like [{"customdata": "ITA", ...}]
         # We persist in session_state so the recipes don't vanish when
         # the user interacts with recipe cards (which trigger reruns).
