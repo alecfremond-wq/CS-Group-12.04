@@ -1,4 +1,3 @@
-
 """
 Recipes — search and browse recipes (API + DB).
 Owner: <assign on Apr 22>
@@ -20,6 +19,7 @@ from src.components.ui import empty_state, page_header
 from src.data.api_client import (
     filter_by_cuisine,
     fetch_kcal_for_title,
+    fetch_nutrition_for_meal,
     get_meal_by_id,
     list_cuisines,
     search_recipes_by_name,
@@ -629,18 +629,26 @@ def render_meal_card(
                     # Also save kcal_per_serv if available (Spoonacular provides
                     # this when addRecipeNutrition=True is set in api_client.py).
                     if local_id is None:
-                        kcal = meal.get("kcal_per_serv")
+                        kcal      = meal.get("kcal_per_serv")
+                        protein_g = meal.get("protein_g")
+                        carbs_g   = meal.get("carbs_g")
+                        fat_g     = meal.get("fat_g")
 
-                        # TheMealDB recipes don't carry kcal_per_serv.
-                        # fetch_kcal_for_title() calls Spoonacular by name
-                        # so Nutrition Analytics shows real calories, not 0.
+                        # TheMealDB recipes don't carry nutrition data.
+                        # We extract their ingredients and send them to
+                        # Spoonacular's nutrition parser to get real values.
                         if kcal is None:
-                            kcal = fetch_kcal_for_title(meal_title)
-                            st.write(f"DEBUG kcal fetched: {kcal}")  # ← aggiungi questa riga
+                            nutrition = fetch_nutrition_for_meal(meal)
+                            kcal      = nutrition["kcal"]
+                            protein_g = nutrition["protein_g"]
+                            carbs_g   = nutrition["carbs_g"]
+                            fat_g     = nutrition["fat_g"]
 
                         execute(
-                            "INSERT INTO recipes (title, kcal_per_serv) VALUES (?, ?)",
-                            (meal_title, kcal),
+                            """INSERT INTO recipes
+                               (title, kcal_per_serv, protein_g, carbs_g, fat_g)
+                               VALUES (?, ?, ?, ?, ?)""",
+                            (meal_title, kcal, protein_g, carbs_g, fat_g),
                         )
                         new_row = query_df(
                             "SELECT id FROM recipes WHERE title = ? ORDER BY id DESC LIMIT 1",
@@ -649,18 +657,27 @@ def render_meal_card(
                         if not new_row.empty:
                             local_id = int(new_row.iloc[0]["id"])
                     else:
-                        # Recipe already exists — update kcal if we now have it
-                        # (e.g. user previously saved it without nutrition data).
-                        kcal = meal.get("kcal_per_serv")
+                        # Recipe already exists — update nutrition if missing.
+                        kcal      = meal.get("kcal_per_serv")
+                        protein_g = meal.get("protein_g")
+                        carbs_g   = meal.get("carbs_g")
+                        fat_g     = meal.get("fat_g")
 
                         # If still missing (TheMealDB recipe), fetch via Spoonacular
                         if kcal is None:
-                            kcal = fetch_kcal_for_title(meal_title)
+                            nutrition = fetch_nutrition_for_meal(meal)
+                            kcal      = nutrition["kcal"]
+                            protein_g = nutrition["protein_g"]
+                            carbs_g   = nutrition["carbs_g"]
+                            fat_g     = nutrition["fat_g"]
 
                         if kcal is not None:
                             execute(
-                                "UPDATE recipes SET kcal_per_serv = ? WHERE id = ?",
-                                (kcal, local_id),
+                                """UPDATE recipes
+                                   SET kcal_per_serv = ?, protein_g = ?,
+                                       carbs_g = ?, fat_g = ?
+                                   WHERE id = ?""",
+                                (kcal, protein_g, carbs_g, fat_g, local_id),
                             )
 
                     if local_id:
