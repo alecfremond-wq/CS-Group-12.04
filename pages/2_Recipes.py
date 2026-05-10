@@ -23,32 +23,10 @@ from src.data.api_client import (
     get_meal_by_id,
     list_cuisines,
     search_recipes_by_name,
-    search_spoonacular,
 )
 from src.data.database import query_df, execute
 from src.models.recommender import Recommender
 from src.utils.session import init_session_state, require_profile
-
-
-# ── Spoonacular quota guard ───────────────────────────────────────────────────
-# The free tier allows 150 points/day across all users.
-# Each Spoonacular search costs ~20 points (1 pt per result, up to 20 results).
-# We cap each session at 3 Spoonacular searches, then fall back to MealDB only.
-# The counter lives in st.session_state so it resets when the browser tab closes.
-
-SPOONACULAR_SESSION_LIMIT = 3
-
-
-def _spoonacular_searches_used() -> int:
-    return st.session_state.get("spoonacular_search_count", 0)
-
-
-def _increment_spoonacular_counter() -> None:
-    st.session_state["spoonacular_search_count"] = _spoonacular_searches_used() + 1
-
-
-def _spoonacular_limit_reached() -> bool:
-    return _spoonacular_searches_used() >= SPOONACULAR_SESSION_LIMIT
 
 
 # ── Planner helpers ───────────────────────────────────────────────────────────
@@ -664,45 +642,12 @@ with tab_search:
     )
 
     if query:
-        diet     = profile.get("diet", "omnivore")
-        allergies = profile.get("allergies", [])
-        veg = diet in ("vegetarian", "vegan")
-        vgn = diet == "vegan"
-        gf  = "gluten" in allergies
-        df  = "lactose" in allergies
-
-        # ── Spoonacular quota guard ───────────────────────────────────────
-        mealdb_results = search_recipes_by_name(query)
-
-        if _spoonacular_limit_reached():
-            # Quota exhausted for this session — show only MealDB results
-            # and inform the user clearly without an error.
-            st.warning(
-                f"⚠️ You've used all {SPOONACULAR_SESSION_LIMIT} Spoonacular searches "
-                "for this session. Showing MealDB results only. "
-                "Results will include Spoonacular again in a new session.",
-                icon="🔒",
-            )
-            spoonacular_results = []
-        else:
-            spoonacular_results = search_spoonacular(
-                query=query,
-                vegetarian=veg,
-                vegan=vgn,
-                gluten_free=gf,
-                dairy_free=df,
-            )
-            _increment_spoonacular_counter()
-
-            # Show remaining searches as a subtle caption
-            remaining = SPOONACULAR_SESSION_LIMIT - _spoonacular_searches_used()
-            if remaining > 0:
-                st.caption(
-                    f"🔍 {remaining} Spoonacular search{'es' if remaining > 1 else ''} "
-                    "remaining this session."
-                )
-
-        results = mealdb_results + spoonacular_results
+        # ── Search — MealDB only ──────────────────────────────────────────
+        # Spoonacular is not called here to preserve daily API quota.
+        # It only fires when a user explicitly saves a recipe to the
+        # Meal Planner (fetch_nutrition_for_meal), which is infrequent
+        # and user-triggered — not automatic on every search.
+        results = search_recipes_by_name(query)
         # ─────────────────────────────────────────────────────────────────
 
         if not results:
