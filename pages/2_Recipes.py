@@ -17,6 +17,8 @@ import streamlit as st
 from recipes_data import RECIPES as LOCAL_RECIPES
 from src.components.ui import empty_state, page_header
 from src.data.api_client import (
+    filter_by_cuisine,
+    get_meal_by_id,
     list_cuisines,
     search_recipes_by_name,
     search_spoonacular,
@@ -685,6 +687,57 @@ with tab_search:
 
 # ── Cuisine tab ───────────────────────────────────────────────────────────────
 
+# Map from ISO-3 country code → TheMealDB area name
+# Only countries that TheMealDB actually has recipes for are listed.
+ISO_TO_CUISINE = {
+    "CAN": "Canadian",
+    "CHN": "Chinese",
+    "EGY": "Egyptian",
+    "FRA": "French",
+    "GRC": "Greek",
+    "IND": "Indian",
+    "IRL": "Irish",
+    "ITA": "Italian",
+    "JAM": "Jamaican",
+    "JPN": "Japanese",
+    "KEN": "Kenyan",
+    "MYS": "Malaysian",
+    "MEX": "Mexican",
+    "MAR": "Moroccan",
+    "NLD": "Dutch",
+    "POL": "Polish",
+    "PRT": "Portuguese",
+    "RUS": "Russian",
+    "ESP": "Spanish",
+    "THA": "Thai",
+    "TUN": "Tunisian",
+    "TUR": "Turkish",
+    "GBR": "British",
+    "USA": "American",
+    "VNM": "Vietnamese",
+    "PHL": "Filipino",
+    "HRV": "Croatian",
+    "URY": "Uruguayan",
+}
+
+
+def fetch_cuisine_recipes(cuisine: str, limit: int = 10) -> list[dict]:
+    """
+    Fetch full recipe details for a given cuisine using TheMealDB.
+
+    filter_by_cuisine() returns stubs (id + thumbnail only).
+    We then call get_meal_by_id() for each to get instructions,
+    ingredients, area, and category — everything render_meal_card() needs.
+    Results are cached inside each called function so this is fast.
+    """
+    stubs = filter_by_cuisine(cuisine)[:limit]
+    full_meals = []
+    for stub in stubs:
+        meal = get_meal_by_id(stub["idMeal"])
+        if meal:
+            full_meals.append(meal)
+    return full_meals
+
 with tab_cuisine:
     cuisines = list_cuisines()
 
@@ -694,10 +747,15 @@ with tab_cuisine:
         # ── World Map ──────────────────────────────────────────────────────
         st.subheader("🌍 Bites Across Borders")
         st.markdown("- Click on a country on the map to explore its traditional recipes")
-        st.markdown("- Not sure where a country is? You can also search it manually using the selector below!")
-        st.plotly_chart(
+        st.markdown("- Not sure where a country is? You can also use the selector below!")
+
+        # on_select="rerun" makes Streamlit re-run the script when the user
+        # clicks a country, passing back the click data via the return value.
+        map_selection = st.plotly_chart(
             build_figure(),
             use_container_width=True,
+            on_select="rerun",
+            selection_mode="points",
             config={
                 "scrollZoom": False,
                 "displayModeBar": False,
@@ -723,5 +781,52 @@ with tab_cuisine:
             col_idx += 1
 
         st.divider()
-        choice = st.selectbox("Cuisine", cuisines)
-        st.caption(f"(Owner: render recipes for cuisine = **{choice}**)")
+
+        # ── Resolve clicked country → cuisine ─────────────────────────────
+        clicked_cuisine = None
+        clicked_country_name = None
+
+        try:
+            points = map_selection.selection.get("points", [])
+            if points:
+                iso = points[0].get("location")  # e.g. "ITA"
+                if iso:
+                    clicked_cuisine = ISO_TO_CUISINE.get(iso)
+                    clicked_country_name = ISO_NAME.get(iso, iso)
+        except Exception:
+            pass
+
+        # ── Manual selector (always visible as fallback) ──────────────────
+        # Pre-select the clicked country in the dropdown if possible
+        cuisine_options = sorted(ISO_TO_CUISINE.values())
+        default_idx = 0
+        if clicked_cuisine and clicked_cuisine in cuisine_options:
+            default_idx = cuisine_options.index(clicked_cuisine)
+
+        choice = st.selectbox(
+            "Or pick a cuisine manually:",
+            options=cuisine_options,
+            index=default_idx,
+        )
+
+        # The manual selector overrides the map click if the user changes it
+        active_cuisine = choice  # choice always reflects the current selection
+
+        # ── Show results ──────────────────────────────────────────────────
+        if active_cuisine:
+            if clicked_country_name and ISO_TO_CUISINE.get(
+                next((k for k, v in ISO_TO_CUISINE.items() if v == active_cuisine), ""), ""
+            ) == active_cuisine and clicked_cuisine == active_cuisine:
+                st.subheader(f"🍽️ Recipes from {clicked_country_name}")
+            else:
+                st.subheader(f"🍽️ {active_cuisine} recipes")
+
+            with st.spinner(f"Loading {active_cuisine} recipes…"):
+                cuisine_results = fetch_cuisine_recipes(active_cuisine)
+
+            if not cuisine_results:
+                empty_state(f"No recipes found for {active_cuisine} — try another country.")
+            else:
+                user_pantry = get_pantry()
+                for meal in cuisine_results[:10]:
+                    render_meal_card(meal, pantry=pantry_pct(meal, user_pantry))
