@@ -507,8 +507,14 @@ def render_meal_card(
     meal: dict,
     ml_score: float | None = None,
     pantry: float | None = None,
+    card_key: str = "",  # unique prefix to avoid StreamlitDuplicateElementKey
 ) -> None:
-    """Draw a single recipe card."""
+    """Draw a single recipe card.
+
+    card_key must be unique for every card rendered in a single Streamlit
+    run (e.g. "search_0", "cuisine_3"). Without it, two cards with the
+    same meal title produce duplicate widget keys and crash the app.
+    """
     meal_title = meal["strMeal"]
 
     with st.container(border=True):
@@ -544,7 +550,7 @@ def render_meal_card(
             if already_saved:
                 st.caption("❤️ Saved to wishlist")
             else:
-                if st.button("❤️ Save to wishlist", key=f"wish_{meal_title}"):
+                if st.button("❤️ Save to wishlist", key=f"{card_key}_wish_{meal_title}"):
                     local_id = local_title_to_id.get(meal_title.lower())
                     st.session_state["wishlist"].append(
                         {
@@ -595,7 +601,7 @@ def render_meal_card(
 
                 if st.button(
                     "❌ Remove from Meal Planner",
-                    key=f"remove_planner_{meal_title}",
+                    key=f"{card_key}_remove_planner_{meal_title}",
                 ):
                     # Remove from the pool (dropdown options)
                     execute(
@@ -615,7 +621,7 @@ def render_meal_card(
             else:
                 if st.button(
                     "➕ Add to Meal Planner",
-                    key=f"planner_{meal_title}",
+                    key=f"{card_key}_planner_{meal_title}",
                 ):
                     # If the recipe doesn't exist in the DB yet, create it
                     if local_id is None:
@@ -719,11 +725,13 @@ with tab_search:
 
             user_pantry = get_pantry()
 
-            for meal, score in scored_results:
+            # ── FIX: pass card_key with index so each card has unique widget keys
+            for idx, (meal, score) in enumerate(scored_results):
                 render_meal_card(
                     meal,
                     ml_score=score,
                     pantry=pantry_pct(meal, user_pantry),
+                    card_key=f"search_{idx}",
                 )
 
 
@@ -879,7 +887,13 @@ with tab_cuisine:
                 empty_state(f"No recipes found for {active_cuisine} — try another country.")
             else:
                 user_pantry = get_pantry()
-                for meal in cuisine_results[:10]:
-                    render_meal_card(meal, pantry=pantry_pct(meal, user_pantry))
+                # ── FIX: pass card_key with index so each card has unique widget keys
+                for idx, meal in enumerate(cuisine_results[:10]):
+                    render_meal_card(
+                        meal,
+                        pantry=pantry_pct(meal, user_pantry),
+                        card_key=f"cuisine_{idx}",
+                    )
         else:
             st.info("👆 Click a country on the map to explore its recipes.")
+
