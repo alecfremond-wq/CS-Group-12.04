@@ -112,6 +112,40 @@ def get_meal_by_id(meal_id: str) -> dict | None:
         return None
 
 
+def fetch_kcal_for_title(title: str) -> "int | None":
+    """Look up calorie data for a recipe title using Spoonacular.
+
+    Called when a TheMealDB recipe is saved to the Meal Planner and we
+    need to backfill kcal_per_serv in the DB. Not cached because it is
+    called imperatively (on button click), not during a render pass.
+
+    Returns the kcal as an int, or None if not found / API unavailable.
+    """
+    try:
+        params = {
+            "apiKey": st.secrets["SPOONACULAR_API_KEY"],
+            "query": title,
+            "number": 1,
+            "addRecipeNutrition": True,
+        }
+        resp = requests.get(
+            "https://api.spoonacular.com/recipes/complexSearch",
+            params=params,
+            timeout=20,
+        )
+        resp.raise_for_status()
+        results = resp.json().get("results", [])
+        if not results:
+            return None
+        nutrients = results[0].get("nutrition", {}).get("nutrients", [])
+        return next(
+            (int(n["amount"]) for n in nutrients if n.get("name") == "Calories"),
+            None,
+        )
+    except Exception:
+        return None
+
+
 @st.cache_data(ttl=60 * 60)
 def search_spoonacular(query="", vegetarian=False, vegan=False,
                        gluten_free=False, dairy_free=False):
@@ -193,4 +227,3 @@ def search_spoonacular(query="", vegetarian=False, vegan=False,
     except Exception as exc:
         st.warning(f"Spoonacular unavailable: {exc}")
         return []
-
