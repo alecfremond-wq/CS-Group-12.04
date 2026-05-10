@@ -189,26 +189,3 @@ for meal in MEALS:
                         st.rerun()
 
 st.divider()
-
-# --- SUMMARY ---
-st.subheader("Summary")
-
-if meals_df.empty:
-    st.info("No meals planned yet this week.")
-else:
-    st.success(f"You have {len(meals_df)} meal(s) planned this week.")
-
-    meals_df["meal_date"] = pd.to_datetime(meals_df["meal_date"])
-    meals_df = meals_df.sort_values("meal_date")
-
-    for i in range(7):
-        d = week_start + timedelta(days=i)
-        day_meals = meals_df[meals_df["meal_date"].dt.date == d]
-
-        if len(day_meals) == 0:
-            continue
-
-        st.markdown(f"### {d.strftime('%A')}")
-
-        for _, m in day_meals.iterrows():
-            st.write(f"- **{m['meal_type']}**: {m['title']}")
