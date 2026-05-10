@@ -185,8 +185,8 @@ with col_left:
 with col_right:
     st.markdown(
         '<div style="text-align:right;padding-top:16px">'
-        '<span style="color:#FF6B35">■</span> Actual &nbsp;'
-        '<span style="color:#4D9078">■</span> Goal'
+        '<span style="color:#ED7D3A">■</span> Actual &nbsp;'
+        '<span style="color:#F5F5DC">■</span> Goal'
         "</div>",
         unsafe_allow_html=True,
     )
@@ -196,15 +196,15 @@ with col_right:
 bar_colors = []
 for day, total in zip(DAYS, totals):
     if day == selected:
-        bar_colors.append("#FF6B35")   # arancione — giorno selezionato
+        bar_colors.append("#ED7D3A")   # arancione — giorno selezionato
     else:
-        bar_colors.append("#C8C8C8")   # grigio — tutti gli altri
+        bar_colors.append("#4D9078")   # grigio — tutti gli altri
 
 fig = go.Figure()
 
 fig.add_trace(go.Bar(
     x=DAYS, y=[GOAL] * 7,
-    name="Goal", marker_color="#4D9078", width=0.55,
+    name="Goal", marker_color="#F5F5DC", width=0.55,
 ))
 
 fig.add_trace(go.Bar(
