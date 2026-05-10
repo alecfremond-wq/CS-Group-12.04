@@ -221,9 +221,10 @@ wishlist_ids = [
     if isinstance(w, dict) and w.get("local_id") is not None
 ]
 
-# Ingredient lists from ALL saved recipes — used to build the taste profile.
+# Ingredient lists from ALL saved recipes — cleaned so measures are stripped
+# before the Recommender's _encode_external filters against its vocabulary.
 liked_ingredients = [
-    w["ingredients"]
+    _clean_ingredients(w["ingredients"])
     for w in wishlist
     if isinstance(w, dict) and w.get("ingredients")
 ]
@@ -247,53 +248,47 @@ else:
 
 st.divider()
 
-# ── Run the model ─────────────────────────────────────────────────────────────
+# ── Run the k-NN model ────────────────────────────────────────────────────────
+#
+# The Recommender is trained on the full API catalogue (recipes_df), so its
+# MultiLabelBinarizer vocabulary covers all MealDB and Spoonacular ingredient
+# names — unlike before when it was trained on the tiny recipes_data set.
+#
+# liked_ingredients contains clean ingredient lists from every wishlist item.
+# _encode_external() inside the Recommender filters them against the known
+# vocabulary, so any ingredient the user saved that exists in the catalogue
+# contributes to the cosine taste-profile vector.
+#
+# The cosine similarity score (0.0–1.0) is what drives the progress bars.
 
 rec = Recommender(recipes_df)
 
-# Build the taste profile: one flat set of clean ingredient names from
-# everything the user has saved. We clean here too — wishlist items saved
-# from the Recipes page still carry raw MealDB strings like '2 cups Rice'.
-ref_set: set[str] = set()
-for ing_list in liked_ingredients:
-    ref_set.update(_clean_ingredients(ing_list))
+saved_titles = {
+    w["title"].lower()
+    for w in wishlist
+    if isinstance(w, dict) and w.get("title")
+}
 
-has_signal = bool(ref_set)
-
+has_signal = bool(liked_ingredients) or bool(wishlist_ids)
 
 if has_signal:
-    # Score by overlap coefficient: |A ∩ B| / min(|A|, |B|)
-    # This asks "what fraction of THIS recipe's ingredients appear in your
-    # taste profile?" — so a recipe sharing 8 of its 10 ingredients with
-    # things you've saved scores 80%, regardless of how large the profile is.
-    # Raw Jaccard penalises a large profile (the union grows fast) and produces
-    # scores like 2-3% that round to 0% — overlap coefficient avoids that.
-    def _overlap(profile: set[str], recipe_ings: set[str]) -> float:
-        if not profile or not recipe_ings:
-            return 0.0
-        return len(profile & recipe_ings) / min(len(profile), len(recipe_ings))
+    # Ask for a large candidate pool so filtering by score and saved titles
+    # still leaves enough results to fill 8 slots.
+    candidates = rec.recommend(
+        history_df,
+        top_n=len(recipes_df),      # score everything
+        wishlist=wishlist_ids,
+        liked_ingredients=liked_ingredients,
+    )
 
-    scores = [
-        _overlap(ref_set, set(row["ingredients"]))
-        for _, row in recipes_df.iterrows()
-    ]
-    recipes_df = recipes_df.copy()
-    recipes_df["score"] = scores
-
-    saved_titles = {
-        w["title"].lower()
-        for w in wishlist
-        if isinstance(w, dict) and w.get("title")
-    }
     picks = (
-        recipes_df[~recipes_df["title"].str.lower().isin(saved_titles)]
-        .sort_values("score", ascending=False)
+        candidates[~candidates["title"].str.lower().isin(saved_titles)]
         .query("score >= 0.5")
         .head(8)
         .reset_index(drop=True)
     )
 else:
-    # Cold start — no wishlist yet, use k-NN default ordering
+    # Cold start — no wishlist yet, return top recipes unscored
     picks = rec.recommend(history_df, top_n=8)
 
 if picks.empty:
