@@ -186,7 +186,7 @@ with col_right:
     st.markdown(
         '<div style="text-align:right;padding-top:16px">'
         '<span style="color:#ED7D3A">■</span> Actual &nbsp;'
-        '<span style="color:#4D9078">■</span> Goal'
+        '<span style="color:#F5F5DC">■</span> Goal'
         "</div>",
         unsafe_allow_html=True,
     )
@@ -204,7 +204,7 @@ fig = go.Figure()
 
 fig.add_trace(go.Bar(
     x=DAYS, y=[GOAL] * 7,
-    name="Goal", marker_color="#4D9078", width=0.55,
+    name="Goal", marker_color="#F5F5DC", width=0.55,
 ))
 
 fig.add_trace(go.Bar(
