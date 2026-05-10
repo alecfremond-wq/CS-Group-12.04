@@ -38,6 +38,10 @@ def init_db():
 
     Safe to call every time the app starts — the SQL in schema.sql uses
     'CREATE TABLE IF NOT EXISTS', so existing tables aren't overwritten.
+
+    Call this ONCE at app startup (e.g. in app.py or main.py), not on
+    every query. Running executescript() on every connection caused
+    sqlite3.OperationalError on Streamlit Cloud.
     """
     # Make sure the `data/` folder exists (mkdir creates it; parents=True also
     # creates parent folders; exist_ok=True means "don't error if it's there").
@@ -58,21 +62,24 @@ def init_db():
 # over, then always clean up even if there's an error".
 @contextmanager
 def get_connection():
-    """Open a SQLite connection and always close it when done."""
+    """Open a SQLite connection and always close it when done.
+
+    NOTE: do NOT call executescript() here. Schema initialisation belongs
+    in init_db() only. Calling executescript() on every connection caused
+    sqlite3.OperationalError on Streamlit Cloud because executescript()
+    opens an implicit transaction that conflicts with pd.read_sql_query().
+    """
 
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
 
     try:
-        # 🔥 SAFE GUARANTEE: ensure schema exists for THIS connection
-        if SCHEMA_PATH.exists():
-            conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
-
         yield conn
         conn.commit()
 
     finally:
-        conn.close() 
+        conn.close()
+
 
 def query_df(sql, params=None):
     """Run a SELECT and return the results as a pandas DataFrame.
