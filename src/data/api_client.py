@@ -36,27 +36,18 @@ def search_recipes_by_name(query):
     Returns a list of meal dictionaries (could be empty if nothing matched
     or the network is down).
     """
-    # `try`/`except` lets us handle network errors gracefully.
     try:
-        # GET request to the search endpoint. The 's' parameter is the search term.
-        # timeout=10 means: give up after 10 seconds (no frozen UI).
         resp = requests.get(
-            f"{THEMEALDB_BASE}/search.php",       # full URL e.g. https://.../search.php
-            params={"s": query},                  # TheMealDB expects the query under the key 's'
-            timeout=20,                           # seconds before we give up
+            f"{THEMEALDB_BASE}/search.php",
+            params={"s": query},
+            timeout=20,
         )
-        # raise_for_status() raises an exception if the HTTP status is 4xx or 5xx.
         resp.raise_for_status()
-
-        # resp.json() parses the JSON response body into a Python dict.
-        # TheMealDB returns {"meals": [...]} or {"meals": null} if empty.
-        # The `or []` makes sure we always return a list (never None).
         return resp.json().get("meals") or []
 
-    except requests.RequestException as exc:      # any network / HTTP error lands here
-        # Show a yellow warning in the UI so users know what happened.
+    except requests.RequestException as exc:
         st.warning(f"Recipe search unavailable: {exc}")
-        return []                                 # degrade gracefully
+        return []
 
 
 # Cached for a whole day — the list of cuisines barely changes.
@@ -64,37 +55,61 @@ def search_recipes_by_name(query):
 def list_cuisines():
     """Return the list of cuisines (TheMealDB calls them 'areas')."""
     try:
-        # The 'a=list' parameter tells TheMealDB "give me all available areas".
         resp = requests.get(
             f"{THEMEALDB_BASE}/list.php",
             params={"a": "list"},
             timeout=20,
         )
         resp.raise_for_status()
-
-        # The response shape is {"meals": [{"strArea": "Italian"}, ...]}
-        # We use a LIST COMPREHENSION to extract just the "strArea" strings.
         return [m["strArea"] for m in (resp.json().get("meals") or [])]
 
     except requests.RequestException:
-        return []                                 # empty list = no cuisines loaded
+        return []
 
 
 @st.cache_data(ttl=60 * 60)
 def filter_by_cuisine(cuisine):
-    """Return a list of recipe stubs (id, name, thumbnail) for a cuisine."""
+    """Return a list of recipe stubs (id, name, thumbnail) for a cuisine.
+
+    Note: TheMealDB's filter endpoint only returns minimal data —
+    idMeal, strMeal, strMealThumb. Use get_meal_by_id() to fetch
+    full details (instructions, ingredients, etc.) for each stub.
+    """
     try:
-        # The 'a=<cuisine>' parameter filters meals by area.
         resp = requests.get(
             f"{THEMEALDB_BASE}/filter.php",
             params={"a": cuisine},
             timeout=20,
         )
         resp.raise_for_status()
-        return resp.json().get("meals") or []     # list of {"idMeal", "strMeal", "strMealThumb"}
+        return resp.json().get("meals") or []
 
     except requests.RequestException:
         return []
+
+
+@st.cache_data(ttl=60 * 60)
+def get_meal_by_id(meal_id: str) -> dict | None:
+    """Fetch full details for a single meal by its TheMealDB ID.
+
+    filter_by_cuisine() only returns stubs. This function fills in
+    the missing fields (instructions, ingredients, area, category)
+    by calling the lookup endpoint.
+
+    Returns the full meal dict, or None if not found / network error.
+    """
+    try:
+        resp = requests.get(
+            f"{THEMEALDB_BASE}/lookup.php",
+            params={"i": meal_id},
+            timeout=20,
+        )
+        resp.raise_for_status()
+        meals = resp.json().get("meals") or []
+        return meals[0] if meals else None
+
+    except requests.RequestException:
+        return None
 
 
 @st.cache_data(ttl=60 * 60)
@@ -117,27 +132,23 @@ def search_spoonacular(query="", vegetarian=False, vegan=False,
             "query": query,
             "number": 20,
             "addRecipeInformation": True,
-            # fillIngredients makes Spoonacular include extendedIngredients in
-            # the response — without this, ingredient lists come back empty.
             "fillIngredients": True,
         }
         if diet:
             params["diet"] = diet
         if intolerances:
             params["intolerances"] = ",".join(intolerances)
-        resp = requests.get("https://api.spoonacular.com/recipes/complexSearch", params=params, timeout=20)
+        resp = requests.get(
+            "https://api.spoonacular.com/recipes/complexSearch",
+            params=params,
+            timeout=20,
+        )
         resp.raise_for_status()
         results = []
         for r in resp.json().get("results", []):
-            # Spoonacular returns the summary as HTML — strip tags for clean display.
             import re
             raw_summary = r.get("summary", "")
             clean_summary = re.sub(r"<[^>]+>", "", raw_summary)
-            # Extract ingredient names from extendedIngredients (available when
-            # addRecipeInformation=True). We store them under "_ingredients" so
-            # extract_ingredients() in the Recipes page can find them — without
-            # this, Spoonacular saves would always have an empty ingredient list
-            # and would never feed the ML model.
             ing = [
                 i.get("name", "").strip()
                 for i in r.get("extendedIngredients", [])
