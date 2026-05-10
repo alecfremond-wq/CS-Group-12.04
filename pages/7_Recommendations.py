@@ -295,17 +295,19 @@ if has_signal:
     picks = (
         recipes_df[~recipes_df["title"].str.lower().isin(saved_titles)]
         .sort_values("score", ascending=False)
-        .head(5)
+        .query("score >= 0.5")
+        .head(8)
         .reset_index(drop=True)
     )
 else:
     # Cold start — no wishlist yet, use k-NN default ordering
-    picks = rec.recommend(history_df, top_n=5)
+    picks = rec.recommend(history_df, top_n=8)
 
 if picks.empty:
-    st.success(
-        "You've already seen everything in the current catalogue — nice work! "
-        "Check back later as the catalogue refreshes hourly."
+    st.info(
+        "No recipes scored above 50% match for your taste profile yet. "
+        "Save more recipes on the **Recipes** page to broaden your profile "
+        "and unlock better matches."
     )
 
 # ── Feedback helper ───────────────────────────────────────────────────────────
