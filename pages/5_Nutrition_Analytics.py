@@ -185,7 +185,7 @@ with col_left:
 with col_right:
     st.markdown(
         '<div style="text-align:right;padding-top:16px">'
-        '<span style="color:#4A90D9">■</span> Actual &nbsp;'
+        '<span style="color:#FF6B35">■</span> Actual &nbsp;'
         '<span style="color:#D0CFC8">■</span> Goal'
         "</div>",
         unsafe_allow_html=True,
@@ -196,11 +196,9 @@ with col_right:
 bar_colors = []
 for day, total in zip(DAYS, totals):
     if day == selected:
-        bar_colors.append("#4CAF50")
-    elif total > GOAL:
-        bar_colors.append("#E05C5C")
+        bar_colors.append("#FF6B35")   # arancione — giorno selezionato
     else:
-        bar_colors.append("#4A90D9")
+        bar_colors.append("#C8C8C8")   # grigio — tutti gli altri
 
 fig = go.Figure()
 
@@ -235,13 +233,11 @@ for i, (day, total) in enumerate(zip(DAYS, totals)):
     label = f"{total/1000:.1f}k" if total >= 1000 else str(total)
 
     if day == selected:
-        line_color = "#4CAF50" if abs(total - GOAL) / max(GOAL, 1) < 0.05 else "#4A90D9"
-    elif total > GOAL:
-        line_color = "#E05C5C"
+        line_color = "#FF6B35"
     else:
-        line_color = "#4A90D9"
+        line_color = "#C8C8C8"
 
-    border = "2px solid #4A90D9" if day == selected else "1px solid #e0e0e0"
+    border = "2px solid #FF6B35" if day == selected else "1px solid #e0e0e0"
 
     with pill_cols[i]:
         st.markdown(
