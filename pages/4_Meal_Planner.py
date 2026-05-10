@@ -157,13 +157,20 @@ for meal in MEALS:
                 else:
                     select_key = f"meal_{week_id}_{meal}_{d.isoformat()}_{i}"
 
-                    selected = st.selectbox(
+                    # Use a string sentinel ("") instead of None so Streamlit
+                    # doesn't render a clear (✕) button on the empty option.
+                    PLACEHOLDER = ""
+                    options = [PLACEHOLDER] + list(recipe_dict.keys())
+
+                    selected_raw = st.selectbox(
                         " ",
-                        options=[None] + list(recipe_dict.keys()),
-                        format_func=lambda x: "Select..." if x is None else recipe_dict[x],
+                        options=options,
+                        format_func=lambda x: "Select..." if x == PLACEHOLDER else recipe_dict.get(x, x),
                         key=select_key,
                         label_visibility="collapsed"
                     )
+
+                    selected = selected_raw if selected_raw != PLACEHOLDER else None
 
                     if selected:
                         execute(
