@@ -33,10 +33,35 @@ from src.utils.session import init_session_state, require_profile
 init_session_state()
 require_profile()
 page_header("📊 Nutrition Analytics", "Track your calorie intake.")
+# ── Calorie goal banner ────────────────────────────────────────────────────────
 
+if "calorie_goal" not in st.session_state:
+    st.session_state.calorie_goal = DEFAULT_GOAL
+
+with st.container(border=True):
+    banner_col1, banner_col2, banner_col3 = st.columns([3, 2, 1])
+    with banner_col1:
+        st.markdown("🎯 **Your daily calorie goal**")
+        st.caption("Set a personal target to track against the chart and stats.")
+    with banner_col2:
+        goal_input = st.number_input(
+            "kcal/day",
+            min_value=500,
+            max_value=10000,
+            value=st.session_state.calorie_goal,
+            step=50,
+            label_visibility="collapsed",
+            key="goal_input_widget",
+        )
+    with banner_col3:
+        if st.button("✅ Set goal", use_container_width=True):
+            st.session_state.calorie_goal = goal_input
+            st.rerun()
+
+GOAL = st.session_state.calorie_goal
 # ── Constants ──────────────────────────────────────────────────────────────────
 
-GOAL      = 2000
+DEFAULT_GOAL = 2000
 DAYS      = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 MEALS     = ["Breakfast", "Lunch", "Snacks", "Dinner"]
 DATA_FILE = "calorie_data.json"
