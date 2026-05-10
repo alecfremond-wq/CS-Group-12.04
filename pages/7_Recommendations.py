@@ -18,7 +18,6 @@ from src.data.api_client import (
     extract_ingredients_from_meal,
     filter_by_cuisine,
     get_meal_by_id,
-    search_spoonacular,
 )
 from src.models.recommender import Recommender
 from src.utils.session import init_session_state, require_profile
@@ -70,9 +69,6 @@ _MEALDB_CUISINES = [
     "Italian", "Mexican", "Indian", "Japanese", "French",
     "Chinese", "Thai", "American", "British", "Greek",
 ]
-
-# Generic Spoonacular query — just pulls popular recipes to pad the catalogue.
-_SPOONACULAR_QUERY = "popular dinner"
 
 # How many stubs to pull from each MealDB cuisine (keeps API calls manageable).
 _MEALDB_PER_CUISINE = 4
@@ -140,56 +136,23 @@ def _load_mealdb_recipes() -> list[dict]:
     return rows
 
 
-@st.cache_data(ttl=60 * 60, show_spinner=False)
-def _load_spoonacular_recipes() -> list[dict]:
-    """
-    Pull popular recipes from Spoonacular and normalise them into the
-    same shape as the MealDB rows above.
-
-    Spoonacular returns readyInMinutes and calorie data natively, so no
-    extra enrichment step is needed.
-    """
-    raw     = search_spoonacular(query=_SPOONACULAR_QUERY)
-    rows    = []
-    base_id = 10_000  # offset so Spoonacular IDs never clash with MealDB ones
-
-    for i, r in enumerate(raw):
-        # search_spoonacular normalises to strMeal / _ingredients / kcal_per_serv
-        time_min = r.get("readyInMinutes")          # may be None
-        kcal     = r.get("kcal_per_serv")
-
-        rows.append({
-            "id":           base_id + i,
-            "title":        r.get("strMeal", ""),
-            "ingredients":  _clean_ingredients(r.get("_ingredients", [])),
-            "calories":     kcal,
-            "time_minutes": time_min,
-            "difficulty":   _difficulty_from_time(time_min),
-            "country":      r.get("strArea", "International"),
-        })
-
-    return rows
-
-
 def load_all_recipes() -> pd.DataFrame:
     """
-    Merge MealDB and Spoonacular catalogues, deduplicate by title,
-    and return as a DataFrame ready for the Recommender.
+    Load MealDB recipes and return as a DataFrame ready for the Recommender.
 
     Cached in st.session_state so APIs are only hit once per session.
-    The cache key includes a version string — bump it whenever the
-    cleaning logic changes so stale uncleaned data is never used.
+    The catalogue is MealDB-only — Spoonacular is not called here, preserving
+    free-tier quota for user-triggered searches on the Recipes page.
     """
-    CACHE_VERSION = "v3"  # bump this if ingredient cleaning logic changes
+    CACHE_VERSION = "v4"
     cache_key = f"rec_recipes_df_{CACHE_VERSION}"
 
-    # Invalidate any older cache versions left in session state
     for old_key in [k for k in st.session_state if k.startswith("rec_recipes_df_") and k != cache_key]:
         del st.session_state[old_key]
 
     if cache_key not in st.session_state:
-        with st.spinner("Loading recipe catalogue from MealDB & Spoonacular…"):
-            rows = _load_mealdb_recipes() + _load_spoonacular_recipes()
+        with st.spinner("Loading recipe catalogue from MealDB…"):
+            rows = _load_mealdb_recipes()
 
         df = pd.DataFrame(rows)
         df = df.drop_duplicates(subset="title", keep="first").reset_index(drop=True)
