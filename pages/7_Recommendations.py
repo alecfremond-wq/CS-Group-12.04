@@ -233,30 +233,35 @@ saved_titles = {
 has_signal = bool(liked_ingredients) or bool(wishlist_ids)
 
 if has_signal:
-    # Ask for a large candidate pool so filtering by score and saved titles
+    # Ask for a large candidate pool so filtering by saved titles
     # still leaves enough results to fill 8 slots.
     candidates = rec.recommend(
         history_df,
-        top_n=len(recipes_df),      # score everything
+        top_n=len(recipes_df),
         wishlist=wishlist_ids,
         liked_ingredients=liked_ingredients,
     )
 
-    picks = (
-        candidates[~candidates["title"].str.lower().isin(saved_titles)]
-        .query("score >= 0.5")
-        .head(8)
-        .reset_index(drop=True)
-    )
+    filtered = candidates[~candidates["title"].str.lower().isin(saved_titles)].copy()
+
+    # Cosine similarity scores are typically low in absolute terms (0.05–0.3)
+    # even for genuinely good matches, because the vector space is sparse.
+    # We normalise relative to the best score in this result set so the
+    # progress bars show 100% for the best match and scale down from there —
+    # giving the user an intuitive sense of relative fit, not raw cosine.
+    if not filtered.empty and filtered["score"].notna().any():
+        max_score = filtered["score"].max()
+        if max_score > 0:
+            filtered["score"] = filtered["score"] / max_score
+
+    picks = filtered.head(8).reset_index(drop=True)
 else:
     # Cold start — no wishlist yet, return top recipes unscored
     picks = rec.recommend(history_df, top_n=8)
 
 if picks.empty:
     st.info(
-        "No recipes scored above 50% match for your taste profile yet. "
-        "Save more recipes on the **Recipes** page to broaden your profile "
-        "and unlock better matches."
+        "Nothing to recommend yet — save some recipes on the **Recipes** page first."
     )
 
 # ── Feedback helper ───────────────────────────────────────────────────────────
