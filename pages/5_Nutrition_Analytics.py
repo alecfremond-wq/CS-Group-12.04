@@ -88,17 +88,13 @@ def load_from_meal_plan(user_id) -> dict:
 
 # ── Session state ──────────────────────────────────────────────────────────────
 
-if "cal_data" not in st.session_state:
-    base = load_data()
-    user_id = st.session_state.get("user_id")
-    if user_id:
-        # Pre-fill any slot that is still 0 with calories from the meal plan.
-        # Manual edits saved in the JSON always take priority over auto-fill.
-        for day, meals in load_from_meal_plan(user_id).items():
-            for meal, kcal in meals.items():
-                if base.get(day, {}).get(meal, 0) == 0:
-                    base[day][meal] = kcal
-    st.session_state.cal_data = base
+user_id = st.session_state.get("user_id")
+base = load_data()
+for day, meals in load_from_meal_plan(user_id).items():
+    for meal, kcal in meals.items():
+        base[day][meal] = kcal
+st.session_state.cal_data = base
+
 if "cal_selected" not in st.session_state:
     st.session_state.cal_selected = DAYS[0]
 
