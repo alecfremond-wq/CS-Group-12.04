@@ -750,63 +750,19 @@ with tab_cuisine:
         st.markdown("- Click on a country on the map to explore its traditional recipes")
         st.markdown("- Not sure where a country is? You can also use the selector below!")
 
-        # ── Resolve selected cuisine from selectbox ────────────────────────
-        # Choropleth maps don't support click-to-select in Streamlit's
-        # st.plotly_chart. Instead the selectbox drives the selection,
-        # and the map highlights the chosen country.
-        cuisine_options = sorted(ISO_TO_CUISINE.values())
+        from streamlit_plotly_events import plotly_events
 
-        # Reverse lookup: cuisine name → ISO code
-        CUISINE_TO_ISO = {v: k for k, v in ISO_TO_CUISINE.items()}
-
-        choice = st.selectbox(
-            "Pick a cuisine — the map will highlight the country:",
-            options=cuisine_options,
-            key="cuisine_selectbox",
-        )
-
-        # Highlight the selected country on the map by re-rendering with
-        # a bright marker on top of the choropleth.
-        selected_iso = CUISINE_TO_ISO.get(choice)
-
-        def build_figure_with_highlight(highlight_iso: str | None) -> go.Figure:
-            fig = build_figure()
-            if highlight_iso:
-                CENTROIDS = {
-                    "CAN":(56,-96),"CHN":(35,105),"EGY":(27,30),
-                    "FRA":(46,2),"GRC":(39,22),"IND":(20,77),
-                    "IRL":(53,-8),"ITA":(42,12),"JAM":(18,-77),
-                    "JPN":(36,138),"KEN":(-1,38),"MYS":(4,109),
-                    "MEX":(23,-102),"MAR":(32,-6),"NLD":(52,5),
-                    "POL":(52,20),"PRT":(39,-8),"RUS":(60,100),
-                    "ESP":(40,-4),"THA":(15,101),"TUN":(34,9),
-                    "TUR":(39,35),"GBR":(54,-2),"USA":(38,-97),
-                    "VNM":(16,108),"PHL":(13,122),"HRV":(45,16),
-                    "URY":(-33,-56),
-                }
-                if highlight_iso in CENTROIDS:
-                    lat, lon = CENTROIDS[highlight_iso]
-                    country_name = ISO_NAME.get(highlight_iso, "")
-                    fig.add_trace(go.Scattergeo(
-                        lat=[lat], lon=[lon],
-                        mode="markers+text",
-                        marker=dict(size=18, color="red", symbol="star"),
-                        text=[country_name],
-                        textposition="top center",
-                        textfont=dict(size=13, color="red"),
-                        hoverinfo="skip",
-                        showlegend=False,
-                    ))
-            return fig
-
-        st.plotly_chart(
-            build_figure_with_highlight(selected_iso),
-            use_container_width=True,
-            config={
-                "scrollZoom": False,
-                "displayModeBar": False,
-                "staticPlot": True,
-            },
+        # Render the map and capture clicks. plotly_events returns a list of
+        # dicts — one per clicked point — each containing the customdata we
+        # embedded (the ISO-3 code).
+        clicked_points = plotly_events(
+            build_figure(),
+            click_event=True,
+            hover_event=False,
+            select_event=False,
+            override_width="100%",
+            override_height=450,
+            key="world_map",
         )
 
         # Legend
@@ -828,12 +784,42 @@ with tab_cuisine:
 
         st.divider()
 
-        # ── Show results ──────────────────────────────────────────────────
-        active_cuisine = choice
+        # ── Resolve clicked country ───────────────────────────────────────
+        # clicked_points is a list like [{"customdata": "ITA", ...}]
+        # We persist in session_state so the recipes don't vanish when
+        # the user interacts with recipe cards (which trigger reruns).
+        if clicked_points:
+            iso = clicked_points[0].get("customdata")
+            if iso and iso in ISO_TO_CUISINE:
+                st.session_state["map_selected_iso"] = iso
 
+        selected_iso = st.session_state.get("map_selected_iso")
+        active_cuisine = ISO_TO_CUISINE.get(selected_iso) if selected_iso else None
+        selected_country_name = ISO_NAME.get(selected_iso) if selected_iso else None
+
+        # ── Also allow manual fallback via selectbox ──────────────────────
+        CUISINE_TO_ISO = {v: k for k, v in ISO_TO_CUISINE.items()}
+        cuisine_options = ["— click the map or choose here —"] + sorted(ISO_TO_CUISINE.values())
+        default_idx = 0
+        if active_cuisine and active_cuisine in cuisine_options:
+            default_idx = cuisine_options.index(active_cuisine)
+
+        manual_choice = st.selectbox(
+            "Or pick a cuisine manually:",
+            options=cuisine_options,
+            index=default_idx,
+            key="cuisine_selectbox",
+        )
+
+        if manual_choice != "— click the map or choose here —":
+            active_cuisine = manual_choice
+            selected_iso = CUISINE_TO_ISO.get(active_cuisine)
+            selected_country_name = ISO_NAME.get(selected_iso, active_cuisine)
+            st.session_state["map_selected_iso"] = selected_iso
+
+        # ── Show results ──────────────────────────────────────────────────
         if active_cuisine:
-            country_name = ISO_NAME.get(CUISINE_TO_ISO.get(active_cuisine, ""), active_cuisine)
-            st.subheader(f"🍽️ Recipes from {country_name}")
+            st.subheader(f"🍽️ Recipes from {selected_country_name}")
 
             with st.spinner(f"Loading {active_cuisine} recipes…"):
                 cuisine_results = fetch_cuisine_recipes(active_cuisine)
@@ -844,3 +830,5 @@ with tab_cuisine:
                 user_pantry = get_pantry()
                 for meal in cuisine_results[:10]:
                     render_meal_card(meal, pantry=pantry_pct(meal, user_pantry))
+        else:
+            st.info("👆 Click a country on the map to explore its recipes.")
