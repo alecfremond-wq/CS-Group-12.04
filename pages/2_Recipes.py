@@ -88,8 +88,15 @@ def show_my_planner_banner() -> None:
                         key=f"banner_remove_{meal['recipe_id']}",
                         help="Remove from Meal Planner",
                     ):
+                        # Remove from the pool (dropdown options)
                         execute(
                             "DELETE FROM planner_pool WHERE user_id = ? AND recipe_id = ?",
+                            (user_id, meal["recipe_id"]),
+                        )
+                        # Also remove any scheduled slots for this recipe
+                        # so it disappears from the weekly grid too
+                        execute(
+                            "DELETE FROM meal_plan WHERE user_id = ? AND recipe_id = ?",
                             (user_id, meal["recipe_id"]),
                         )
                         st.toast(f"❌ '{meal['title']}' removed from Meal Planner", icon="🗑️")
@@ -546,8 +553,15 @@ def render_meal_card(
                     "❌ Remove from Meal Planner",
                     key=f"remove_planner_{meal_title}",
                 ):
+                    # Remove from the pool (dropdown options)
                     execute(
                         "DELETE FROM planner_pool WHERE user_id = ? AND recipe_id = ?",
+                        (user_id, local_id),
+                    )
+                    # Also remove any scheduled slots for this recipe
+                    # so it disappears from the weekly grid too
+                    execute(
+                        "DELETE FROM meal_plan WHERE user_id = ? AND recipe_id = ?",
                         (user_id, local_id),
                     )
                     # Toast persists across the rerun so the user sees it
