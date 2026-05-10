@@ -783,20 +783,21 @@ with tab_cuisine:
 
         st.divider()
 
+        # ── DEBUG — remove once working ───────────────────────────────────
+        st.write("**Raw map_selection:**", map_selection)
+        # ─────────────────────────────────────────────────────────────────
+
         # ── Resolve clicked country → cuisine ─────────────────────────────
-        # When the user clicks a country, Streamlit reruns the script and
-        # map_selection.selection contains the click data.
-        # We persist the result in session_state so it survives further reruns
-        # (e.g. when the user clicks a Save button on a recipe card).
         try:
             points = map_selection.selection.get("points", [])
             if points:
-                # customdata holds the ISO-3 code we embedded in build_figure()
+                st.write("**First point keys:**", list(points[0].keys()))
+                st.write("**First point data:**", points[0])
                 iso = points[0].get("customdata")
                 if iso and ISO_TO_CUISINE.get(iso):
                     st.session_state["map_selected_iso"] = iso
-        except Exception:
-            pass
+        except Exception as e:
+            st.error(f"Click handler error: {e}")
 
         # Read the persisted selection (falls back to None on first load)
         selected_iso = st.session_state.get("map_selected_iso")
