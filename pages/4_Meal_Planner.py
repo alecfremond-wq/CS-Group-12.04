@@ -12,9 +12,6 @@ from src.components.ui import page_header
 
 st.set_page_config(page_title="Meal Planner", page_icon="📅", layout="wide")
 init_session_state()
-# --- FORCE WEEK STATE RESET ---
-#if "active_week" not in st.session_state:
-#    st.session_state.active_week = None
 
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 MEALS = ["Breakfast", "Lunch", "Dinner", "Snacks"]
@@ -28,100 +25,64 @@ def load_meals_for_week(user_id: int, week_start: date, week_end: date):
         AND mp.meal_date BETWEEN ? AND ?
         ORDER BY mp.meal_date, mp.meal_type
     """
-
     meals_df = query_df(
         query,
-        (
-            user_id,
-            week_start.isoformat(),
-            week_end.isoformat()
-        )
+        (user_id, week_start.isoformat(), week_end.isoformat())
     )
-
     if meals_df is None:
         meals_df = pd.DataFrame(
             columns=["id", "meal_date", "meal_type", "recipe_id", "title"]
         )
-
     return meals_df
-    
+
 # --- WEEK START ---
 if "week_start" not in st.session_state:
     today = date.today()
     st.session_state.week_start = today - timedelta(days=today.weekday())
 
 week_current = date.today() - timedelta(days=date.today().weekday())
-
 week_start = st.session_state.week_start
-
 week_end = week_start + timedelta(days=6)
 week_id = week_start.isoformat()
+
 if st.session_state.get("active_week") != week_id:
     keys_to_delete = [
         k for k in list(st.session_state.keys())
         if isinstance(k, str) and k.startswith("meal_")
     ]
-
     for k in keys_to_delete:
         del st.session_state[k]
-
     st.session_state.active_week = week_id
 
 require_profile()
 page_header("📅 Meal Planner", "Choose your meals in the recipe page and plan your week")
 
-print(week_current,st.session_state.active_week)
-print(type(week_current))
-print(type(st.session_state.active_week))
-if st.session_state.active_week ==  week_current.isoformat():
-    print("Sono in")  
-    # --- LOAD MEALS ---
-    meals_df = query_df(
-        """
-        SELECT mp.id, mp.meal_date, mp.meal_type, mp.recipe_id, r.title
-        FROM meal_plan mp
-        JOIN recipes r ON mp.recipe_id = r.id
-        WHERE mp.user_id = ?
-        AND mp.meal_date BETWEEN ? AND ?
-        """,
-        (
-            st.session_state.user_id,
-            week_start.isoformat(),
-            week_end.isoformat()
-        )
-    )
+# --- LOAD MEALS ---
+meals_df = load_meals_for_week(
+    user_id=st.session_state.user_id,
+    week_start=week_start,
+    week_end=week_end
+)
 
-    if meals_df is None:
-        meals_df = pd.DataFrame(columns=["id", "meal_date", "meal_type", "recipe_id", "title"])
+# --- LOAD RECIPES ---
+# IMPORTANT: only load from planner_pool, NOT from the full recipes table.
+# This way, removing a recipe from the Recipes page immediately removes it
+# from this dropdown too — both are driven by the same planner_pool table.
+recipes_df = query_df(
+    """
+    SELECT pp.recipe_id AS id, r.title
+    FROM planner_pool pp
+    JOIN recipes r ON pp.recipe_id = r.id
+    WHERE pp.user_id = ?
+    ORDER BY r.title
+    """,
+    (st.session_state.user_id,)
+)
 
-    # --- LOAD RECIPES ---
-    recipes1 = query_df("SELECT id, title FROM recipes LIMIT 100", ())
-    recipes2 = query_df(
-        "SELECT recipe_id AS id, title FROM planner_pool WHERE user_id = ?",
-        (st.session_state.user_id,)
-    )
-
-    if recipes1 is None:
-        recipes1 = pd.DataFrame(columns=["id", "title"])
-    if recipes2 is None:
-        recipes2 = pd.DataFrame(columns=["id", "title"])
-
-    recipes_df = pd.concat([recipes1, recipes2]).drop_duplicates(subset=["id"])
-    recipe_dict = recipes_df.set_index("id")["title"].to_dict()
-else:
-    print("Sono qua") 
-    
-    meals_df = load_meals_for_week(
-        user_id=st.session_state.user_id,
-        week_start=week_start,
-        week_end=week_end
-    )   
-    
-    # --- EMPTY STRUCTURES ---
-    #meals_df = pd.DataFrame(columns=["id", "meal_date", "meal_type", "recipe_id", "title"])
+if recipes_df is None or recipes_df.empty:
     recipes_df = pd.DataFrame(columns=["id", "title"])
-    recipe_dict = {}
 
+recipe_dict = recipes_df.set_index("id")["title"].to_dict()
 
 # --- PLAN DICT ---
 plan = {}
@@ -142,12 +103,10 @@ with c2:
 
 with c3:
     disable_next = week_start >= week_current
-
     if st.button("Next week →", disabled=disable_next):
         if not disable_next:
             st.session_state.week_start = week_start + timedelta(days=7)
             st.rerun()
-
 
 st.divider()
 
@@ -169,7 +128,7 @@ icons = {
     "Dinner": "🍝",
     "Snack": "🍰"
 }
-            
+
 for meal in MEALS:
     row = st.columns(8)
     row[0].markdown(f"**{meal}**")
@@ -182,7 +141,6 @@ for meal in MEALS:
             # --- IF MEAL EXISTS ---
             if key in plan:
                 meal_data = plan[key]
-
                 st.markdown(f"{icons.get(meal, '🍽')} **{meal_data['title']}**")
 
                 if st.button("✕", key=f"del_{meal_data['id']}"):
@@ -194,31 +152,34 @@ for meal in MEALS:
 
             # --- IF EMPTY SLOT ---
             else:
-                select_key = select_key = f"meal_{week_id}_{meal}_{d.isoformat()}_{i}"
+                if not recipe_dict:
+                    st.caption("No recipes saved yet. Go to Recipes to add some!")
+                else:
+                    select_key = f"meal_{week_id}_{meal}_{d.isoformat()}_{i}"
 
-                selected = st.selectbox(
-                    " ",
-                    options=[None] + list(recipe_dict.keys()),
-                    format_func=lambda x: "Select..." if x is None else recipe_dict[x],
-                    key=select_key,
-                    label_visibility="collapsed"
-                )
-
-                if selected:
-                    execute(
-                        """
-                        INSERT OR REPLACE INTO meal_plan
-                        (user_id, meal_date, meal_type, recipe_id)
-                        VALUES (?, ?, ?, ?)
-                        """,
-                        (
-                            st.session_state.user_id,
-                            d.isoformat(),
-                            meal,
-                            selected
-                        )
+                    selected = st.selectbox(
+                        " ",
+                        options=[None] + list(recipe_dict.keys()),
+                        format_func=lambda x: "Select..." if x is None else recipe_dict[x],
+                        key=select_key,
+                        label_visibility="collapsed"
                     )
-                    st.rerun()
+
+                    if selected:
+                        execute(
+                            """
+                            INSERT OR REPLACE INTO meal_plan
+                            (user_id, meal_date, meal_type, recipe_id)
+                            VALUES (?, ?, ?, ?)
+                            """,
+                            (
+                                st.session_state.user_id,
+                                d.isoformat(),
+                                meal,
+                                selected
+                            )
+                        )
+                        st.rerun()
 
 st.divider()
 
@@ -244,4 +205,3 @@ else:
 
         for _, m in day_meals.iterrows():
             st.write(f"- **{m['meal_type']}**: {m['title']}")
-
