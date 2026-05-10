@@ -573,10 +573,13 @@ def render_meal_card(
 
                         if kcal is None:
                             nutrition = fetch_nutrition_for_meal(meal)
-                            kcal      = nutrition["kcal"]
-                            protein_g = nutrition["protein_g"]
-                            carbs_g   = nutrition["carbs_g"]
-                            fat_g     = nutrition["fat_g"]
+                            # MealDB quantities are for ~4 servings — divide
+                            # so kcal_per_serv reflects one actual portion.
+                            _srv      = 4
+                            kcal      = round(nutrition["kcal"] / _srv)           if nutrition["kcal"]      else None
+                            protein_g = round(nutrition["protein_g"] / _srv, 1)   if nutrition["protein_g"] else None
+                            carbs_g   = round(nutrition["carbs_g"] / _srv, 1)     if nutrition["carbs_g"]   else None
+                            fat_g     = round(nutrition["fat_g"] / _srv, 1)       if nutrition["fat_g"]     else None
 
                         execute(
                             """INSERT INTO recipes
@@ -598,10 +601,13 @@ def render_meal_card(
 
                         if kcal is None:
                             nutrition = fetch_nutrition_for_meal(meal)
-                            kcal      = nutrition["kcal"]
-                            protein_g = nutrition["protein_g"]
-                            carbs_g   = nutrition["carbs_g"]
-                            fat_g     = nutrition["fat_g"]
+                            # MealDB quantities are for ~4 servings — divide
+                            # so kcal_per_serv reflects one actual portion.
+                            _srv      = 4
+                            kcal      = round(nutrition["kcal"] / _srv)           if nutrition["kcal"]      else None
+                            protein_g = round(nutrition["protein_g"] / _srv, 1)   if nutrition["protein_g"] else None
+                            carbs_g   = round(nutrition["carbs_g"] / _srv, 1)     if nutrition["carbs_g"]   else None
+                            fat_g     = round(nutrition["fat_g"] / _srv, 1)       if nutrition["fat_g"]     else None
 
                         if kcal is not None:
                             execute(
