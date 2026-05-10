@@ -43,23 +43,17 @@ local_title_to_id: dict[str, int] = {r["name"].lower(): r["id"] for r in LOCAL_R
 _user_id: int | None = st.session_state.get("user_id")
 
 
-@st.cache_data(ttl=0)   # no TTL — always fresh, but only called once per render
 def _load_planner_ids(user_id: int) -> set[int]:
-    """Return the set of recipe_ids currently in this user's planner pool."""
     if not user_id:
         return set()
     try:
-        df = query_df(
-            "SELECT recipe_id FROM planner_pool WHERE user_id = ?", (user_id,)
-        )
+        df = query_df("SELECT recipe_id FROM planner_pool WHERE user_id = ?", (user_id,))
         return set(df["recipe_id"].tolist()) if not df.empty else set()
     except Exception:
         return set()
 
 
-@st.cache_data(ttl=0)
 def _load_pantry_names(user_id: int) -> set[str]:
-    """Return ingredient names (lowercase) in this user's pantry."""
     if not user_id:
         return set()
     try:
@@ -76,9 +70,7 @@ def _load_pantry_names(user_id: int) -> set[str]:
         return set()
 
 
-@st.cache_data(ttl=0)
 def _load_planner_meals(user_id: int) -> list[dict]:
-    """Return title+id rows for the planner banner."""
     if not user_id:
         return []
     try:
@@ -97,12 +89,10 @@ def _load_planner_meals(user_id: int) -> list[dict]:
         return []
 
 
-# We deliberately use ttl=0 so values are always current, but because
-# Streamlit only executes each cached function once per script run (same
-# args → same cached result within that run), there's no extra DB hit.
-_planner_ids: set[int]    = _load_planner_ids(_user_id)   if _user_id else set()
-_pantry_names: set[str]   = _load_pantry_names(_user_id)  if _user_id else set()
-_planner_meals: list[dict] = _load_planner_meals(_user_id) if _user_id else []
+# Three local SQLite queries — fast, run once per page render
+_planner_ids:   set[int]    = _load_planner_ids(_user_id)   if _user_id else set()
+_pantry_names:  set[str]    = _load_pantry_names(_user_id)  if _user_id else set()
+_planner_meals: list[dict]  = _load_planner_meals(_user_id) if _user_id else []
 
 
 # ── Planner banner ────────────────────────────────────────────────────────────
@@ -181,9 +171,9 @@ ISO_TO_CUISINE = {
 }
 
 
-@st.cache_data(ttl=24 * 60 * 60)
+@st.cache_resource   # cache_resource works for non-serialisable objects like go.Figure
 def build_figure() -> go.Figure:
-    """Build the world-map choropleth. Cached for 24 h — it never changes."""
+    """Build the world-map choropleth once per server lifetime."""
     all_locations  = list(ISO_CONTINENT.keys())
     cuisine_isos   = set(ISO_TO_CUISINE.keys())
     colored_locs   = [iso for iso in all_locations if iso in cuisine_isos]
@@ -420,9 +410,9 @@ def search_tab() -> None:
         search_clicked = st.button("🔎 Search", use_container_width=True)
 
     if search_clicked and query:
-        st.session_state["last_query"]   = query
-        # search_recipes_by_name is cached 1h so this is instant on repeat
-        st.session_state["last_results"] = search_recipes_by_name(query)
+        st.session_state["last_query"] = query
+        with st.spinner("Searching recipes…"):
+            st.session_state["last_results"] = search_recipes_by_name(query)
 
     results    = st.session_state["last_results"]
     last_query = st.session_state["last_query"]
