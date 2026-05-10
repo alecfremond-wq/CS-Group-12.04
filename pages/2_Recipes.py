@@ -1,3 +1,4 @@
+
 """
 Recipes — search and browse recipes (API + DB).
 Owner: <assign on Apr 22>
@@ -18,6 +19,7 @@ from recipes_data import RECIPES as LOCAL_RECIPES
 from src.components.ui import empty_state, page_header
 from src.data.api_client import (
     filter_by_cuisine,
+    fetch_kcal_for_title,
     get_meal_by_id,
     list_cuisines,
     search_recipes_by_name,
@@ -630,18 +632,10 @@ def render_meal_card(
                         kcal = meal.get("kcal_per_serv")
 
                         # TheMealDB recipes don't carry kcal_per_serv.
-                        # Try Spoonacular as a fallback so Nutrition Analytics
-                        # can show real calories instead of 0.
+                        # fetch_kcal_for_title() calls Spoonacular by name
+                        # so Nutrition Analytics shows real calories, not 0.
                         if kcal is None:
-                            try:
-                                spoon_results = search_spoonacular(
-                                    query=meal_title,
-                                    addRecipeNutrition=True,
-                                )
-                                if spoon_results:
-                                    kcal = spoon_results[0].get("kcal_per_serv")
-                            except Exception:
-                                pass  # leave kcal as None if the call fails
+                            kcal = fetch_kcal_for_title(meal_title)
 
                         execute(
                             "INSERT INTO recipes (title, kcal_per_serv) VALUES (?, ?)",
@@ -658,21 +652,13 @@ def render_meal_card(
                         # (e.g. user previously saved it without nutrition data).
                         kcal = meal.get("kcal_per_serv")
 
-                        # If still missing, try Spoonacular as a fallback
+                        # If still missing (TheMealDB recipe), fetch via Spoonacular
                         if kcal is None:
-                            try:
-                                spoon_results = search_spoonacular(
-                                    query=meal_title,
-                                    addRecipeNutrition=True,
-                                )
-                                if spoon_results:
-                                    kcal = spoon_results[0].get("kcal_per_serv")
-                            except Exception:
-                                pass
+                            kcal = fetch_kcal_for_title(meal_title)
 
                         if kcal is not None:
                             execute(
-                                "UPDATE recipes SET kcal_per_serv = ? WHERE id = ? AND kcal_per_serv IS NULL",
+                                "UPDATE recipes SET kcal_per_serv = ? WHERE id = ?",
                                 (kcal, local_id),
                             )
 
@@ -942,4 +928,3 @@ with tab_cuisine:
                     )
         else:
             st.info("👆 Click a country on the map to explore its recipes.")
-
