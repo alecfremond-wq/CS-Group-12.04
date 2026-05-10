@@ -300,8 +300,8 @@ with st.expander(f"✏️ Edit calories manually for {selected}"):
         with ecols[i]:
             current = min(int(day_data[meal]), MAX_KCAL)   # clamp to max
             new_vals[meal] = st.number_input(
-                meal, min_value=0, max_value=5000,
-                value=int(day_data[meal]), step=10,
+                meal, min_value=0, max_value=10000,
+                value=min(int(day_data[meal]), 10000), step=10,
                 key=f"inp_{selected}_{meal}",
             )
     if st.button("💾 Save", key="save_day"):
