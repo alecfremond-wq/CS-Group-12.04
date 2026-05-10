@@ -44,7 +44,7 @@ DATA_FILE = "calorie_data.json"
 # ── Calorie goal banner ────────────────────────────────────────────────────────
 
 if "calorie_goal" not in st.session_state:
-    st.session_state.calorie_goal = DEFAULT_GOAL
+    st.session_state.calorie_goal = load_saved_goal()
 
 with st.container(border=True):
     banner_col1, banner_col2, banner_col3 = st.columns([3, 2, 1])
@@ -61,10 +61,10 @@ with st.container(border=True):
             label_visibility="collapsed",
             key="goal_input_widget",
         )
-    with banner_col3:
-        if st.button("✅ Set goal", use_container_width=True):
-            st.session_state.calorie_goal = goal_input
-            st.rerun()
+if st.button("✅ Set goal", use_container_width=True):
+    st.session_state.calorie_goal = goal_input
+    save_goal(goal_input)
+    st.rerun()
 
 GOAL = st.session_state.calorie_goal
 
@@ -76,17 +76,36 @@ def load_overrides() -> dict:
     We only store *overrides* here — values the user explicitly typed in
     the edit panel. Meal-planner calories are always re-fetched live.
     """
+ def load_overrides() -> dict:
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE) as f:
             raw = json.load(f)
-        # Support both the old flat format and the new "manual_overrides" key.
         return raw.get("manual_overrides", raw)
     return {}
 
+def load_saved_goal() -> int:
+    """Load the user's last saved calorie goal from disk."""
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE) as f:
+            raw = json.load(f)
+        return raw.get("calorie_goal", DEFAULT_GOAL)
+    return DEFAULT_GOAL
+
 def save_overrides(overrides: dict) -> None:
-    """Persist manual calorie overrides to disk."""
     with open(DATA_FILE, "w") as f:
-        json.dump({"manual_overrides": overrides}, f, indent=2)
+        json.dump({
+            "calorie_goal": st.session_state.get("calorie_goal", DEFAULT_GOAL),
+            "manual_overrides": overrides,
+        }, f, indent=2)
+
+def save_goal(goal: int) -> None:
+    """Persist the calorie goal to disk without touching overrides."""
+    overrides = load_overrides()
+    with open(DATA_FILE, "w") as f:
+        json.dump({
+            "calorie_goal": goal,
+            "manual_overrides": overrides,
+        }, f, indent=2)
 
 # ── Meal-planner sync ──────────────────────────────────────────────────────────
 
