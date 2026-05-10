@@ -38,7 +38,7 @@ page_header("📊 Nutrition Analytics", "Track your calorie intake.")
 
 DEFAULT_GOAL = 2000
 DAYS      = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-MEALS     = ["Breakfast", "Lunch", "Snacks", "Dinner"]
+MEALS     = ["Breakfast", "Lunch", "Dinner", "Snacks"]
 DATA_FILE = "calorie_data.json"
 
 # ── Calorie goal banner ────────────────────────────────────────────────────────
