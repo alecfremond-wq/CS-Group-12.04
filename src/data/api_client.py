@@ -1,125 +1,94 @@
 # ============================================================================
 #  api_client.py  —  wrapper around TheMealDB (a free public recipe API)
 # ----------------------------------------------------------------------------
-#  Grading requirement #2 asks for data loaded via an API. We use TheMealDB
-#  because it's free, key-less, and well-suited for a student project.
-#
 #  Docs: https://www.themealdb.com/api.php
 #
-#  Every function here follows the same pattern:
-#    1. send an HTTP request to TheMealDB
-#    2. parse the JSON response
-#    3. return a list of dictionaries (one per recipe)
-#
-#  If the network is down, we warn the user and return an empty list so the
-#  rest of the app keeps working.
-# ============================================================================
 #  AI-ASSISTED AUTHORSHIP: scaffold drafted with Anthropic Claude (04/2026),
 #  reviewed by Group 12.04. See README.md.
 # ============================================================================
 
-import requests                    # popular Python library for HTTP requests
-import streamlit as st             # we use st.cache_data to speed things up
+import requests
+import streamlit as st
 
-
-# The base URL of TheMealDB's v1 public API. The '1' is the free API key
-# everyone can use (their docs explain this is intentional).
 THEMEALDB_BASE = "https://www.themealdb.com/api/json/v1/1"
 
 
-# @st.cache_data stores the return value so we don't hammer the API.
-# ttl = "time to live" in seconds. 60 * 60 = one hour.
-@st.cache_data(ttl=60 * 60)
-def search_recipes_by_name(query):
-    """Search TheMealDB for recipes whose name contains `query`.
+# ---------------------------------------------------------------------------
+# TheMealDB helpers
+# ---------------------------------------------------------------------------
 
-    Returns a list of meal dictionaries (could be empty if nothing matched
-    or the network is down).
-    """
+@st.cache_data(ttl=60 * 60)
+def search_recipes_by_name(query: str) -> list[dict]:
+    """Search TheMealDB for recipes whose name contains `query`."""
     try:
         resp = requests.get(
-            f"{THEMEALDB_BASE}/search.php",
-            params={"s": query},
-            timeout=20,
+            f"{THEMEALDB_BASE}/search.php", params={"s": query}, timeout=20
         )
         resp.raise_for_status()
         return resp.json().get("meals") or []
-
     except requests.RequestException as exc:
         st.warning(f"Recipe search unavailable: {exc}")
         return []
 
 
-# Cached for a whole day — the list of cuisines barely changes.
 @st.cache_data(ttl=24 * 60 * 60)
-def list_cuisines():
+def list_cuisines() -> list[str]:
     """Return the list of cuisines (TheMealDB calls them 'areas')."""
     try:
         resp = requests.get(
-            f"{THEMEALDB_BASE}/list.php",
-            params={"a": "list"},
-            timeout=20,
+            f"{THEMEALDB_BASE}/list.php", params={"a": "list"}, timeout=20
         )
         resp.raise_for_status()
         return [m["strArea"] for m in (resp.json().get("meals") or [])]
-
     except requests.RequestException:
         return []
 
 
 @st.cache_data(ttl=60 * 60)
-def filter_by_cuisine(cuisine):
-    """Return a list of recipe stubs (id, name, thumbnail) for a cuisine.
-
-    Note: TheMealDB's filter endpoint only returns minimal data —
-    idMeal, strMeal, strMealThumb. Use get_meal_by_id() to fetch
-    full details (instructions, ingredients, etc.) for each stub.
-    """
+def filter_by_cuisine(cuisine: str) -> list[dict]:
+    """Return recipe stubs (id, name, thumbnail) for a cuisine."""
     try:
         resp = requests.get(
-            f"{THEMEALDB_BASE}/filter.php",
-            params={"a": cuisine},
-            timeout=20,
+            f"{THEMEALDB_BASE}/filter.php", params={"a": cuisine}, timeout=20
         )
         resp.raise_for_status()
         return resp.json().get("meals") or []
-
     except requests.RequestException:
         return []
 
 
 @st.cache_data(ttl=60 * 60)
 def get_meal_by_id(meal_id: str) -> dict | None:
-    """Fetch full details for a single meal by its TheMealDB ID.
-
-    filter_by_cuisine() only returns stubs. This function fills in
-    the missing fields (instructions, ingredients, area, category)
-    by calling the lookup endpoint.
-
-    Returns the full meal dict, or None if not found / network error.
-    """
+    """Fetch full details for a single meal by its TheMealDB ID."""
     try:
         resp = requests.get(
-            f"{THEMEALDB_BASE}/lookup.php",
-            params={"i": meal_id},
-            timeout=20,
+            f"{THEMEALDB_BASE}/lookup.php", params={"i": meal_id}, timeout=20
         )
         resp.raise_for_status()
         meals = resp.json().get("meals") or []
         return meals[0] if meals else None
-
     except requests.RequestException:
         return None
 
 
-def extract_ingredients_from_meal(meal: dict) -> list[str]:
-    """Extract ingredient names from a TheMealDB meal dict.
+@st.cache_data(ttl=60 * 60)
+def fetch_cuisine_meals(cuisine: str, limit: int = 10) -> list[dict]:
+    """Return full meal dicts for a cuisine in ONE cached batch.
 
-    TheMealDB stores ingredients in strIngredient1 … strIngredient20
-    and measures in strMeasure1 … strMeasure20.
-    Returns a list of "measure ingredient" strings, e.g. ["2 cups Rice", "1 clove Garlic"].
-    Empty/null slots are skipped.
+    Previously this was called uncached from 2_Recipes.py, firing up to
+    10 sequential HTTP requests on every render. Now it's cached for 1 hour
+    so subsequent renders cost zero network calls.
     """
+    stubs = filter_by_cuisine(cuisine)[:limit]
+    return [m for stub in stubs if (m := get_meal_by_id(stub["idMeal"]))]
+
+
+# ---------------------------------------------------------------------------
+# Ingredient extraction
+# ---------------------------------------------------------------------------
+
+def extract_ingredients_from_meal(meal: dict) -> list[str]:
+    """Extract 'measure ingredient' strings from a TheMealDB meal dict."""
     ingredients = []
     for i in range(1, 21):
         name    = (meal.get(f"strIngredient{i}") or "").strip()
@@ -129,83 +98,20 @@ def extract_ingredients_from_meal(meal: dict) -> list[str]:
     return ingredients
 
 
-@st.cache_data(ttl=24 * 60 * 60)
-def fetch_nutrition_from_ingredients(ingredients: list[str]) -> dict:
-    """Send a list of ingredient strings to Spoonacular's nutrition parser.
-
-    Uses the /recipes/parseIngredients endpoint to get per-ingredient
-    nutrition, then sums up calories, protein, carbs and fat across all
-    ingredients to produce recipe-level totals.
-
-    NOTE: this returns TOTAL nutrition for the whole recipe, not per serving.
-    Only use this as a fallback — prefer fetch_nutrition_by_title() which
-    returns accurate per-serving values directly from Spoonacular.
-
-    Returns a dict with keys: kcal, protein_g, carbs_g, fat_g.
-    All values are ints (rounded). Returns all-None on failure.
-    """
-    empty = {"kcal": None, "protein_g": None, "carbs_g": None, "fat_g": None}
-    if not ingredients:
-        return empty
-
-    try:
-        ingredient_list = "\n".join(ingredients)
-
-        resp = requests.post(
-            "https://api.spoonacular.com/recipes/parseIngredients",
-            params={
-                "apiKey": st.secrets["SPOONACULAR_API_KEY"],
-                "includeNutrition": True,
-            },
-            data={"ingredientList": ingredient_list, "servings": 1},
-            timeout=20,
-        )
-        resp.raise_for_status()
-        parsed = resp.json()
-
-        kcal = protein = carbs = fat = 0.0
-        for item in parsed:
-            nutrients = item.get("nutrition", {}).get("nutrients", [])
-            for n in nutrients:
-                name   = n.get("name", "")
-                amount = n.get("amount", 0) or 0
-                if name == "Calories":
-                    kcal    += amount
-                elif name == "Protein":
-                    protein += amount
-                elif name == "Carbohydrates":
-                    carbs   += amount
-                elif name == "Fat":
-                    fat     += amount
-
-        return {
-            "kcal":      int(round(kcal)),
-            "protein_g": round(protein, 1),
-            "carbs_g":   round(carbs, 1),
-            "fat_g":     round(fat, 1),
-        }
-
-    except Exception:
-        return empty
-
+# ---------------------------------------------------------------------------
+# Nutrition — Spoonacular
+# ---------------------------------------------------------------------------
 
 @st.cache_data(ttl=24 * 60 * 60)
 def fetch_nutrition_by_title(title: str) -> dict:
-    """Look up accurate per-serving nutrition for a dish by name via Spoonacular.
+    """Per-serving nutrition for a dish by name via Spoonacular complexSearch.
 
-    Uses complexSearch with addRecipeNutrition=True, which returns macros
-    already normalised to one serving — no manual division needed.
-
-    This is the primary nutrition source. fetch_nutrition_from_ingredients()
-    is only used as a fallback when this returns nothing.
-
-    Returns a dict with keys: kcal, protein_g, carbs_g, fat_g.
-    All values are None if the dish isn't found or the API is unavailable.
+    Returns macros already normalised to one serving — no division needed.
+    Cached for 24 h so repeated lookups of the same dish cost nothing.
     """
     empty = {"kcal": None, "protein_g": None, "carbs_g": None, "fat_g": None}
     if not title:
         return empty
-
     try:
         resp = requests.get(
             "https://api.spoonacular.com/recipes/complexSearch",
@@ -221,7 +127,6 @@ def fetch_nutrition_by_title(title: str) -> dict:
         results = resp.json().get("results", [])
         if not results:
             return empty
-
         nutrients = results[0].get("nutrition", {}).get("nutrients", [])
 
         def _get(name):
@@ -231,141 +136,128 @@ def fetch_nutrition_by_title(title: str) -> dict:
         protein = _get("Protein")
         carbs   = _get("Carbohydrates")
         fat     = _get("Fat")
-
         return {
             "kcal":      int(round(kcal))    if kcal    is not None else None,
             "protein_g": round(protein, 1)   if protein is not None else None,
             "carbs_g":   round(carbs, 1)     if carbs   is not None else None,
             "fat_g":     round(fat, 1)       if fat     is not None else None,
         }
+    except Exception:
+        return empty
 
+
+@st.cache_data(ttl=24 * 60 * 60)
+def fetch_nutrition_from_ingredients(ingredients: tuple[str, ...]) -> dict:
+    """Fallback: sum nutrition across raw ingredients via Spoonacular parser.
+
+    Takes a tuple (not list) so it is hashable and cacheable.
+    Returns whole-recipe totals — caller must divide by serving count.
+    """
+    empty = {"kcal": None, "protein_g": None, "carbs_g": None, "fat_g": None}
+    if not ingredients:
+        return empty
+    try:
+        resp = requests.post(
+            "https://api.spoonacular.com/recipes/parseIngredients",
+            params={
+                "apiKey": st.secrets["SPOONACULAR_API_KEY"],
+                "includeNutrition": True,
+            },
+            data={"ingredientList": "\n".join(ingredients), "servings": 1},
+            timeout=20,
+        )
+        resp.raise_for_status()
+        kcal = protein = carbs = fat = 0.0
+        for item in resp.json():
+            for n in item.get("nutrition", {}).get("nutrients", []):
+                amt = n.get("amount", 0) or 0
+                if n.get("name") == "Calories":       kcal    += amt
+                elif n.get("name") == "Protein":      protein += amt
+                elif n.get("name") == "Carbohydrates": carbs  += amt
+                elif n.get("name") == "Fat":           fat    += amt
+        return {
+            "kcal":      int(round(kcal)),
+            "protein_g": round(protein, 1),
+            "carbs_g":   round(carbs, 1),
+            "fat_g":     round(fat, 1),
+        }
     except Exception:
         return empty
 
 
 def fetch_nutrition_for_meal(meal: dict) -> dict:
-    """High-level helper: given a TheMealDB meal dict, return per-serving nutrition.
+    """Return accurate per-serving nutrition for a TheMealDB meal dict.
 
-    Strategy (in order):
-      1. Spoonacular complexSearch by dish name — returns accurate per-serving
-         macros directly, so no division is needed. This fixes the previous bug
-         where raw ingredient weights were summed and divided by a hardcoded 4,
-         producing wildly incorrect values (e.g. 3434 kcal for a mousse).
-      2. Fallback to ingredient parser only when step 1 finds nothing (e.g. very
-         obscure dishes). The parser returns whole-recipe totals, so we divide
-         by 4 as a rough estimate — still better than the inflated raw sum.
-
-    Returns a dict with keys: kcal, protein_g, carbs_g, fat_g.
+    Strategy:
+      1. Spoonacular complexSearch by dish name (accurate, cached 24 h).
+      2. Fallback: ingredient parser ÷ 4 (rough, also cached 24 h).
     """
-    # ── Primary: search by dish name (accurate per-serving) ──────────────────
-    title = meal.get("strMeal", "")
-    result = fetch_nutrition_by_title(title)
+    result = fetch_nutrition_by_title(meal.get("strMeal", ""))
     if result["kcal"] is not None:
         return result
 
-    # ── Fallback: ingredient parser ÷ 4 servings (rough estimate) ────────────
-    ingredients = extract_ingredients_from_meal(meal)
-    raw = fetch_nutrition_from_ingredients(ingredients)
-    _srv = 4
+    # Fallback — pass as tuple so the result is cacheable
+    raw = fetch_nutrition_from_ingredients(
+        tuple(extract_ingredients_from_meal(meal))
+    )
+    srv = 4
     return {
-        "kcal":      int(round(raw["kcal"] / _srv))      if raw["kcal"]      is not None else None,
-        "protein_g": round(raw["protein_g"] / _srv, 1)   if raw["protein_g"] is not None else None,
-        "carbs_g":   round(raw["carbs_g"] / _srv, 1)     if raw["carbs_g"]   is not None else None,
-        "fat_g":     round(raw["fat_g"] / _srv, 1)       if raw["fat_g"]     is not None else None,
+        "kcal":      int(round(raw["kcal"] / srv))      if raw["kcal"]      is not None else None,
+        "protein_g": round(raw["protein_g"] / srv, 1)   if raw["protein_g"] is not None else None,
+        "carbs_g":   round(raw["carbs_g"] / srv, 1)     if raw["carbs_g"]   is not None else None,
+        "fat_g":     round(raw["fat_g"] / srv, 1)       if raw["fat_g"]     is not None else None,
     }
 
 
-def fetch_kcal_for_title(title: str) -> "int | None":
-    """Look up calorie data for a recipe title using Spoonacular.
-
-    Called when a TheMealDB recipe is saved to the Meal Planner and we
-    need to backfill kcal_per_serv in the DB. Not cached because it is
-    called imperatively (on button click), not during a render pass.
-
-    Returns the kcal as an int, or None if not found / API unavailable.
-    """
-    result = fetch_nutrition_by_title(title)
-    return result["kcal"]
+def fetch_kcal_for_title(title: str) -> int | None:
+    """Convenience wrapper — returns just kcal for a dish title."""
+    return fetch_nutrition_by_title(title)["kcal"]
 
 
 @st.cache_data(ttl=60 * 60)
 def search_spoonacular(query="", vegetarian=False, vegan=False,
-                       gluten_free=False, dairy_free=False):
-    """Search Spoonacular for recipes, filtered by the user diet profile.
-
-    We request addRecipeNutrition=True so that each result includes calorie
-    data. The kcal value is stored in the returned dict under 'kcal_per_serv'
-    so that 2_Recipes.py can persist it to the DB when the user saves a recipe
-    to the Meal Planner — which then feeds the Nutrition Analytics page.
-    """
+                       gluten_free=False, dairy_free=False) -> list[dict]:
+    """Search Spoonacular for recipes filtered by diet profile."""
     try:
-        diet = None
-        if vegan:
-            diet = "vegan"
-        elif vegetarian:
-            diet = "vegetarian"
-
+        diet = "vegan" if vegan else ("vegetarian" if vegetarian else None)
         intolerances = []
-        if gluten_free:
-            intolerances.append("gluten")
-        if dairy_free:
-            intolerances.append("dairy")
+        if gluten_free: intolerances.append("gluten")
+        if dairy_free:  intolerances.append("dairy")
 
         params = {
             "apiKey": st.secrets["SPOONACULAR_API_KEY"],
-            "query": query,
-            "number": 20,
+            "query":  query, "number": 20,
             "addRecipeInformation": True,
             "fillIngredients": True,
-            "addRecipeNutrition": True,   # ← request calorie + macro data
+            "addRecipeNutrition": True,
         }
-        if diet:
-            params["diet"] = diet
-        if intolerances:
-            params["intolerances"] = ",".join(intolerances)
+        if diet:         params["diet"] = diet
+        if intolerances: params["intolerances"] = ",".join(intolerances)
 
         resp = requests.get(
             "https://api.spoonacular.com/recipes/complexSearch",
-            params=params,
-            timeout=20,
+            params=params, timeout=20,
         )
         resp.raise_for_status()
 
+        import re
         results = []
         for r in resp.json().get("results", []):
-            import re
-            raw_summary = r.get("summary", "")
-            clean_summary = re.sub(r"<[^>]+>", "", raw_summary)
-
-            ing = [
-                i.get("name", "").strip()
-                for i in r.get("extendedIngredients", [])
-                if i.get("name", "").strip()
-            ]
-
-            # ── Extract calorie data from the nutrition block ─────────────
-            # Spoonacular returns: { "nutrition": { "nutrients": [ {...}, ...] } }
-            # Each nutrient dict has "name", "amount", and "unit".
-            nutrition = r.get("nutrition", {})
-            nutrients = nutrition.get("nutrients", [])
+            nutrients = r.get("nutrition", {}).get("nutrients", [])
             kcal = next(
-                (int(n["amount"]) for n in nutrients if n.get("name") == "Calories"),
-                None,
+                (int(n["amount"]) for n in nutrients if n.get("name") == "Calories"), None
             )
-
             results.append({
-                "strMeal":      r.get("title", ""),
-                "strMealThumb": r.get("image", ""),
-                "strArea":      "International",
-                "strCategory":  r.get("dishTypes", [""])[0].title() if r.get("dishTypes") else "—",
-                "strInstructions": clean_summary,
-                "_ingredients": ing,
-                "source":       "spoonacular",
-                "kcal_per_serv": kcal,   # ← None if Spoonacular didn't return it
+                "strMeal":         r.get("title", ""),
+                "strMealThumb":    r.get("image", ""),
+                "strArea":         "International",
+                "strCategory":     r.get("dishTypes", [""])[0].title() if r.get("dishTypes") else "—",
+                "strInstructions": re.sub(r"<[^>]+>", "", r.get("summary", "")),
+                "_ingredients":    [i.get("name","").strip() for i in r.get("extendedIngredients",[]) if i.get("name","").strip()],
+                "source":          "spoonacular",
+                "kcal_per_serv":   kcal,
             })
-
         return results
-
     except Exception as exc:
         st.warning(f"Spoonacular unavailable: {exc}")
         return []
