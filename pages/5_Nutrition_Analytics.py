@@ -186,7 +186,7 @@ with col_right:
     st.markdown(
         '<div style="text-align:right;padding-top:16px">'
         '<span style="color:#FF6B35">■</span> Actual &nbsp;'
-        '<span style="color:#D0CFC8">■</span> Goal'
+        '<span style="color:#4D9078">■</span> Goal'
         "</div>",
         unsafe_allow_html=True,
     )
