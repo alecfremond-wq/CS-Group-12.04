@@ -23,11 +23,11 @@ import streamlit as st                     # we need st.session_state from Strea
 # and what its initial value should be.
 # Add new keys here instead of scattering `if "..." not in ...` checks everywhere.
 DEFAULTS = {
-    # Integer primary key from the `users` table. Defaults to 1 as a safe
-    # placeholder so the Pantry / Meal Planner pages (which key their rows
-    # on user_id) work out of the box. The Onboarding page should keep
-    # this in sync with the actual id of the saved user.
-    "user_id": 1,
+    # Integer primary key from the `users` table. None means "no user selected
+    # yet". The Onboarding page sets this to the real id once a profile is
+    # chosen or created; every other page (Pantry, Meal Planner, …) reads it
+    # from session_state when querying user-scoped tables.
+    "user_id": None,
     "user_profile": None,       # will become a dict like {"name": ..., "diet": ...} after onboarding
     "pantry": [],               # list of ingredient dicts: {"name":..., "quantity":..., "unit":..., "expires_on":...}
     "meal_plan": {},            # dict mapping a date string ("2026-04-21") to a list of meal names
@@ -55,20 +55,18 @@ def init_session_state():
             # (otherwise different pages could share the same list object).
             st.session_state[key] = _copy_default(default)
 
-    # If we've just filled in user_profile with its default of None (i.e.
-    # this is a fresh Streamlit session), try to hydrate it from the DB.
-    # We import lazily to avoid a circular import (database.py -> session.py
-    # would be a cycle if user_repo were imported at the top of this file).
-    if st.session_state.get("user_profile") is None:
+    # If a user_id is already known for this session (e.g. after a page
+    # navigation) but user_profile hasn't been loaded yet, re-hydrate it
+    # from the DB. We only do this when user_id is set — if it's None the
+    # user hasn't picked a profile yet and the Onboarding page will handle it.
+    if st.session_state.get("user_profile") is None and st.session_state.get("user_id") is not None:
         try:
             from src.data.user_repo import load_profile
-            saved = load_profile()
+            saved = load_profile(st.session_state["user_id"])
             if saved is not None:
                 st.session_state["user_profile"] = saved
         except Exception:
-            # The DB might not exist yet (e.g. very first run before
-            # init_db()). In that case we silently fall back to the empty
-            # default — the user will simply complete Onboarding once.
+            # The DB might not exist yet (first run). Fall back silently.
             pass
 
 
