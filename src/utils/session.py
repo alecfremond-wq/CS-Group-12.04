@@ -77,6 +77,19 @@ def init_session_state():
         except Exception:
             pass
 
+    # Re-set uid in the URL on every page so it's always there on reload.
+    # Streamlit drops query params when navigating between pages.
+    user_id = st.session_state.get("user_id")
+    try:
+        if user_id is not None:
+            if st.query_params.get("uid") != str(user_id):
+                st.query_params["uid"] = user_id
+        else:
+            if "uid" in st.query_params:
+                st.query_params.clear()
+    except Exception:
+        pass
+
     # Load the wishlist from the database if it's empty in session_state.
     # This runs every time a fresh browser session starts so the user's
     # saved recipes are always there, even after closing and reopening the app.
