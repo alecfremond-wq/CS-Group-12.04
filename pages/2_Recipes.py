@@ -1,3 +1,4 @@
+
 """
 Recipes — search and browse recipes (API + DB).
 Owner: <assign on Apr 22>
@@ -302,6 +303,42 @@ ISO_NAME = {
     "PNG":"Papua New Guinea","WSM":"Samoa","SLB":"Solomon Islands","TON":"Tonga",
     "TUV":"Tuvalu","VUT":"Vanuatu",
     "ATA":"Antarctica",
+}
+
+
+# Map from ISO-3 country code → TheMealDB area name
+# Complete list of all areas supported by TheMealDB (as of 2024/2025).
+# "Unknown" is intentionally excluded (no country to map to).
+ISO_TO_CUISINE = {
+    "USA": "American",
+    "GBR": "British",
+    "CAN": "Canadian",
+    "CHN": "Chinese",
+    "HRV": "Croatian",
+    "NLD": "Dutch",
+    "EGY": "Egyptian",
+    "PHL": "Filipino",
+    "FRA": "French",
+    "GRC": "Greek",
+    "IND": "Indian",
+    "IRL": "Irish",
+    "ITA": "Italian",
+    "JAM": "Jamaican",
+    "JPN": "Japanese",
+    "KEN": "Kenyan",
+    "MYS": "Malaysian",
+    "MEX": "Mexican",
+    "MAR": "Moroccan",
+    "POL": "Polish",
+    "PRT": "Portuguese",
+    "RUS": "Russian",
+    "ESP": "Spanish",
+    "THA": "Thai",
+    "TUN": "Tunisian",
+    "TUR": "Turkish",
+    "URY": "Uruguayan",
+    "VEN": "Venezuelan",
+    "VNM": "Vietnamese",
 }
 
 
@@ -786,39 +823,6 @@ with tab_search:
 
 
 # ── Cuisine tab ───────────────────────────────────────────────────────────────
-
-# Map from ISO-3 country code → TheMealDB area name
-# Only countries that TheMealDB actually has recipes for are listed.
-ISO_TO_CUISINE = {
-    "CAN": "Canadian",
-    "CHN": "Chinese",
-    "EGY": "Egyptian",
-    "FRA": "French",
-    "GRC": "Greek",
-    "IND": "Indian",
-    "IRL": "Irish",
-    "ITA": "Italian",
-    "JAM": "Jamaican",
-    "JPN": "Japanese",
-    "KEN": "Kenyan",
-    "MYS": "Malaysian",
-    "MEX": "Mexican",
-    "MAR": "Moroccan",
-    "NLD": "Dutch",
-    "POL": "Polish",
-    "PRT": "Portuguese",
-    "RUS": "Russian",
-    "ESP": "Spanish",
-    "THA": "Thai",
-    "TUN": "Tunisian",
-    "TUR": "Turkish",
-    "GBR": "British",
-    "USA": "American",
-    "VNM": "Vietnamese",
-    "PHL": "Filipino",
-    "HRV": "Croatian",
-    "URY": "Uruguayan",
-}
 
 
 def fetch_cuisine_recipes(cuisine: str, limit: int = 10) -> list[dict]:
