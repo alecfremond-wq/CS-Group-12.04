@@ -207,7 +207,7 @@ if picks.empty:
 
 def record_feedback(recipe_row: pd.Series, rating: int) -> None:
     st.session_state["cooking_history"].append({
-        "id":          int(recipe_row["id"]),
+        "recipe_id":   int(recipe_row["id"]),
         "title":       recipe_row["title"],
         "ingredients": recipe_row["ingredients"],
         "rating":      rating,
@@ -265,3 +265,16 @@ for _, row in picks.iterrows():
         with col_stats:
             st.metric("Cook time",  f"{row.get('time_minutes', '—')} min")
             st.metric("Difficulty", row.get("difficulty", "—"))
+
+            st.caption("Was this a good pick?")
+            fb_col1, fb_col2 = st.columns(2)
+            with fb_col1:
+                if st.button("👍", key=f"up_{recipe_id}", use_container_width=True, help="Good recommendation"):
+                    record_feedback(row, rating=5)
+                    st.toast("Thanks! This helps the model learn your taste.", icon="✅")
+                    st.rerun()
+            with fb_col2:
+                if st.button("👎", key=f"dn_{recipe_id}", use_container_width=True, help="Not for me"):
+                    record_feedback(row, rating=1)
+                    st.toast("Got it — we'll show you fewer recipes like this.", icon="❌")
+                    st.rerun()

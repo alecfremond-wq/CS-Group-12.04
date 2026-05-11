@@ -1,23 +1,56 @@
 """
-Recipe recommender — ingredient-based k-Nearest Neighbours (course requirement 5).
+ML Recommender — content-based filtering using k-Nearest Neighbours (Req. 5).
 
-How this actually works, in plain English:
-    Every recipe is turned into a row of 0s and 1s — one column per ingredient.
-    "Pasta Carbonara" gets a 1 under "pasta", "eggs", "parmesan", "guanciale", etc.,
-    and a 0 for every ingredient it doesn't contain.
-    This is called a binary feature vector, and it's exactly what the professor
-    described: garlic {0,1}, tomatoes {0,1}, pepper {0,1}, and so on.
+The idea behind our approach
+-----------------------------
+We wanted to recommend recipes based on what a user actually likes — not just
+what's popular. The simplest signal we have is the ingredient list of every
+recipe. If you love Pasta Carbonara, you probably also like other dishes
+that use eggs, parmesan, and pasta. That's the core idea.
 
-    When a user likes some recipes, we average those vectors to get a "taste
-    profile" — a vector that has high values for ingredients that keep showing
-    up in things they enjoy.
+How we turn recipes into numbers
+----------------------------------
+A recipe can't be fed directly into a ML model — we need numbers. We convert
+each recipe into a binary vector: one column per ingredient across the whole
+catalogue. If a recipe contains that ingredient, the column is 1, otherwise 0.
 
-    k-NN then finds the recipes whose ingredient vectors sit closest to that
-    taste profile. Those become the recommendations.
+    Pasta Carbonara  →  [1, 0, 0, 1, 1, 0, 1, ...]
+                          ^pasta     ^eggs ^parmesan
 
-    The big advantage of ingredient-based features over nutritional ones
-    is that ANY recipe with a known ingredient list can be scored — including
-    recipes that come from the TheMealDB or Spoonacular APIs.
+This is called a "bag of ingredients" and it's exactly the binary feature
+representation described in the course slides (garlic {0,1}, etc.).
+
+How k-NN fits in
+-----------------
+Once every recipe is a vector, k-Nearest Neighbours (k-NN) can find which
+recipes are "closest" to the user's taste. We measure closeness using
+cosine similarity, which works well here because recipes differ in how many
+ingredients they have — a 3-ingredient recipe and a 20-ingredient recipe
+should still be comparable.
+
+Building a taste profile
+-------------------------
+When a user saves recipes to their wishlist, we average their ingredient
+vectors into one "taste profile" vector. This vector represents the centre
+of gravity of everything they've liked so far. k-NN then finds the local
+catalogue recipes that sit closest to that centre.
+
+Why we have TWO similarity methods
+------------------------------------
+For local recipes (our own catalogue), we use cosine similarity through the
+k-NN model — this works because all the ingredient names are consistent.
+
+For external API results (TheMealDB, Spoonacular), we use Jaccard similarity
+instead. The reason: API recipes use ingredient names that often don't match
+our vocabulary ("spaghetti" vs "pasta", "aubergine" vs "eggplant"). Jaccard
+compares the actual strings directly, so it still finds overlap without needing
+the ingredient to be in our training vocabulary.
+
+We also switched from "union Jaccard" to "max Jaccard" — instead of merging
+all saved recipes into one big ingredient pool (which caused scores to shrink
+as the wishlist grew), we now compute similarity against each saved recipe
+individually and take the highest match. This way, saving more recipes can
+only improve recommendations, never make them worse.
 """
 
 from __future__ import annotations
@@ -31,54 +64,72 @@ from sklearn.preprocessing import MultiLabelBinarizer
 
 
 def _clean(ingredients: list[str]) -> list[str]:
-    """Lowercase and strip each ingredient name.  'Garlic Cloves' → 'garlic cloves'."""
+    """Normalise ingredient names: lowercase + strip whitespace.
+
+    We do this everywhere so "Garlic Cloves" and "garlic cloves" are treated
+    as the same ingredient regardless of how the API capitalised it.
+    """
     return [i.lower().strip() for i in ingredients if i and i.strip()]
 
 
 @dataclass
 class Recommender:
-    """Ingredient-based k-NN recommender.
+    """Content-based recipe recommender built on top of scikit-learn's k-NN.
 
-    Parameters
-    ----------
-    recipes :
-        DataFrame built from recipes_data.RECIPES.  Must have columns
-        'id', 'title', and 'ingredients' (a list of strings per row).
+    We chose content-based filtering (ingredients) over collaborative
+    filtering (what other users liked) because we only have one user per
+    app instance. There's no community of users to learn from, so we rely
+    purely on the ingredients of recipes the current user has saved.
+
+    Usage:
+        rec = Recommender(recipes_df)          # build the model
+        recs = rec.recommend(history, top_n=5, wishlist=[1, 3, 7])
     """
 
-    recipes: pd.DataFrame
+    recipes: pd.DataFrame  # must have columns: id, title, ingredients (list of str)
 
-    # Built automatically in __post_init__ — callers never touch these directly.
+    # These three are built in __post_init__ and used internally.
     _mlb:    MultiLabelBinarizer = field(init=False, repr=False)
     _matrix: np.ndarray          = field(init=False, repr=False)
     _model:  NearestNeighbors    = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
+        """Build the ingredient matrix and fit the k-NN model.
+
+        This runs automatically when you create a Recommender instance.
+        It converts every recipe's ingredient list into a binary row
+        (one column per unique ingredient across the whole catalogue),
+        then fits the k-NN model on that matrix.
+        """
         self.recipes = self.recipes.reset_index(drop=True)
 
-        # Clean every ingredient list: lowercase + strip whitespace.
         cleaned = [_clean(lst) for lst in self.recipes["ingredients"]]
 
-        # MultiLabelBinarizer turns lists of labels into binary rows.
-        # e.g. ["pasta", "eggs"] → [0, 0, 1, 0, 1, 0, ...] (one column per unique ingredient)
-        # This is the sklearn way of building the feature matrix the professor described.
-        self._mlb = MultiLabelBinarizer()
+        # MultiLabelBinarizer is sklearn's tool for turning lists of labels
+        # into binary rows. fit_transform learns the vocabulary (all unique
+        # ingredients) and simultaneously encodes every recipe.
+        self._mlb    = MultiLabelBinarizer()
         self._matrix = self._mlb.fit_transform(cleaned).astype(float)
 
-        # NearestNeighbors with cosine similarity works well here because
-        # ingredient lists vary in length — cosine ignores that and focuses
-        # purely on which ingredients overlap.
+        # We use cosine similarity because recipe vectors vary in length —
+        # a 3-ingredient dish vs a 20-ingredient dish. Cosine ignores the
+        # magnitude and focuses purely on the direction (which ingredients
+        # overlap), so both get a fair comparison.
         self._model = NearestNeighbors(metric="cosine", algorithm="brute")
         self._model.fit(self._matrix)
 
-    # ── internal helpers ──────────────────────────────────────────────────────
+    # ── private helpers ───────────────────────────────────────────────────────
 
-    def _liked_ids(
-        self,
-        history: pd.DataFrame,
-        wishlist: list[int] | None,
-    ) -> set[int]:
-        """Collect the local catalogue IDs of recipes the user has expressed interest in."""
+    def _liked_ids(self, history: pd.DataFrame, wishlist: list[int] | None) -> set[int]:
+        """Collect all recipe IDs the user has shown a positive signal for.
+
+        We count two things as a "like":
+          - recipes in their wishlist (saved on the Recipes page)
+          - recipes they rated 4 or 5 stars via the feedback buttons
+
+        Anything rated 1–3 is excluded from the taste profile (but still
+        excluded from future recommendations so we don't show them again).
+        """
         ids: set[int] = set()
         if not history.empty and "recipe_id" in history.columns:
             ids.update(history[history["rating"] >= 4]["recipe_id"].tolist())
@@ -91,29 +142,32 @@ class Recommender:
         liked_ids: set[int],
         liked_ingredients: list[list[str]] | None = None,
     ) -> np.ndarray | None:
-        """Build one taste-profile vector that captures everything the user has saved.
+        """Build the user's taste profile as a single averaged ingredient vector.
 
-        We combine two sources:
-          • liked_ids          — recipes from our local catalogue (already in the matrix)
-          • liked_ingredients  — recipes saved from external APIs, encoded on the fly
+        We average the binary vectors of all liked recipes into one vector.
+        Think of it as finding the "centre of gravity" in ingredient space —
+        a point that represents the mix of ingredients the user tends to enjoy.
 
-        This means saving a recipe from the search page ALSO influences the
-        recommendations, even if that recipe doesn't exist in our local catalogue.
-        Both sources are averaged together into a single taste-profile vector.
+        We have two sources of liked recipes:
+          1. Local catalogue recipes (already in our matrix, fast to look up)
+          2. External API recipes (TheMealDB/Spoonacular) saved from the search
+             page — these we encode on the fly using only ingredients our model
+             already knows about.
+
+        Returns None if there's nothing to build the profile from.
         """
         vectors = []
 
-        # Source 1: local catalogue recipes — look them up in the pre-computed matrix.
+        # Source 1: local catalogue — just index into the pre-built matrix.
         mask = self.recipes["id"].isin(liked_ids)
         if mask.any():
             vectors.append(self._matrix[mask.values])
 
-        # Source 2: external/API recipes — encode their ingredient lists on the fly.
-        # Unknown ingredients (not in our vocabulary) just become 0s, which is fine.
+        # Source 2: API recipes — re-encode using only known ingredients.
+        # Unknown ingredients (e.g. exotic spices not in our catalogue) silently
+        # become 0s, which is fine — the recipe still scores based on what we know.
         if liked_ingredients:
             ext = self._encode_external(liked_ingredients)
-            # Skip vectors that are entirely zero — they'd just pull the profile
-            # toward the origin without contributing any useful signal.
             non_empty = ext[ext.sum(axis=1) > 0]
             if non_empty.shape[0] > 0:
                 vectors.append(non_empty)
@@ -121,18 +175,17 @@ class Recommender:
         if not vectors:
             return None
 
-        # Stack all vectors and take the mean — the "centre of gravity" of liked recipes.
         return np.vstack(vectors).mean(axis=0)
 
     def _encode_external(self, ingredient_lists: list[list[str]]) -> np.ndarray:
-        """Encode ingredient lists that may contain words not seen during training.
+        """Encode external recipe ingredients using only the vocabulary we trained on.
 
-        MultiLabelBinarizer.transform() raises an error on unknown labels,
-        so we filter each list down to only the ingredients the model knows about.
-        Unknown ingredients just become 0s — the recipe still gets a fair score
-        based on the ingredients it shares with our vocabulary.
+        sklearn's MultiLabelBinarizer throws an error if you try to transform
+        ingredient names it hasn't seen before. So we filter each list down to
+        only the ingredients that appear in our local catalogue before encoding.
+        Everything else becomes a 0 column, which is a safe fallback.
         """
-        known = set(self._mlb.classes_)
+        known    = set(self._mlb.classes_)
         filtered = [
             [i for i in _clean(lst) if i in known]
             for lst in ingredient_lists
@@ -148,57 +201,46 @@ class Recommender:
         wishlist: list[int] | None = None,
         liked_ingredients: list[list[str]] | None = None,
     ) -> pd.DataFrame:
-        """Return the top-N local recipes most similar to the user's taste profile.
+        """Find the top-N recipes from our local catalogue that best match the user's taste.
 
-        Parameters
-        ----------
-        history :
-            DataFrame with columns 'recipe_id' and 'rating' (1–5).
-            Recipes rated ≥ 4 count as "liked" and feed the taste profile.
-            (Note: there is no rating UI yet — this is wired up for Sprint 2.
-            Right now history will always be empty, and that's fine.)
-        top_n :
-            How many recommendations to return.
-        wishlist :
-            List of local recipe IDs the user has saved. These are the main
-            signal the model currently uses to build the taste profile.
-        liked_ingredients :
-            Ingredient lists from recipes saved via the search page (API results
-            that don't have a local ID). The model folds these in alongside the
-            wishlist so that every save — anywhere in the app — counts.
+        Steps:
+          1. Build a taste profile by averaging the ingredient vectors of all
+             liked recipes (wishlist + highly-rated history).
+          2. Ask k-NN for the nearest neighbours to that profile.
+          3. Filter out anything the user has already seen or saved
+             (we want to surface new discoveries, not repeat the obvious).
+          4. Return the top_n results with a match score (0–1).
+
+        Cold start: if the user hasn't saved anything yet, we just return
+        the first top_n recipes from the catalogue. Not personalised, but
+        at least the page isn't empty.
         """
         liked = self._liked_ids(history, wishlist)
         seen: set[int] = set()
         if not history.empty and "recipe_id" in history.columns:
             seen.update(history["recipe_id"].tolist())
 
-        # Cold start: the user hasn't saved anything yet, so we have no idea
-        # what they like. Return the first top_n unseen recipes as a neutral
-        # starter set rather than showing an empty page.
         has_signal = bool(liked) or bool(liked_ingredients)
-        profile = self._taste_profile(liked, liked_ingredients) if has_signal else None
+        profile    = self._taste_profile(liked, liked_ingredients) if has_signal else None
+
         if profile is None:
             candidates = self.recipes[~self.recipes["id"].isin(seen)]
             return candidates.head(top_n).assign(score=np.nan).reset_index(drop=True)
 
-        # Ask k-NN for more neighbours than we actually need, because we're about
-        # to filter out recipes the user has already seen or explicitly saved —
-        # and we want enough left over to fill the top_n slots.
+        # We ask for more neighbours than we need because we'll filter some out.
+        # Without the buffer we might end up with fewer than top_n results.
         buffer = len(liked) + len(seen) + 5
-        k = min(top_n + buffer, len(self.recipes))
+        k      = min(top_n + buffer, len(self.recipes))
         distances, indices = self._model.kneighbors(profile.reshape(1, -1), n_neighbors=k)
 
-        # Cosine distance of 0 means perfectly identical → similarity of 1.0.
-        # Cosine distance of 1 means completely opposite → similarity of 0.0.
+        # k-NN returns cosine *distance* (0 = identical, 1 = opposite).
+        # We flip it to similarity (1 = identical, 0 = opposite) for display.
         scores = 1.0 - distances.ravel()
-
         result = self.recipes.iloc[indices.ravel()].copy()
         result["score"] = scores
 
-        # Only show recipes the user hasn't cooked or saved yet — we want
-        # to surface new discoveries, not things they already know about.
-        result = result[~result["id"].isin(seen)]
-        result = result[~result["id"].isin(liked)]
+        result = result[~result["id"].isin(seen)]   # don't repeat history
+        result = result[~result["id"].isin(liked)]  # don't repeat wishlist
 
         return result.head(top_n).reset_index(drop=True)
 
@@ -209,48 +251,54 @@ class Recommender:
         wishlist: list[int] | None = None,
         liked_ingredients: list[list[str]] | None = None,
     ) -> pd.DataFrame:
-        """Score and sort a specific set of local recipes by taste-profile similarity.
+        """Score and re-rank a specific set of local recipes by taste similarity.
 
-        Unlike recommend(), this doesn't filter out recipes the user has already
-        seen or saved — it just scores and re-orders the candidates you hand it.
+        Different from recommend() — this doesn't discover new recipes from the
+        whole catalogue. Instead it takes a pre-selected subset (e.g. recipes
+        matching a search query) and re-orders them so the most relevant ones
+        appear first.
 
-        The main use case is re-ranking search results: when a search query
-        returns recipes that also exist in our local catalogue, we score them
-        so the best matches float to the top of the results list.
-
-        Parameters
-        ----------
-        candidate_ids :
-            The local recipe IDs you want scored — usually a small subset
-            that matched the user's search query.
-        history, wishlist, liked_ingredients :
-            Same as recommend() — used to build the taste profile.
+        We compute cosine similarity manually here (rather than using k-NN)
+        because k-NN is designed for "find the nearest" queries, not for
+        "score this exact list" queries.
         """
-        liked   = self._liked_ids(history, wishlist)
+        liked      = self._liked_ids(history, wishlist)
         has_signal = bool(liked) or bool(liked_ingredients)
-        profile = self._taste_profile(liked, liked_ingredients) if has_signal else None
+        profile    = self._taste_profile(liked, liked_ingredients) if has_signal else None
 
         candidate_mask = self.recipes["id"].isin(candidate_ids)
-        candidates = self.recipes[candidate_mask].copy()
+        candidates     = self.recipes[candidate_mask].copy()
 
         if profile is None or not candidate_mask.any():
             return candidates.assign(score=np.nan).reset_index(drop=True)
 
-        indices = candidates.index.tolist()
-        vectors = self._matrix[indices]
+        vectors = self._matrix[candidates.index.tolist()]
 
-        # Compute cosine similarity between each candidate and the taste profile.
-        # We add a tiny epsilon (1e-9) to the denominator to avoid dividing by zero
-        # in the unlikely case that a recipe vector is all zeros.
+        # Cosine similarity = dot product / (magnitude A × magnitude B).
+        # The tiny epsilon (1e-9) stops a division-by-zero if a recipe vector
+        # happens to be all zeros (e.g. no known ingredients).
         distances = np.array([
-            1.0 - float(np.dot(profile, v) / (np.linalg.norm(profile) * np.linalg.norm(v) + 1e-9))
+            1.0 - float(
+                np.dot(profile, v)
+                / (np.linalg.norm(profile) * np.linalg.norm(v) + 1e-9)
+            )
             for v in vectors
         ])
         candidates["score"] = 1.0 - distances
         return candidates.sort_values("score", ascending=False).reset_index(drop=True)
 
     def _jaccard(self, a: set[str], b: set[str]) -> float:
-        """Jaccard similarity between two ingredient sets: |A ∩ B| / |A ∪ B|."""
+        """Jaccard similarity: how much do two ingredient sets overlap?
+
+        Formula: |A ∩ B| / |A ∪ B|
+        → 1.0 means the two sets are identical
+        → 0.0 means they share nothing at all
+
+        We use this (instead of cosine) when scoring API results, because
+        the ingredient names from TheMealDB and Spoonacular often don't
+        match the vocabulary we trained on. Jaccard works on raw strings,
+        so "garlic cloves" still matches "garlic cloves" across any source.
+        """
         if not a and not b:
             return 0.0
         return len(a & b) / len(a | b)
@@ -262,34 +310,27 @@ class Recommender:
         wishlist: list[int] | None = None,
         liked_ingredients: list[list[str]] | None = None,
     ) -> list[float | None]:
-        """Score any set of recipes by ingredient similarity to the user's taste profile.
+        """Score API search results (TheMealDB / Spoonacular) against the user's taste.
 
-        This is what makes ML ranking work on the search results page. We only
-        need each recipe's ingredient list — no local ID, no nutrition data.
-        That means TheMealDB results, Spoonacular results, or any other source
-        can be scored as long as they come with ingredients.
+        This is what powers the "Match score" bar on the Recipes search page.
+        We don't need a local recipe ID — just the ingredient list is enough
+        to compute how well a result fits the user's taste profile.
 
-        We use Jaccard similarity here (ingredient set overlap) instead of the
-        cosine/vocabulary approach used internally. This is because external
-        recipes (TheMealDB, Spoonacular) use ingredient names that often don't
-        match our small local vocabulary — e.g. "Spaghetti" vs "pasta".
-        Jaccard compares ingredient strings directly, so "spaghetti" in a saved
-        recipe matches "spaghetti" in a new search result without needing the
-        ingredient to exist in the local catalogue first.
+        Why max-Jaccard (not union-Jaccard)?
+        We tried merging all saved recipes into one big ingredient pool first,
+        but that caused a bad side effect: as the wishlist grew, the pool got
+        bigger, the Jaccard denominator got larger, and every score went down.
+        Saving more recipes made the recommendations look WORSE — the opposite
+        of what we wanted.
 
-        Parameters
-        ----------
-        ingredient_lists :
-            One ingredient list per recipe you want scored.
-        history, wishlist, liked_ingredients :
-            Same as recommend() — used to build the taste profile.
+        The fix: keep each liked recipe as a separate ingredient set, compute
+        Jaccard against each one individually, and take the maximum. A recipe
+        scores well if it's similar to *any* of your saved recipes, and saving
+        more can only raise scores, never lower them.
 
-        Returns
-        -------
-        A list of floats (0.0–1.0) in the same order as ingredient_lists.
-        Returns None for every item when the user has no taste profile yet
-        (i.e. they haven't saved anything), so the caller knows not to show
-        misleading "match" percentages to a brand-new user.
+        Returns a list in the same order as ingredient_lists.
+        Returns None for each item if the user hasn't saved anything yet —
+        we don't want to show "0% match" to new users who have no profile.
         """
         liked      = self._liked_ids(history, wishlist)
         has_signal = bool(liked) or bool(liked_ingredients)
@@ -297,35 +338,32 @@ class Recommender:
         if not has_signal:
             return [None] * len(ingredient_lists)
 
-        # Build one big reference set from ALL ingredients the user has liked —
-        # both from our local catalogue and from API recipes they saved.
-        # Using a union means "if you saved any pasta recipe, pasta-like
-        # ingredients count as a signal for future results."
-        ref_set: set[str] = set()
+        # One set per liked recipe — we deliberately keep them separate.
+        liked_sets: list[set[str]] = []
 
-        # Add ingredients from local catalogue recipes they saved.
         local_mask = self.recipes["id"].isin(liked)
         if local_mask.any():
             for ing_list in self.recipes[local_mask]["ingredients"]:
-                ref_set.update(_clean(ing_list))
+                s = set(_clean(ing_list))
+                if s:
+                    liked_sets.append(s)
 
-        # Add ingredients from API recipes they saved directly.
         if liked_ingredients:
             for ing_list in liked_ingredients:
-                ref_set.update(_clean(ing_list))
+                s = set(_clean(ing_list))
+                if s:
+                    liked_sets.append(s)
 
-        if not ref_set:
+        if not liked_sets:
             return [None] * len(ingredient_lists)
 
-        # Score each candidate recipe by how much its ingredients overlap with
-        # the reference set using Jaccard similarity.
         scores = []
         for ing_list in ingredient_lists:
             candidate_set = set(_clean(ing_list))
             if not candidate_set:
-                # Recipe has no parseable ingredients — can't score it.
                 scores.append(None)
             else:
-                scores.append(self._jaccard(ref_set, candidate_set))
+                # Best match across all liked recipes (max-Jaccard).
+                scores.append(max(self._jaccard(ls, candidate_set) for ls in liked_sets))
 
         return scores
