@@ -1,4 +1,3 @@
-
 # ============================================================================
 #  api_client.py  —  wrapper around TheMealDB (a free public recipe API)
 # ----------------------------------------------------------------------------
@@ -43,6 +42,24 @@ def list_cuisines() -> list[str]:
         return [m["strArea"] for m in (resp.json().get("meals") or [])]
     except requests.RequestException:
         return []
+
+
+@st.cache_data(ttl=24 * 60 * 60)
+def list_cuisines_with_recipes() -> list[str]:
+    """Return only the areas that actually have at least one recipe.
+
+    TheMealDB's /list endpoint returns ~200 areas but many have zero meals
+    in the /filter endpoint (e.g. 'Peruvian', 'Indonesian').  This function
+    filters down to only the areas that return real results, so the map
+    only colours countries where clicking will actually show recipes.
+    """
+    all_areas = list_cuisines()
+    valid = []
+    for area in all_areas:
+        meals = filter_by_cuisine(area)
+        if meals:
+            valid.append(area)
+    return valid
 
 
 def _area_name_variants(area: str) -> list[str]:
