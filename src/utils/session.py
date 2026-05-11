@@ -57,6 +57,16 @@ def init_session_state():
             # (otherwise different pages could share the same list object).
             st.session_state[key] = _copy_default(default)
 
+    # Auto-login on refresh: if session_state lost user_id (page reload)
+    # but the URL still has ?uid=..., reload the profile from the DB.
+    if st.session_state.get("user_id") is None:
+        try:
+            uid_str = st.query_params.get("uid")
+            if uid_str:
+                st.session_state["user_id"] = int(uid_str)
+        except Exception:
+            pass
+
     # If user_id is known but profile not yet loaded, hydrate from the DB.
     if st.session_state.get("user_profile") is None and st.session_state.get("user_id") is not None:
         try:
