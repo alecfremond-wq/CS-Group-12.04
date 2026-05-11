@@ -55,10 +55,18 @@ def init_session_state():
             # (otherwise different pages could share the same list object).
             st.session_state[key] = _copy_default(default)
 
-    # If a user_id is already known for this session (e.g. after a page
-    # navigation) but user_profile hasn't been loaded yet, re-hydrate it
-    # from the DB. We only do this when user_id is set — if it's None the
-    # user hasn't picked a profile yet and the Onboarding page will handle it.
+    # Auto-login on refresh: if session_state lost user_id (page refresh)
+    # but the URL still has ?uid=..., reload the profile from the DB.
+    # st.query_params persists across refreshes because it lives in the URL.
+    if st.session_state.get("user_id") is None:
+        try:
+            uid_str = st.query_params.get("uid")
+            if uid_str:
+                st.session_state["user_id"] = int(uid_str)
+        except Exception:
+            pass
+
+    # If user_id is known but profile not yet loaded, hydrate from the DB.
     if st.session_state.get("user_profile") is None and st.session_state.get("user_id") is not None:
         try:
             from src.data.user_repo import load_profile
@@ -66,7 +74,6 @@ def init_session_state():
             if saved is not None:
                 st.session_state["user_profile"] = saved
         except Exception:
-            # The DB might not exist yet (first run). Fall back silently.
             pass
 
 

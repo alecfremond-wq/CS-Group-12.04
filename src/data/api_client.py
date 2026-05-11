@@ -485,18 +485,28 @@ def search_spoonacular(query="", vegetarian=False, vegan=False,
 
 
 @st.cache_data(ttl=24 * 60 * 60)
-def get_spoonacular_ingredients():
-    """Return a sorted list of ingredient names pulled from Spoonacular.
 
-    We run a handful of common searches so the pantry dropdown is populated
-    with real Spoonacular names — the same strings that appear in recipe
-    results, so pantry matching is exact instead of fuzzy.
-    Cached for 24 h so we only spend API quota once per day.
+@st.cache_data(ttl=24 * 60 * 60)
+def get_themealdb_ingredients() -> list[str]:
+    """Return a sorted list of all ingredients from TheMealDB.
+
+    TheMealDB exposes a dedicated /list endpoint that returns every ingredient
+    in one single request — much faster than Spoonacular which needs multiple
+    searches. Results are cached for 24 h.
     """
-    ingredients = set()
-    for query in ["chicken", "pasta", "salad", "soup", "fish", "beef", "rice"]:
-        for meal in search_spoonacular(query=query):
-            for ing in meal.get("_ingredients", []):
-                if ing.strip():
-                    ingredients.add(ing.strip().lower())
-    return sorted(ingredients)
+    try:
+        resp = requests.get(
+            f"{THEMEALDB_BASE}/list.php",
+            params={"i": "list"},
+            timeout=20,
+        )
+        resp.raise_for_status()
+        meals = resp.json().get("meals") or []
+        # each item has a "strIngredient" key with the ingredient name
+        return sorted(
+            m["strIngredient"].strip().lower()
+            for m in meals
+            if (m.get("strIngredient") or "").strip()
+        )
+    except requests.RequestException:
+        return []

@@ -762,7 +762,12 @@ def get_pantry() -> set[str]:
 
 
 def pantry_pct(meal: dict, pantry: set[str]) -> float | None:
-    """Return fraction of ingredients already in pantry."""
+    """Return fraction of ingredients already in pantry.
+
+    Uses the smart matcher from pantry_repo (handles plurals, substrings,
+    word overlap) so TheMealDB ingredient names like 'chicken breast'
+    match pantry items like 'chicken'.
+    """
     if not pantry:
         return None
 
@@ -770,8 +775,10 @@ def pantry_pct(meal: dict, pantry: set[str]) -> float | None:
     if not ingredients:
         return None
 
-    names = [i.lower() for i in ingredients]
-    return sum(1 for n in names if n in pantry) / len(names)
+    # coverage() replaces the old exact match — works for both TheMealDB
+    # and Spoonacular ingredient name formats
+    from src.data.pantry_repo import coverage
+    return coverage(ingredients, pantry)
 
 
 # ── Wishlist / taste-profile setup ────────────────────────────────────────────

@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from src.components.ui import empty_state, page_header
-from src.data.api_client import get_spoonacular_ingredients
+from src.data.api_client import get_themealdb_ingredients
 from src.data.pantry_repo import (
     add_to_pantry,
     clear_pantry,
@@ -19,10 +19,10 @@ page_header("🥫 Pantry", "What's currently in your kitchen?")
 
 USER_ID = st.session_state.get("user_id", 1)
 CUSTOM_OPTION = "✏️  Other (type a custom ingredient)"
-CANONICAL = get_spoonacular_ingredients()
+CANONICAL = get_themealdb_ingredients()
 
 st.caption(
-    f"Tip — pick from the list of {len(CANONICAL)} ingredients used by Spoonacular recipes. "
+    f"Tip — pick from the list of {len(CANONICAL)} ingredients used by TheMealDB recipes. "
     "Anything you pick from there will count toward the **Pantry-friendly** badge "
     "on the Recipes page."
 )
