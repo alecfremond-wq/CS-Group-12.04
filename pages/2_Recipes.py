@@ -1,3 +1,4 @@
+
 """
 Recipes — search and browse recipes (API + DB).
 Owner: <assign on Apr 22>
@@ -17,7 +18,6 @@ import streamlit as st
 from recipes_data import RECIPES as LOCAL_RECIPES
 from src.components.ui import empty_state, page_header
 from src.data.api_client import (
-    fetch_cuisine_meals,
     filter_by_cuisine,
     fetch_kcal_for_title,
     fetch_nutrition_for_meal,
@@ -306,73 +306,40 @@ ISO_NAME = {
 }
 
 
-# Map from ISO-3 country code → TheMealDB area name.
-#
-# We build this dynamically from list_cuisines() so that the names always
-# match exactly what TheMealDB's filter endpoint accepts — avoiding the
-# "Venezuelan" vs "Venezuela" mismatch that caused the empty-results bug.
-#
-# The lookup table below maps every possible TheMealDB area name (both the
-# adjective form TheMealDB usually uses AND any alternate country-name form)
-# to the correct ISO-3 code.  list_cuisines() returns the canonical names
-# live from the API, so whichever spelling TheMealDB happens to use today
-# will be matched correctly.
-
-_AREA_TO_ISO: dict[str, str] = {
-    # adjective form → ISO      # country-name form → ISO (same code)
-    "American":   "USA",
-    "British":    "GBR",
-    "Canadian":   "CAN",
-    "Chinese":    "CHN",
-    "Croatian":   "HRV",
-    "Dutch":      "NLD",
-    "Egyptian":   "EGY",
-    "Filipino":   "PHL",
-    "French":     "FRA",
-    "Greek":      "GRC",
-    "Indian":     "IND",
-    "Irish":      "IRL",
-    "Italian":    "ITA",
-    "Jamaican":   "JAM",
-    "Japanese":   "JPN",
-    "Kenyan":     "KEN",
-    "Malaysian":  "MYS",
-    "Mexican":    "MEX",
-    "Moroccan":   "MAR",
-    "Polish":     "POL",
-    "Portuguese": "PRT",
-    "Russian":    "RUS",
-    "Spanish":    "ESP",
-    "Thai":       "THA",
-    "Tunisian":   "TUN",
-    "Turkish":    "TUR",
-    "Uruguayan":  "URY",
-    "Venezuelan": "VEN",   # adjective form
-    "Venezuela":  "VEN",   # country-name form (TheMealDB uses this too)
-    "Vietnamese": "VNM",
+# Map from ISO-3 country code → TheMealDB area name
+# Complete list of all areas supported by TheMealDB (as of 2024/2025).
+# "Unknown" is intentionally excluded (no country to map to).
+ISO_TO_CUISINE = {
+    "USA": "American",
+    "GBR": "British",
+    "CAN": "Canadian",
+    "CHN": "Chinese",
+    "HRV": "Croatian",
+    "NLD": "Dutch",
+    "EGY": "Egyptian",
+    "PHL": "Filipino",
+    "FRA": "French",
+    "GRC": "Greek",
+    "IND": "Indian",
+    "IRL": "Irish",
+    "ITA": "Italian",
+    "JAM": "Jamaican",
+    "JPN": "Japanese",
+    "KEN": "Kenyan",
+    "MYS": "Malaysian",
+    "MEX": "Mexican",
+    "MAR": "Moroccan",
+    "POL": "Polish",
+    "PRT": "Portuguese",
+    "RUS": "Russian",
+    "ESP": "Spanish",
+    "THA": "Thai",
+    "TUN": "Tunisian",
+    "TUR": "Turkish",
+    "URY": "Uruguayan",
+    "VEN": "Venezuelan",
+    "VNM": "Vietnamese",
 }
-
-@st.cache_data(ttl=24 * 60 * 60)
-def _build_iso_to_cuisine() -> dict[str, str]:
-    """
-    Ask TheMealDB for its live area list and map each area name to the
-    ISO-3 code of the corresponding country.  Falls back to the static
-    _AREA_TO_ISO table if the API is unreachable.
-    """
-    areas = list_cuisines()           # e.g. ["American", "Venezuelan", ...]
-    mapping: dict[str, str] = {}
-    for area in areas:
-        iso = _AREA_TO_ISO.get(area)
-        if iso:
-            mapping[iso] = area       # ISO → exact API name
-    # If the API returned nothing, fall back to the static table
-    if not mapping:
-        for area, iso in _AREA_TO_ISO.items():
-            if iso not in mapping:
-                mapping[iso] = area
-    return mapping
-
-ISO_TO_CUISINE: dict[str, str] = _build_iso_to_cuisine()
 
 
 def build_figure() -> go.Figure:
@@ -860,24 +827,23 @@ with tab_search:
 
 def fetch_cuisine_recipes(cuisine: str, limit: int = 10) -> list[dict]:
     """
-    Return full meal dicts for a cuisine.
-    Delegates to fetch_cuisine_meals() from api_client (cached 1 h).
+    Fetch full recipe details for a given cuisine using TheMealDB.
+
+    filter_by_cuisine() returns stubs (id + thumbnail only).
+    We then call get_meal_by_id() for each to get instructions,
+    ingredients, area, and category — everything render_meal_card() needs.
+    Results are cached inside each called function so this is fast.
     """
-    return fetch_cuisine_meals(cuisine, limit=limit)
+    stubs = filter_by_cuisine(cuisine)[:limit]
+    full_meals = []
+    for stub in stubs:
+        meal = get_meal_by_id(stub["idMeal"])
+        if meal:
+            full_meals.append(meal)
+    return full_meals
 
 with tab_cuisine:
     cuisines = list_cuisines()
-
-    # ── DEBUG (rimuovere dopo il fix) ──────────────────────────────────────
-    with st.expander("🐛 Debug TheMealDB — rimuovere dopo il fix", expanded=False):
-        st.write("**`list_cuisines()` restituisce:**", cuisines)
-        from src.data.api_client import filter_by_cuisine as _fbc
-        for test_name in ["Venezuelan", "Venezuela"]:
-            result = _fbc(test_name)
-            st.write(f"`filter_by_cuisine('{test_name}')` → {len(result)} risultati")
-            if result:
-                st.write("Primo risultato:", result[0])
-    # ── fine DEBUG ─────────────────────────────────────────────────────────
 
     if not cuisines:
         empty_state("Cuisine list couldn't be loaded — check your internet.")
