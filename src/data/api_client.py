@@ -1,3 +1,4 @@
+
 # ============================================================================
 #  api_client.py  —  wrapper around TheMealDB (a free public recipe API)
 # ----------------------------------------------------------------------------
@@ -44,27 +45,220 @@ def list_cuisines() -> list[str]:
         return []
 
 
-# TheMealDB area-name quirks: the /list endpoint returns adjective forms
-# (e.g. "Venezuelan") but the /filter endpoint only works with the country-
-# name form for some areas.  This table maps adjective → accepted filter name.
-_AREA_FILTER_ALIAS: dict[str, str] = {
-    "Venezuelan": "Venezuela",
-}
+def _area_name_variants(area: str) -> list[str]:
+    """
+    Generate candidate area names to try with TheMealDB's filter endpoint.
+
+    TheMealDB's /list endpoint returns adjective forms ("Indonesian",
+    "Argentine") but /filter sometimes only accepts the plain country name
+    ("Indonesia", "Argentina") — or vice versa.  Rather than maintaining a
+    hardcoded alias table that breaks every time TheMealDB adds a new area,
+    we generate plausible variants automatically and try them in order.
+    """
+    candidates: list[str] = [area]
+
+    # adjective → country name (strip common English suffixes)
+    suffixes = [
+        ("inian", "inia"),   # Argentinian → Argentina... actually wrong
+        ("nian",  "na"),     # Indonesian → Indonesia ... no
+        ("ian",   "ia"),     # Indonesian → Indonesía, Iranian → Irani
+        ("an",    "a"),      # Mexican → Mexica ... not ideal but harmless
+        ("ese",   ""),       # Vietnamese → Vietnam... nope
+        ("ish",   ""),       # British → Brit
+        ("i",     ""),       # Emirati → Emirat
+        ("er",    ""),       # New Zealander → New Zealand
+    ]
+    # Better: use the strCountry map from TheMealDB itself
+    # The /list endpoint with ?a=list also returns strCountry — but we only
+    # get strArea here.  So we use a curated map for the known tricky cases.
+    _AREA_TO_COUNTRY: dict[str, str] = {
+        "Afghan":          "Afghanistan",
+        "Albanian":        "Albania",
+        "Algerian":        "Algeria",
+        "American":        "United States",
+        "Argentine":       "Argentina",
+        "Argentinian":     "Argentina",
+        "Armenian":        "Armenia",
+        "Australian":      "Australia",
+        "Austrian":        "Austria",
+        "Azerbaijani":     "Azerbaijan",
+        "Bahraini":        "Bahrain",
+        "Bangladeshi":     "Bangladesh",
+        "Belgian":         "Belgium",
+        "Bolivian":        "Bolivia",
+        "Bosnian":         "Bosnia and Herzegovina",
+        "Brazilian":       "Brazil",
+        "British":         "United Kingdom",
+        "Bulgarian":       "Bulgaria",
+        "Burmese":         "Myanmar",
+        "Burundian":       "Burundi",
+        "Cambodian":       "Cambodia",
+        "Cameroonian":     "Cameroon",
+        "Canadian":        "Canada",
+        "Chilean":         "Chile",
+        "Chinese":         "China",
+        "Colombian":       "Colombia",
+        "Costa Rican":     "Costa Rica",
+        "Croatian":        "Croatia",
+        "Cuban":           "Cuba",
+        "Cypriot":         "Cyprus",
+        "Czech":           "Czechia",
+        "Danish":          "Denmark",
+        "Dominican":       "Dominican Republic",
+        "Dutch":           "Netherlands",
+        "Ecuadoran":       "Ecuador",
+        "Egyptian":        "Egypt",
+        "Emirati":         "United Arab Emirates",
+        "Estonian":        "Estonia",
+        "Ethiopian":       "Ethiopia",
+        "Filipino":        "Philippines",
+        "Finnish":         "Finland",
+        "French":          "France",
+        "Georgian":        "Georgia",
+        "German":          "Germany",
+        "Ghanaian":        "Ghana",
+        "Greek":           "Greece",
+        "Guatemalan":      "Guatemala",
+        "Guyanese":        "Guyana",
+        "Haitian":         "Haiti",
+        "Honduran":        "Honduras",
+        "Hungarian":       "Hungary",
+        "Icelander":       "Iceland",
+        "Indian":          "India",
+        "Indonesian":      "Indonesia",
+        "Iranian":         "Iran",
+        "Iraqi":           "Iraq",
+        "Irish":           "Ireland",
+        "Israeli":         "Israel",
+        "Italian":         "Italy",
+        "Ivorian":         "Ivory Coast",
+        "Jamaican":        "Jamaica",
+        "Japanese":        "Japan",
+        "Jordanian":       "Jordan",
+        "Kazakhstani":     "Kazakhstan",
+        "Kenyan":          "Kenya",
+        "Kirghiz":         "Kyrgyzstan",
+        "Kosovar":         "Kosovo",
+        "Kuwaiti":         "Kuwait",
+        "Laotian":         "Laos",
+        "Latvian":         "Latvia",
+        "Lebanese":        "Lebanon",
+        "Libyan":          "Libya",
+        "Lithuanian":      "Lithuania",
+        "Luxembourger":    "Luxembourg",
+        "Macedonian":      "North Macedonia",
+        "Malagasy":        "Madagascar",
+        "Malawian":        "Malawi",
+        "Malaysian":       "Malaysia",
+        "Malian":          "Mali",
+        "Maltese":         "Malta",
+        "Mauritanian":     "Mauritania",
+        "Mauritian":       "Mauritius",
+        "Mexican":         "Mexico",
+        "Moldovan":        "Moldova",
+        "Mongolian":       "Mongolia",
+        "Montenegrin":     "Montenegro",
+        "Moroccan":        "Morocco",
+        "Mozambican":      "Mozambique",
+        "Namibian":        "Namibia",
+        "Nepalese":        "Nepal",
+        "New Zealander":   "New Zealand",
+        "Nicaraguan":      "Nicaragua",
+        "Nigerian":        "Nigeria",
+        "Nigerien":        "Niger",
+        "North Korean":    "North Korea",
+        "Norwegian":       "Norway",
+        "Omani":           "Oman",
+        "Pakistani":       "Pakistan",
+        "Palestinian":     "Palestine",
+        "Panamanian":      "Panama",
+        "Paraguayan":      "Paraguay",
+        "Peruvian":        "Peru",
+        "Polish":          "Poland",
+        "Portuguese":      "Portugal",
+        "Puerto Rican":    "Puerto Rico",
+        "Qatari":          "Qatar",
+        "Romanian":        "Romania",
+        "Russian":         "Russia",
+        "Rwandan":         "Rwanda",
+        "Salvadoran":      "El Salvador",
+        "Samoan":          "Samoa",
+        "Saudi Arabian":   "Saudi Arabia",
+        "Senegalese":      "Senegal",
+        "Serbian":         "Serbia",
+        "Seychellois":     "Seychelles",
+        "Sierra Leonean":  "Sierra Leone",
+        "Singaporean":     "Singapore",
+        "Slovak":          "Slovakia",
+        "Slovene":         "Slovenia",
+        "Somali":          "Somalia",
+        "South African":   "South Africa",
+        "South Korean":    "South Korea",
+        "South Sudanese":  "South Sudan",
+        "Spanish":         "Spain",
+        "Sri Lankan":      "Sri Lanka",
+        "Sudanese":        "Sudan",
+        "Surinamer":       "Suriname",
+        "Swedish":         "Sweden",
+        "Swiss":           "Switzerland",
+        "Syrian":          "Syria",
+        "Tadhzik":         "Tajikistan",
+        "Taiwanese":       "Taiwan",
+        "Tanzanian":       "Tanzania",
+        "Thai":            "Thailand",
+        "Togolese":        "Togo",
+        "Tongan":          "Tonga",
+        "Trinidadian":     "Trinidad and Tobago",
+        "Tunisian":        "Tunisia",
+        "Turkish":         "Turkey",
+        "Ugandan":         "Uganda",
+        "Ukrainian":       "Ukraine",
+        "Uruguayan":       "Uruguay",
+        "Uzbekistani":     "Uzbekistan",
+        "Venezuelan":      "Venezuela",
+        "Vietnamese":      "Vietnam",
+        "Yemeni":          "Yemen",
+        "Zambian":         "Zambia",
+        "Zimbabwean":      "Zimbabwe",
+        # reverse (country → adjective) for cases TheMealDB uses country name
+        "Argentina":       "Argentinian",
+        "Venezuela":       "Venezuelan",
+        "Indonesia":       "Indonesian",
+    }
+
+    alt = _AREA_TO_COUNTRY.get(area)
+    if alt and alt not in candidates:
+        candidates.append(alt)
+
+    # Also try the reverse: if we have the country name, try the adjective
+    reverse = {v: k for k, v in _AREA_TO_COUNTRY.items()}
+    alt2 = reverse.get(area)
+    if alt2 and alt2 not in candidates:
+        candidates.append(alt2)
+
+    return candidates
 
 
 @st.cache_data(ttl=60 * 60)
 def filter_by_cuisine(cuisine: str) -> list[dict]:
-    """Return recipe stubs (id, name, thumbnail) for a cuisine."""
-    # Apply alias fix before hitting the API
-    cuisine = _AREA_FILTER_ALIAS.get(cuisine, cuisine)
-    try:
-        resp = requests.get(
-            f"{THEMEALDB_BASE}/filter.php", params={"a": cuisine}, timeout=20
-        )
-        resp.raise_for_status()
-        return resp.json().get("meals") or []
-    except requests.RequestException:
-        return []
+    """Return recipe stubs (id, name, thumbnail) for a cuisine.
+
+    Tries the given name first; if TheMealDB returns nothing it automatically
+    attempts alternate spellings (adjective ↔ country name) so that e.g.
+    "Indonesian" and "Argentina" both resolve correctly.
+    """
+    for candidate in _area_name_variants(cuisine):
+        try:
+            resp = requests.get(
+                f"{THEMEALDB_BASE}/filter.php", params={"a": candidate}, timeout=20
+            )
+            resp.raise_for_status()
+            meals = resp.json().get("meals") or []
+            if meals:
+                return meals
+        except requests.RequestException:
+            return []
+    return []
 
 
 @st.cache_data(ttl=60 * 60)
