@@ -44,9 +44,19 @@ def list_cuisines() -> list[str]:
         return []
 
 
+# TheMealDB area-name quirks: the /list endpoint returns adjective forms
+# (e.g. "Venezuelan") but the /filter endpoint only works with the country-
+# name form for some areas.  This table maps adjective → accepted filter name.
+_AREA_FILTER_ALIAS: dict[str, str] = {
+    "Venezuelan": "Venezuela",
+}
+
+
 @st.cache_data(ttl=60 * 60)
 def filter_by_cuisine(cuisine: str) -> list[dict]:
     """Return recipe stubs (id, name, thumbnail) for a cuisine."""
+    # Apply alias fix before hitting the API
+    cuisine = _AREA_FILTER_ALIAS.get(cuisine, cuisine)
     try:
         resp = requests.get(
             f"{THEMEALDB_BASE}/filter.php", params={"a": cuisine}, timeout=20
