@@ -16,6 +16,8 @@
 #  reviewed by Group 12.04. See README.md.
 # ============================================================================
 
+import json                                 # we need json to decode the ingredient list
+
 import streamlit as st                     # we need st.session_state from Streamlit
 
 
@@ -55,17 +57,6 @@ def init_session_state():
             # (otherwise different pages could share the same list object).
             st.session_state[key] = _copy_default(default)
 
-    # Auto-login on refresh: if session_state lost user_id (page refresh)
-    # but the URL still has ?uid=..., reload the profile from the DB.
-    # st.query_params persists across refreshes because it lives in the URL.
-    if st.session_state.get("user_id") is None:
-        try:
-            uid_str = st.query_params.get("uid")
-            if uid_str:
-                st.session_state["user_id"] = int(uid_str)
-        except Exception:
-            pass
-
     # If user_id is known but profile not yet loaded, hydrate from the DB.
     if st.session_state.get("user_profile") is None and st.session_state.get("user_id") is not None:
         try:
@@ -76,19 +67,35 @@ def init_session_state():
         except Exception:
             pass
 
-    # Keep uid in the URL on every page so it survives server restarts.
-    # Streamlit clears query params when navigating between pages, so we
-    # re-set it here (called at the top of every page via init_session_state).
-    user_id = st.session_state.get("user_id")
-    try:
-        if user_id is not None:
-            if st.query_params.get("uid") != str(user_id):
-                st.query_params["uid"] = user_id
-        else:
-            if "uid" in st.query_params:
-                st.query_params.clear()
-    except Exception:
-        pass
+    # Load the wishlist from the database if it's empty in session_state.
+    # This runs every time a fresh browser session starts so the user's
+    # saved recipes are always there, even after closing and reopening the app.
+    if not st.session_state.get("wishlist"):
+        try:
+            from src.data.database import query_df
+            if user_id:
+                df = query_df(
+                    "SELECT title, image, area, local_id, ingredients "
+                    "FROM wishlist WHERE user_id = ?",
+                    (user_id,),
+                )
+                if df is not None and not df.empty:
+                    loaded = []
+                    for _, row in df.iterrows():
+                        try:
+                            ingredients = json.loads(row["ingredients"] or "[]")
+                        except Exception:
+                            ingredients = []
+                        loaded.append({
+                            "title":       row["title"],
+                            "image":       row["image"],
+                            "area":        row["area"],
+                            "local_id":    row["local_id"],
+                            "ingredients": ingredients,
+                        })
+                    st.session_state["wishlist"] = loaded
+        except Exception:
+            pass
 
 
 def require_profile():

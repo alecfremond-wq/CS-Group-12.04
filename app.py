@@ -92,8 +92,6 @@ def _logout() -> None:
     st.session_state["wishlist"] = []
     st.session_state["onboarding_editing"] = False
     st.session_state["show_onboarding"] = False
-    # Remove uid from URL so a refresh doesn't auto-login again
-    st.query_params.clear()
 
 
 def _render_auth() -> None:
@@ -123,8 +121,6 @@ def _render_auth() -> None:
                     st.session_state["user_id"] = user_id
                     st.session_state["user_profile"] = load_profile(user_id)
                     st.session_state["pantry"] = []
-                    # Store uid in URL so a refresh doesn't log the user out
-                    st.query_params["uid"] = user_id
                     st.rerun()
 
     with tab_signup:
@@ -153,8 +149,6 @@ def _render_auth() -> None:
                     st.session_state["user_id"] = user_id
                     st.session_state["user_profile"] = profile
                     st.session_state["pantry"] = []
-                    # Store uid in URL so a refresh doesn't log the user out
-                    st.query_params["uid"] = user_id
                     st.success("Account created! Welcome 🎉")
                     st.rerun()
                 except ValueError as e:
