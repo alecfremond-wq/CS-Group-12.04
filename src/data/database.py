@@ -33,6 +33,22 @@ DB_PATH = _PROJECT_ROOT / "data" / "cooktogether.db"    # the actual .db file
 SCHEMA_PATH = _PROJECT_ROOT / "data" / "schema.sql"     # the SQL script that creates the tables
 
 
+def _migrate(conn) -> None:
+    # Add login columns to any DB created before the login feature was added.
+    # try/except is needed because SQLite errors if the column already exists.
+    for column in ["username", "password_hash"]:
+        try:
+            conn.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass
+    # UNIQUE can't be set via ALTER TABLE in SQLite — we use an index instead
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users (username)"
+    )
+    conn.commit()
+
+
 def init_db():
     """Create the database file and its tables if they don't exist yet.
 
@@ -43,18 +59,12 @@ def init_db():
     every query. Running executescript() on every connection caused
     sqlite3.OperationalError on Streamlit Cloud.
     """
-    # Make sure the `data/` folder exists (mkdir creates it; parents=True also
-    # creates parent folders; exist_ok=True means "don't error if it's there").
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-    # Open a connection using our helper below. The `with` statement
-    # automatically closes the connection when the block ends.
     with get_connection() as conn:
-        # Only try to run the schema if the schema file actually exists.
         if SCHEMA_PATH.exists():
-            # Read the whole schema.sql file into a string and execute it.
-            # `executescript` can run many SQL statements separated by ';'.
             conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+        _migrate(conn)
 
 
 # The @contextmanager decorator turns this function into something you can

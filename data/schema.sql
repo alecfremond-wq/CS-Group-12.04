@@ -39,13 +39,15 @@ CREATE TABLE IF NOT EXISTS recipe_ingredients (
 -- runs their own instance), but we keep a users table so multi-profile demos
 -- are easy.
 CREATE TABLE IF NOT EXISTS users (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    name         TEXT NOT NULL,
-    diet         TEXT,              -- "omnivore" / "vegetarian" / "vegan" / ...
-    allergies    TEXT,              -- comma-separated for simplicity
-    budget_weekly REAL,             -- CHF / week
-    skill_level  TEXT CHECK(skill_level IN ('beginner','intermediate','advanced')),
-    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    name          TEXT NOT NULL,
+    username      TEXT UNIQUE,
+    password_hash TEXT,
+    diet          TEXT,
+    allergies     TEXT,
+    budget_weekly REAL,
+    skill_level   TEXT CHECK(skill_level IN ('beginner','intermediate','advanced')),
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS cooking_history (
