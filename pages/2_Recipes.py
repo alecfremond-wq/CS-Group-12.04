@@ -1,14 +1,29 @@
 
 """
-Recipes — search and browse recipes (API + DB).
-Owner: <assign on Apr 22>
-Grading coverage:
-    * Req. 2 (API — TheMealDB + Spoonacular)
-    * Req. 4 (user interaction — search, filter, add-to-wishlist)
-    * Req. 5 (ML — search results ranked by taste profile when available)
-TODOs for the owner:
-    - when a user clicks "Save recipe", persist to the `recipes` table
-      so the Recommender has data to learn from.
+2_Recipes.py 
+
+Recipes page - lets users search and browse recipes via TheMealDB and Spoonacular APIs, 
+filter by cuisine on an interactive world map, view nutritional data, and save dishes to the Meal Planner.
+INteracts with the database (planner_pool, meal_plan, recipes tables) and the ML Recommender to rank 
+search results by the user's taste profile.
+
+Dependencies: 
+- recipes_data.py (local recipe list)
+- src/data/api_client.py (TheMealDB and Spoonacular API wrappers)
+- src/data/database.py (DB query and execute functions)
+- src/models/recommender.py (ML ranking) 
+- src/components/ui.py (UI helper functions)
+- streamlit_plotly_events (world map click events)
+
+Authors: Giulia De Angelis and Camilla Piano 
+Date: May 11, 2026 
+
+Sources: 
+- ChatGPT (4o): ideas 
+- Claude: code generation (see in code comments) 
+- TheMealDB API: https://www.themealdb.com/api.php
+- Spoonacular API: https://spoonacular.com/food-api/docs
+
 """
 
 import pandas as pd
