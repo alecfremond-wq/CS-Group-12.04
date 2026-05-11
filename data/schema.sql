@@ -123,3 +123,24 @@ DROP TABLE meal_plan;
 
 ALTER TABLE meal_plan_new RENAME TO meal_plan;
 
+-- ============================================================
+-- wishlist: recipes the user has saved with the heart button
+-- We store everything we need to rebuild the wishlist entry:
+-- the title, the thumbnail image, where it's from (area),
+-- the local recipe ID if it exists in our catalogue (or NULL
+-- for API-only results), and the ingredient list as JSON so
+-- the ML model can use it even after a page reload.
+-- UNIQUE (user_id, title) means you can't save the same recipe
+-- twice — the INSERT OR IGNORE in the Python code handles that.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS wishlist (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title       TEXT    NOT NULL,
+    image       TEXT,               -- thumbnail URL (can be NULL for local recipes)
+    area        TEXT,               -- cuisine area e.g. "Italian"
+    local_id    INTEGER,            -- links to recipes.id if we have it, else NULL
+    ingredients TEXT,               -- JSON array of ingredient strings for the ML model
+    UNIQUE (user_id, title)         -- one entry per recipe per user
+);
+

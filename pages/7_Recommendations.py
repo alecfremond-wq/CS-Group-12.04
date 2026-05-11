@@ -253,13 +253,41 @@ for _, row in picks.iterrows():
                 st.caption("✅ Already in your wishlist")
             else:
                 if st.button("＋ Save to wishlist", key=f"wish_{recipe_id}"):
+                    ingredients = list(row.get("ingredients", []))
+
+                    # 1. Add to session_state immediately.
                     st.session_state["wishlist"].append({
                         "title":       row["title"],
                         "image":       None,
                         "area":        row.get("country", ""),
                         "local_id":    recipe_id,
-                        "ingredients": list(row.get("ingredients", [])),
+                        "ingredients": ingredients,
                     })
+
+                    # 2. Persist to DB so it survives a reload.
+                    try:
+                        import json
+                        from src.data.database import execute
+                        user_id = st.session_state.get("user_id")
+                        if user_id:
+                            execute(
+                                """
+                                INSERT OR IGNORE INTO wishlist
+                                    (user_id, title, image, area, local_id, ingredients)
+                                VALUES (?, ?, ?, ?, ?, ?)
+                                """,
+                                (
+                                    user_id,
+                                    row["title"],
+                                    None,
+                                    row.get("country", ""),
+                                    recipe_id,
+                                    json.dumps(ingredients),
+                                ),
+                            )
+                    except Exception:
+                        pass  # session_state save already worked
+
                     st.rerun()
 
         with col_stats:
@@ -276,5 +304,5 @@ for _, row in picks.iterrows():
             with fb_col2:
                 if st.button("👎", key=f"dn_{recipe_id}", use_container_width=True, help="Not for me"):
                     record_feedback(row, rating=1)
-                    st.toast("Got it — we'll show you fewer recipes like this.", icon="❌")
+                    st.toast("Got it! We'll show you fewer recipes like this.", icon="❌")
                     st.rerun()

@@ -10,6 +10,7 @@ TODOs for the owner:
       so the Recommender has data to learn from.
 """
 
+import json
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -553,16 +554,42 @@ def render_meal_card(
                 st.caption("❤️ Saved to wishlist")
             else:
                 if st.button("❤️ Save to wishlist", key=f"{card_key}_wish_{meal_title}"):
-                    local_id = local_title_to_id.get(meal_title.lower())
-                    st.session_state["wishlist"].append(
-                        {
-                            "title": meal_title,
-                            "image": meal.get("strMealThumb"),
-                            "area": meal.get("strArea", ""),
-                            "local_id": local_id,
-                            "ingredients": extract_ingredients(meal),
-                        }
-                    )
+                    local_id    = local_title_to_id.get(meal_title.lower())
+                    ingredients = extract_ingredients(meal)
+
+                    # 1. Add to session_state so the rest of the app sees it immediately.
+                    st.session_state["wishlist"].append({
+                        "title":       meal_title,
+                        "image":       meal.get("strMealThumb"),
+                        "area":        meal.get("strArea", ""),
+                        "local_id":    local_id,
+                        "ingredients": ingredients,
+                    })
+
+                    # 2. Also save to the database so it survives a page reload.
+                    # INSERT OR IGNORE means: if this recipe is already in the wishlist,
+                    # do nothing instead of crashing (the UNIQUE constraint on title).
+                    try:
+                        user_id = st.session_state.get("user_id")
+                        if user_id:
+                            execute(
+                                """
+                                INSERT OR IGNORE INTO wishlist
+                                    (user_id, title, image, area, local_id, ingredients)
+                                VALUES (?, ?, ?, ?, ?, ?)
+                                """,
+                                (
+                                    user_id,
+                                    meal_title,
+                                    meal.get("strMealThumb"),
+                                    meal.get("strArea", ""),
+                                    local_id,
+                                    json.dumps(ingredients),  # store as JSON string
+                                ),
+                            )
+                    except Exception:
+                        pass  # session_state save already worked, DB is best-effort
+
                     st.rerun()
 
             # ── Meal Planner ──────────────────────────────────────────────
