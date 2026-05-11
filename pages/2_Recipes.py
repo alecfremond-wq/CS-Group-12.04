@@ -311,7 +311,6 @@ ISO_NAME = {
 # "Unknown" is intentionally excluded (no country to map to).
 ISO_TO_CUISINE = {
     "USA": "American",
-    "ARG : "Argentina", 
     "GBR": "British",
     "CAN": "Canadian",
     "CHN": "Chinese",
