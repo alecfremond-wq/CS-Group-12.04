@@ -868,6 +868,17 @@ def fetch_cuisine_recipes(cuisine: str, limit: int = 10) -> list[dict]:
 with tab_cuisine:
     cuisines = list_cuisines()
 
+    # ── DEBUG (rimuovere dopo il fix) ──────────────────────────────────────
+    with st.expander("🐛 Debug TheMealDB — rimuovere dopo il fix", expanded=False):
+        st.write("**`list_cuisines()` restituisce:**", cuisines)
+        from src.data.api_client import filter_by_cuisine as _fbc
+        for test_name in ["Venezuelan", "Venezuela"]:
+            result = _fbc(test_name)
+            st.write(f"`filter_by_cuisine('{test_name}')` → {len(result)} risultati")
+            if result:
+                st.write("Primo risultato:", result[0])
+    # ── fine DEBUG ─────────────────────────────────────────────────────────
+
     if not cuisines:
         empty_state("Cuisine list couldn't be loaded — check your internet.")
     else:
