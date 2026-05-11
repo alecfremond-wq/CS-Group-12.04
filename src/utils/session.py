@@ -76,6 +76,20 @@ def init_session_state():
         except Exception:
             pass
 
+    # Keep uid in the URL on every page so it survives server restarts.
+    # Streamlit clears query params when navigating between pages, so we
+    # re-set it here (called at the top of every page via init_session_state).
+    user_id = st.session_state.get("user_id")
+    try:
+        if user_id is not None:
+            if st.query_params.get("uid") != str(user_id):
+                st.query_params["uid"] = user_id
+        else:
+            if "uid" in st.query_params:
+                st.query_params.clear()
+    except Exception:
+        pass
+
 
 def require_profile():
     """Stop the page and show a warning if the user hasn't completed Onboarding.
