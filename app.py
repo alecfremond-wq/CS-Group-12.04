@@ -11,7 +11,7 @@
 import streamlit as st
 
 from src.data.database import init_db
-from src.data.user_repo import delete_profile, load_all_profiles, save_profile
+from src.data.user_repo import delete_profile, save_profile
 from src.utils.session import init_session_state
 
 
@@ -45,16 +45,8 @@ with st.sidebar:
         st.success(
             f"Signed in as **{st.session_state['user_profile'].get('name', 'you')}**"
         )
-        if st.button("🔓 Log out", use_container_width=True):
-            st.session_state["user_profile"] = None
-            st.session_state["user_id"] = None
-            st.session_state["wishlist"] = []
-            st.session_state["cooking_history"] = []
-            st.session_state["pantry"] = []
-            st.session_state["meal_plan"] = {}
-            st.rerun()
     else:
-        st.info("No profile yet — select or create your profile below.")
+        st.info("No profile yet — Create your profile to access the platform")
 
 
 # ===========================================================================
@@ -83,56 +75,48 @@ st.markdown(
 #  TRANSITION
 # ===========================================================================
 st.divider()
+
 st.markdown("## Ready to get started?")
-st.caption("Select your profile to log in, or create a new one.")
+st.caption("Create your profile to personalise every page of CookTogether.")
 
 if "show_onboarding" not in st.session_state:
     st.session_state["show_onboarding"] = False
 
+# Show the "Get Started" button only if there is no profile yet
+if not st.session_state.get("user_profile") and not st.session_state["show_onboarding"]:
+    st.markdown("""
+        <style>
+        div.stButton > button {
+            background: white;
+            color: #FF6B35;
+            border: 2px solid #FF6B35;
+            padding: 0.75rem 2.5rem;
+            font-size: 1.1rem;
+            font-weight: 600;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+        }
+        div.stButton > button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(255, 107, 53, 0.3);
+            background: #fff5f2;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    if st.button("Get Started"):
+        st.session_state["show_onboarding"] = True
+        st.rerun()
+
 
 # ===========================================================================
-#  LOGIN SCREEN — shown when no profile is loaded
+#  SECTION 2 — ONBOARDING (appears only after button click)
 # ===========================================================================
 
 DIETS = ["Omnivore", "Vegetarian", "Vegan", "Pescatarian", "Low-Carb", "High-Protein"]
 ALLERGY_OPTIONS = ["Gluten", "Lactose", "Nuts", "Peanut", "Eggs", "Soy", "Shellfish", "Celiac"]
 SKILLS = ["beginner", "intermediate", "advanced"]
-
-
-def _render_login() -> None:
-    """Show existing profiles to pick from, plus a button to create a new one."""
-    all_profiles = load_all_profiles()
-
-    if all_profiles:
-        st.markdown("### 👤 Who are you?")
-        st.caption("Select your name to load your profile.")
-
-        names = [p["name"] for p in all_profiles]
-        choice = st.selectbox(
-            "Select your profile",
-            ["— choose your name —"] + names,
-            key="login_select",
-        )
-
-        col_login, col_new = st.columns([1, 1])
-
-        with col_login:
-            if st.button("▶️ Load profile", use_container_width=True,
-                         disabled=(choice == "— choose your name —")):
-                selected = next(p for p in all_profiles if p["name"] == choice)
-                st.session_state["user_profile"] = selected
-                st.session_state["user_id"] = selected["id"]
-                st.rerun()
-
-        with col_new:
-            if st.button("➕ Create new profile", use_container_width=True):
-                st.session_state["show_onboarding"] = True
-                st.rerun()
-    else:
-        # No profiles in the DB yet — go straight to the creation form.
-        st.info("No profiles found. Create your first profile to get started!")
-        st.session_state["show_onboarding"] = True
-        st.rerun()
 
 
 def _render_form(existing: dict) -> None:
@@ -174,7 +158,6 @@ def _render_form(existing: dict) -> None:
             return
 
         profile = {
-            "id": existing.get("id"),   # None for new users, int for edits
             "name": name.strip(),
             "diet": diet,
             "allergies": allergies,
@@ -182,11 +165,8 @@ def _render_form(existing: dict) -> None:
             "skill_level": skill,
         }
 
-        user_id = save_profile(profile)
-        profile["id"] = user_id
-
+        save_profile(profile)
         st.session_state["user_profile"] = profile
-        st.session_state["user_id"] = user_id
         st.session_state["onboarding_editing"] = False
         st.session_state["show_onboarding"] = False
         st.success("✅ Profile saved! You can now use the other pages.")
@@ -221,40 +201,27 @@ def _render_summary(profile: dict) -> None:
             "Delete profile",
             use_container_width=True,
             type="secondary",
-            help="Removes your profile from the database.",
+            help="Removes the saved profile from the database and resets onboarding.",
         ):
-            user_id = st.session_state.get("user_id")
-            if user_id:
-                delete_profile(user_id)
+            delete_profile()
             st.session_state["user_profile"] = None
-            st.session_state["user_id"] = None
             st.session_state["onboarding_editing"] = False
             st.session_state["show_onboarding"] = False
             st.toast("Profile deleted.")
             st.rerun()
 
 
-# --- render the right section depending on state ---------------------------
+# --- render onboarding section ---------------------------------------------
+if st.session_state.get("show_onboarding") or st.session_state.get("user_profile"):
 
-profile = st.session_state.get("user_profile")
-editing = st.session_state.get("onboarding_editing", False)
+    profile = st.session_state.get("user_profile") or {}
+    editing = st.session_state.get("onboarding_editing", False)
 
-if profile and not editing:
-    # User is logged in and not editing → show summary
-    _render_summary(profile)
-
-elif st.session_state.get("show_onboarding") or editing:
-    # Creating new profile or editing existing one → show form
-    if editing and profile:
-        st.markdown("### ✏️ Edit your profile")
+    if not profile or editing:
+        _render_form(existing=profile)
+        if profile and editing:
+            if st.button("Cancel", type="secondary"):
+                st.session_state["onboarding_editing"] = False
+                st.rerun()
     else:
-        st.markdown("### 🆕 Create your profile")
-    _render_form(existing=profile or {})
-    if editing:
-        if st.button("Cancel", type="secondary"):
-            st.session_state["onboarding_editing"] = False
-            st.rerun()
-
-else:
-    # No profile loaded, not creating → show login screen
-    _render_login()
+        _render_summary(profile)
