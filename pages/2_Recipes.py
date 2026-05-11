@@ -652,6 +652,76 @@ def is_safe_for_user(meal: dict, allergies: list[str]) -> tuple[bool, list[str]]
     return len(triggered) == 0, triggered
 
 
+# ── Diet filter ───────────────────────────────────────────────────────────────
+
+# Ingredients that indicate a recipe is NOT suitable for a given diet.
+# Pescatarian = no meat but fish is OK, so only block meat keywords.
+_DIET_FORBIDDEN: dict[str, list[str]] = {
+    "Vegetarian": [
+        "beef", "chicken", "pork", "lamb", "veal", "turkey", "duck",
+        "bacon", "ham", "sausage", "salami", "pepperoni", "lard",
+        "anchovies", "tuna", "salmon", "shrimp", "prawn", "lobster",
+        "crab", "cod", "haddock", "tilapia", "mince", "meatball",
+        "chorizo", "prosciutto", "pancetta", "gelatin",
+    ],
+    "Vegan": [
+        # all meat + fish (same as vegetarian)
+        "beef", "chicken", "pork", "lamb", "veal", "turkey", "duck",
+        "bacon", "ham", "sausage", "salami", "pepperoni", "lard",
+        "anchovies", "tuna", "salmon", "shrimp", "prawn", "lobster",
+        "crab", "cod", "haddock", "tilapia", "mince", "meatball",
+        "chorizo", "prosciutto", "pancetta", "gelatin",
+        # dairy & eggs
+        "milk", "cheese", "butter", "cream", "yogurt", "yoghurt",
+        "mozzarella", "parmesan", "ricotta", "whey", "ghee", "custard",
+        "egg", "eggs", "mayonnaise", "honey",
+    ],
+    "Pescatarian": [
+        "beef", "chicken", "pork", "lamb", "veal", "turkey", "duck",
+        "bacon", "ham", "sausage", "salami", "pepperoni", "lard",
+        "mince", "meatball", "chorizo", "prosciutto", "pancetta",
+    ],
+    "Low-Carb": [
+        "pasta", "rice", "bread", "flour", "potato", "sugar",
+        "honey", "corn", "oats", "noodle", "couscous", "quinoa",
+        "tortilla", "pita", "bun", "roll",
+    ],
+    "High-Protein": [],   # hard to infer "too low protein" from ingredients alone
+    "Omnivore": [],       # no restrictions
+}
+
+_DIET_LABELS: dict[str, str] = {
+    "Vegetarian":  "🌿 Not vegetarian",
+    "Vegan":       "🌱 Not vegan",
+    "Pescatarian": "🐟 Contains meat",
+    "Low-Carb":    "🍞 Contains high-carb ingredients",
+}
+
+
+def is_suitable_for_diet(meal: dict, diet: str) -> tuple[bool, str]:
+    """
+    Check whether a meal fits the user's diet.
+
+    Returns:
+        (suitable: bool, warning_label: str)
+        suitable=True  → no forbidden ingredient found
+        suitable=False → human-readable label explaining the issue
+    """
+    forbidden = _DIET_FORBIDDEN.get(diet, [])
+    if not forbidden:
+        return True, ""
+
+    ingredients_raw = extract_ingredients(meal)
+    ingredients_lower = " ".join(ingredients_raw).lower()
+
+    found = [kw for kw in forbidden if kw in ingredients_lower]
+    if found:
+        label = _DIET_LABELS.get(diet, f"Not suitable for {diet}")
+        return False, label
+
+    return True, ""
+
+
 def get_pantry() -> set[str]:
     """Load the user's pantry from the database."""
     user_id = st.session_state.get("user_id")
@@ -728,6 +798,7 @@ def render_meal_card(
     pantry: float | None = None,
     card_key: str = "",  # unique prefix to avoid StreamlitDuplicateElementKey
     user_allergies: list[str] | None = None,  # allergies from user profile
+    user_diet: str | None = None,             # diet from user profile
 ) -> None:
     """Draw a single recipe card.
 
@@ -739,6 +810,9 @@ def render_meal_card(
 
     # ── Allergy check ─────────────────────────────────────────────────────────
     safe, triggered = is_safe_for_user(meal, user_allergies or [])
+
+    # ── Diet check ────────────────────────────────────────────────────────────
+    diet_ok, diet_warning = is_suitable_for_diet(meal, user_diet or "Omnivore")
 
     with st.container(border=True):
         col_img, col_meta = st.columns([1, 3])
@@ -761,6 +835,13 @@ def render_meal_card(
                     )
                 else:
                     st.success("✅ Safe for your allergy profile")
+
+            # ── Diet badge ────────────────────────────────────────────────────
+            if user_diet and user_diet != "Omnivore":
+                if not diet_ok:
+                    st.warning(f"⚠️ {diet_warning}")
+                else:
+                    st.success(f"✅ Suitable for {user_diet} diet")
 
             if ml_score is not None and not pd.isna(ml_score):
                 st.progress(float(ml_score), text=f"Match score: {ml_score:.0%}")
@@ -1035,6 +1116,7 @@ with tab_search:
                     pantry=pantry_pct(meal, user_pantry),
                     card_key=f"search_{idx}",
                     user_allergies=allergies,
+                    user_diet=profile.get("diet", "Omnivore"),
                 )
 
 
@@ -1164,6 +1246,7 @@ with tab_cuisine:
                         pantry=pantry_pct(meal, user_pantry),
                         card_key=f"cuisine_{idx}",
                         user_allergies=profile.get("allergies", []),
+                        user_diet=profile.get("diet", "Omnivore"),
                     )
         else:
             st.info("👆 Click a country on the map to explore its recipes.")
