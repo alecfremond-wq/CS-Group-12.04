@@ -601,6 +601,57 @@ def extract_ingredients(meal: dict) -> list[str]:
     ]
 
 
+# ── Allergy filter ────────────────────────────────────────────────────────────
+
+# Maps each profile allergy → ingredient keywords to block
+_ALLERGY_KEYWORDS: dict[str, list[str]] = {
+    "Gluten":    ["flour", "wheat", "bread", "pasta", "barley", "rye",
+                  "semolina", "couscous", "crouton", "soy sauce", "breadcrumb",
+                  "noodle", "tortilla", "pita", "bun", "roll", "baguette"],
+    "Celiac":    ["flour", "wheat", "bread", "pasta", "barley", "rye",
+                  "semolina", "couscous", "crouton", "soy sauce", "breadcrumb",
+                  "noodle", "tortilla", "pita"],
+    "Lactose":   ["milk", "cheese", "butter", "cream", "yogurt", "yoghurt",
+                  "mozzarella", "parmesan", "ricotta", "whey", "lactose",
+                  "cheddar", "brie", "gouda", "feta", "ghee", "custard"],
+    "Eggs":      ["egg", "eggs", "mayonnaise", "mayo", "meringue",
+                  "aioli", "hollandaise"],
+    "Nuts":      ["almond", "walnut", "cashew", "hazelnut", "pistachio",
+                  "pecan", "macadamia", "pine nut", "chestnut", "brazil nut"],
+    "Peanut":    ["peanut", "groundnut", "peanut butter", "monkey nut"],
+    "Soy":       ["soy", "tofu", "tempeh", "miso", "edamame", "soya",
+                  "soy sauce", "tamari", "natto"],
+    "Shellfish": ["shrimp", "prawn", "lobster", "crab", "crayfish",
+                  "scallop", "clam", "mussel", "oyster", "barnacle",
+                  "langoustine", "crawfish"],
+}
+
+
+def is_safe_for_user(meal: dict, allergies: list[str]) -> tuple[bool, list[str]]:
+    """
+    Check whether a meal is safe given the user's allergy list.
+
+    Looks for allergy keyword matches inside the meal's ingredient strings.
+    Returns:
+        (safe: bool, triggered_allergies: list[str])
+        safe=True  → no allergen found in ingredients
+        safe=False → list of allergens detected
+    """
+    if not allergies:
+        return True, []
+
+    ingredients_raw = extract_ingredients(meal)
+    ingredients_lower = " ".join(ingredients_raw).lower()
+
+    triggered = []
+    for allergy in allergies:
+        keywords = _ALLERGY_KEYWORDS.get(allergy, [allergy.lower()])
+        if any(kw in ingredients_lower for kw in keywords):
+            triggered.append(allergy)
+
+    return len(triggered) == 0, triggered
+
+
 def get_pantry() -> set[str]:
     """Load the user's pantry from the database."""
     user_id = st.session_state.get("user_id")
@@ -676,6 +727,7 @@ def render_meal_card(
     ml_score: float | None = None,
     pantry: float | None = None,
     card_key: str = "",  # unique prefix to avoid StreamlitDuplicateElementKey
+    user_allergies: list[str] | None = None,  # allergies from user profile
 ) -> None:
     """Draw a single recipe card.
 
@@ -684,6 +736,9 @@ def render_meal_card(
     same meal title produce duplicate widget keys and crash the app.
     """
     meal_title = meal["strMeal"]
+
+    # ── Allergy check ─────────────────────────────────────────────────────────
+    safe, triggered = is_safe_for_user(meal, user_allergies or [])
 
     with st.container(border=True):
         col_img, col_meta = st.columns([1, 3])
@@ -696,6 +751,16 @@ def render_meal_card(
             st.caption(
                 f"{meal.get('strArea', '—')} · {meal.get('strCategory', '—')}"
             )
+
+            # ── Allergy badge ─────────────────────────────────────────────────
+            if user_allergies:
+                if not safe:
+                    st.error(
+                        f"⚠️ Contains allergens: **{', '.join(triggered)}** "
+                        f"— not suitable for your allergy profile."
+                    )
+                else:
+                    st.success("✅ Safe for your allergy profile")
 
             if ml_score is not None and not pd.isna(ml_score):
                 st.progress(float(ml_score), text=f"Match score: {ml_score:.0%}")
@@ -881,8 +946,8 @@ with tab_search:
 
         veg = diet in ("vegetarian", "vegan")
         vgn = diet == "vegan"
-        gf = "gluten" in allergies
-        df = "lactose" in allergies
+        gf = "Gluten" in allergies or "Celiac" in allergies
+        df = "Lactose" in allergies
 
         results = search_recipes_by_name(query) + search_spoonacular(
             query=query,
@@ -891,6 +956,27 @@ with tab_search:
             gluten_free=gf,
             dairy_free=df,
         )
+
+        # ── Allergy filter UI ─────────────────────────────────────────────────
+        if allergies:
+            hide_unsafe = st.toggle(
+                "🚫 Hide recipes with my allergens",
+                value=True,
+                help="Recipes containing your allergens will be hidden.",
+            )
+            if hide_unsafe:
+                safe_results = [m for m in results if is_safe_for_user(m, allergies)[0]]
+                hidden_count = len(results) - len(safe_results)
+                if hidden_count > 0:
+                    st.info(
+                        f"ℹ️ {hidden_count} recipe(s) hidden because they contain "
+                        f"allergens from your profile "
+                        f"({', '.join(allergies)}). "
+                        f"Toggle off to see them."
+                    )
+                results = safe_results
+        else:
+            allergies = []
 
         if not results:
             empty_state("No recipes found — try another word.")
@@ -948,6 +1034,7 @@ with tab_search:
                     ml_score=score,
                     pantry=pantry_pct(meal, user_pantry),
                     card_key=f"search_{idx}",
+                    user_allergies=allergies,
                 )
 
 
@@ -1076,6 +1163,7 @@ with tab_cuisine:
                         meal,
                         pantry=pantry_pct(meal, user_pantry),
                         card_key=f"cuisine_{idx}",
+                        user_allergies=profile.get("allergies", []),
                     )
         else:
             st.info("👆 Click a country on the map to explore its recipes.")
