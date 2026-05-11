@@ -1,6 +1,11 @@
 # Streamlit configuration — shared by all team members.
 # See https://docs.streamlit.io/library/advanced-features/configuration
 
+[server]
+websocketPingInterval = 10
+headless = true
+runOnSave = true
+
 [theme]
 # Light, food-friendly palette. Feel free to iterate.
 primaryColor = "#E07A5F"
@@ -8,10 +13,6 @@ backgroundColor = "#FFFFFF"
 secondaryBackgroundColor = "#F4F1DE"
 textColor = "#3D405B"
 font = "sans serif"
-
-[server]
-headless = true
-runOnSave = true
 
 [browser]
 gatherUsageStats = false
