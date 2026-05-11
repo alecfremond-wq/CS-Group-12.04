@@ -16,6 +16,8 @@
 #  reviewed by Group 12.04. See README.md.
 # ============================================================================
 
+import json                                 # we need json to decode the ingredient list
+
 import streamlit as st                     # we need st.session_state from Streamlit
 
 
@@ -74,6 +76,44 @@ def init_session_state():
             if saved is not None:
                 st.session_state["user_profile"] = saved
         except Exception:
+            pass
+
+    # Load the wishlist from the database if it's empty in session_state.
+    # This runs every time a fresh browser session starts so the user's
+    # saved recipes are always there, even after closing and reopening the app.
+    # We only do this when the wishlist is still empty — if the user already
+    # has items loaded we don't want to overwrite them.
+    if not st.session_state.get("wishlist"):
+        try:
+            from src.data.database import query_df
+            user_id = st.session_state.get("user_id")
+            if user_id:
+                df = query_df(
+                    "SELECT title, image, area, local_id, ingredients "
+                    "FROM wishlist WHERE user_id = ?",
+                    (user_id,),
+                )
+                if df is not None and not df.empty:
+                    loaded = []
+                    for _, row in df.iterrows():
+                        # ingredients is stored as a JSON string in the DB,
+                        # e.g. '["pasta", "eggs", "parmesan"]'
+                        # json.loads converts it back to a Python list.
+                        try:
+                            ingredients = json.loads(row["ingredients"] or "[]")
+                        except Exception:
+                            ingredients = []
+                        loaded.append({
+                            "title":       row["title"],
+                            "image":       row["image"],
+                            "area":        row["area"],
+                            "local_id":    row["local_id"],
+                            "ingredients": ingredients,
+                        })
+                    st.session_state["wishlist"] = loaded
+        except Exception:
+            # If anything goes wrong (table doesn't exist yet, DB not ready),
+            # we just keep the empty wishlist — no crash, no data loss.
             pass
 
 
