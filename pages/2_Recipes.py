@@ -796,20 +796,7 @@ has_taste_profile = (
     )
 )
 
-# ── Allergy filter toggle ─────────────────────────────────────────────────────
-
 user_allergies: list[str] = profile.get("allergies") or []
-
-if user_allergies:
-    _labels = ", ".join(user_allergies)
-    hide_unsafe = st.toggle(
-        f"🛡️ Hide recipes that contain my allergens ({_labels})",
-        value=True,
-        key="hide_unsafe_recipes",
-        help="Turn off to see all recipes — unsafe ones will still show a warning badge.",
-    )
-else:
-    hide_unsafe = False
 
 tab_search, tab_cuisine = st.tabs(["🔎 Search", "🌍 Browse by cuisine"])
 
@@ -1081,6 +1068,13 @@ with tab_search:
 
             user_pantry = get_pantry()
 
+            hide_unsafe = st.toggle(
+                "🛡️ Hide recipes that contain my allergies",
+                value=True,
+                key="hide_unsafe_search",
+                help="Turn off to see all recipes — unsafe ones will still show a warning badge.",
+            ) if user_allergies else False
+
             for idx, (meal, score) in enumerate(scored_results):
                 conflicts = check_allergy_conflicts(meal, user_allergies)
                 if hide_unsafe and conflicts:
@@ -1193,6 +1187,14 @@ with tab_cuisine:
                 empty_state(f"No recipes found for {active_cuisine} — try another country.")
             else:
                 user_pantry = get_pantry()
+
+                hide_unsafe = st.toggle(
+                    "🛡️ Hide recipes that contain my allergies",
+                    value=True,
+                    key="hide_unsafe_cuisine",
+                    help="Turn off to see all recipes — unsafe ones will still show a warning badge.",
+                ) if user_allergies else False
+
                 for idx, meal in enumerate(cuisine_results[:10]):
                     conflicts = check_allergy_conflicts(meal, user_allergies)
                     if hide_unsafe and conflicts:
