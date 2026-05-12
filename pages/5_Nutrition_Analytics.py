@@ -1,3 +1,4 @@
+
 """
 Nutrition Analytics — calorie tracker for the current week.
 
@@ -34,6 +35,7 @@ from src.components.ui import page_header
 from src.data.api_client import (
     fetch_nutrition_by_title,
     fetch_nutrition_for_meal,
+    get_meal_by_id,
 )
 from src.data.database import execute, query_df
 from src.utils.session import init_session_state, require_profile
@@ -119,24 +121,32 @@ def save_goal(goal: int) -> None:
 
 # ── DB nutrition backfill ──────────────────────────────────────────────────────
 
-def _backfill_nutrition(recipe_id: int, title: str) -> int | None:
+def _backfill_nutrition(recipe_id: int, title: str, mealdb_id: str | None = None) -> int | None:
     """Fetch kcal from Spoonacular and persist it to the DB.
 
-    Called lazily the first time a recipe slot has NULL kcal_per_serv.
-    After this runs once, all future page loads read straight from SQLite —
-    zero additional Spoonacular API calls for that recipe.
+    Strategy:
+      1. If mealdb_id is set → fetch full meal from TheMealDB and use
+         ingredient-based nutrition (most accurate for MealDB recipes).
+      2. Fallback → title search via Spoonacular complexSearch.
 
-    For MealDB recipes     → fetch_nutrition_for_meal() (ingredient parser + title fallback).
-    For Spoonacular recipes → fetch_nutrition_by_title() (complexSearch, already per-serving).
+    After this runs once the result is written back to the DB, so future
+    page loads cost zero API calls for that recipe.
 
-    Returns kcal as int, or None if the lookup failed.
+    Returns kcal as int, or None if both lookups failed.
     """
     try:
-        nutrition = fetch_nutrition_by_title(title)
-        kcal = nutrition.get("kcal")
+        nutrition = None
 
-        # DEBUG — rimuovi dopo il test
-        st.write(f"🔍 DEBUG backfill recipe={recipe_id} title={title!r} → kcal={kcal} full={nutrition}")
+        if mealdb_id:
+            meal = get_meal_by_id(str(mealdb_id))
+            if meal:
+                nutrition = fetch_nutrition_for_meal(meal)
+
+        # Fallback: title search (works for Spoonacular recipes too)
+        if not nutrition or nutrition.get("kcal") is None:
+            nutrition = fetch_nutrition_by_title(title)
+
+        kcal = nutrition.get("kcal")
 
         if kcal is not None:
             execute(
@@ -206,7 +216,8 @@ def load_from_meal_plan(user_id) -> dict:
                 mp.meal_type,
                 mp.recipe_id,
                 r.title,
-                r.kcal_per_serv
+                r.kcal_per_serv,
+                r.mealdb_id
             FROM meal_plan mp
             JOIN recipes r ON mp.recipe_id = r.id
             WHERE mp.user_id     = ?
@@ -235,7 +246,8 @@ def load_from_meal_plan(user_id) -> dict:
             if _is_null(kcal_raw):
                 recipe_id = int(row["recipe_id"])
                 title     = row.get("title", "")
-                kcal_raw  = _backfill_nutrition(recipe_id, title)
+                mealdb_id = row.get("mealdb_id") or None
+                kcal_raw  = _backfill_nutrition(recipe_id, title, mealdb_id)
 
             kcal = _safe_int(kcal_raw)
 
