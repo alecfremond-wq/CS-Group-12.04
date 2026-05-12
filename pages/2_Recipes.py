@@ -590,15 +590,38 @@ def build_figure() -> go.Figure:
 # ── Pantry helper ─────────────────────────────────────────────────────────────
 
 def extract_ingredients(meal: dict) -> list[str]:
-    """Pull the ingredient list out of a TheMealDB or Spoonacular result."""
+    """Pull the ingredient list out of a TheMealDB or Spoonacular result.
+
+    Spoonacular already gives us full strings like "2 cups flour" in _ingredients.
+    TheMealDB splits the name and amount into separate fields:
+        strIngredient1 = "Flour",  strMeasure1 = "2 cups"
+        strIngredient2 = "Egg",    strMeasure2 = "1"
+        ...up to strIngredient20 / strMeasure20
+    We combine them so the result looks like "2 cups Flour", "1 Egg", etc.
+    """
+    # Spoonacular recipes store ingredients in a special "_ingredients" list
+    # that already contains the full string — just return it directly.
     if meal.get("_ingredients"):
         return [i.strip() for i in meal["_ingredients"] if i.strip()]
 
-    return [
-        meal[f"strIngredient{i}"].strip()
-        for i in range(1, 21)
-        if (meal.get(f"strIngredient{i}") or "").strip()
-    ]
+    # TheMealDB recipes: loop through all 20 possible ingredient slots.
+    ingredients = []
+    for i in range(1, 21):
+        name    = (meal.get(f"strIngredient{i}") or "").strip()
+        measure = (meal.get(f"strMeasure{i}")    or "").strip()
+
+        # Skip empty slots (TheMealDB fills unused slots with "" or None)
+        if not name:
+            continue
+
+        # Combine measure + name, e.g. "2 cups" + "Flour" → "2 cups Flour"
+        # If there's no measure, just use the name on its own.
+        if measure:
+            ingredients.append(f"{measure} {name}")
+        else:
+            ingredients.append(name)
+
+    return ingredients
 
 
 def get_pantry() -> set[str]:
