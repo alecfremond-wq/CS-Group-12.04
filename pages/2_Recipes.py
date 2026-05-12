@@ -810,11 +810,12 @@ def render_meal_card(
                             carbs_g   = nutrition["carbs_g"]
                             fat_g     = nutrition["fat_g"]
 
+                        mealdb_id = meal.get("idMeal")  # None for Spoonacular recipes
                         execute(
                             """INSERT INTO recipes
-                               (title, kcal_per_serv, protein_g, carbs_g, fat_g)
-                               VALUES (?, ?, ?, ?, ?)""",
-                            (meal_title, kcal, protein_g, carbs_g, fat_g),
+                               (title, kcal_per_serv, protein_g, carbs_g, fat_g, mealdb_id)
+                               VALUES (?, ?, ?, ?, ?, ?)""",
+                            (meal_title, kcal, protein_g, carbs_g, fat_g, mealdb_id),
                         )
                         new_row = query_df(
                             "SELECT id FROM recipes WHERE title = ? ORDER BY id DESC LIMIT 1",
