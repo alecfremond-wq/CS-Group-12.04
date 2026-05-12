@@ -163,24 +163,42 @@ def _load_mealdb_recipes() -> list[dict]:
     for recipe_id, (cuisine, meal) in enumerate(meals, start=1):
         if not meal:
             continue
+
+        # Clean ingredient names for the ML model (no measures, lowercase).
+        # e.g. "2 cups all-purpose flour" → "all-purpose flour"
         ingredients  = _clean_ingredients(extract_ingredients_from_meal(meal))
         instructions = meal.get("strInstructions", "")
         time_min     = _estimate_time(instructions)
+
+        # Build a display-friendly ingredient list WITH measures.
+        # TheMealDB stores up to 20 ingredient/measure pairs as numbered fields.
+        # We combine them so the expander can show "500g Chicken" instead of "chicken".
+        ingredients_display = []
+        for j in range(1, 21):
+            name    = (meal.get(f"strIngredient{j}") or "").strip()
+            measure = (meal.get(f"strMeasure{j}")    or "").strip()
+            if not name:
+                continue
+            ingredients_display.append(f"{measure} {name}" if measure else name)
+
         rows.append({
-            "id":           recipe_id,
-            "title":        meal.get("strMeal", ""),
-            "ingredients":  ingredients,
-            "calories":     None,
-            "time_minutes": time_min,
-            "difficulty":   _difficulty_from_time(time_min),
-            "country":      meal.get("strArea", cuisine),
+            "id":                   recipe_id,
+            "title":                meal.get("strMeal", ""),
+            "image":                meal.get("strMealThumb", ""),   # thumbnail URL
+            "ingredients":          ingredients,          # clean names for ML
+            "ingredients_display":  ingredients_display,  # with measures for display
+            "instructions":         instructions,         # full cooking steps
+            "calories":             None,
+            "time_minutes":         time_min,
+            "difficulty":           _difficulty_from_time(time_min),
+            "country":              meal.get("strArea", cuisine),
         })
     return rows
 
 
 def load_all_recipes() -> pd.DataFrame:
     """Return the recipe catalogue, cached in session_state after first load."""
-    CACHE_KEY = "rec_recipes_df_v5"
+    CACHE_KEY = "rec_recipes_df_v6"
 
     # Clear stale cache versions
     for k in [k for k in st.session_state if k.startswith("rec_recipes_df_") and k != CACHE_KEY]:
@@ -320,84 +338,131 @@ def record_feedback(recipe_row: pd.Series, rating: int) -> None:
 
 
 # ── Display ───────────────────────────────────────────────────────────────────
+#
+# One card per recommended recipe.
+# Layout:
+#   [ image ] [ title + score + country + save button ] [ time / difficulty / feedback ]
+#   [          📖 Show details expander (ingredients + instructions)                   ]
+
+import json
+from src.data.database import execute
 
 for _, row in picks.iterrows():
-    with st.container(border=True):
-        col_info, col_stats = st.columns([3, 1])
 
+    recipe_id = int(row["id"])
+
+    with st.container(border=True):
+
+        # Three columns: thumbnail (left), recipe info (middle), stats (right).
+        # [1, 3, 1] means the middle column gets 3× as much space as the others.
+        col_img, col_info, col_stats = st.columns([1, 3, 1])
+
+        # ── Left: thumbnail image ─────────────────────────────────────────
+        with col_img:
+            image_url = row.get("image", "")
+            if image_url:
+                # use_container_width=True makes the image fill the column cleanly.
+                st.image(image_url, use_container_width=True)
+
+        # ── Middle: title, match score, country, save button ─────────────
         with col_info:
             st.subheader(row["title"])
 
+            # st.progress draws a coloured bar from 0.0 (empty) to 1.0 (full).
+            # We show it as a percentage so "0.87" appears as "Match score: 87%".
             if pd.notna(row.get("score")):
                 st.progress(float(row["score"]), text=f"Match score: {row['score']:.0%}")
-
-            ingredients = row.get("ingredients", [])
-            if isinstance(ingredients, list):
-                st.caption("Ingredients: " + ", ".join(ingredients))
 
             country = row.get("country", "")
             if country:
                 st.caption(f"🌍 {country}")
 
-            recipe_id     = int(row["id"])
+            # Check whether this recipe is already in the user's wishlist.
+            # We compare by local_id (the internal recipe number we assigned).
             already_saved = any(
                 isinstance(w, dict) and w.get("local_id") == recipe_id
                 for w in st.session_state.get("wishlist", [])
             )
+
             if already_saved:
                 st.caption("✅ Already in your wishlist")
             else:
                 if st.button("＋ Save to wishlist", key=f"wish_{recipe_id}"):
                     ingredients = list(row.get("ingredients", []))
 
-                    # 1. Add to session_state immediately.
+                    # 1. Add to the in-memory session list so the Wishlist page
+                    #    and ML model can use it right away without a reload.
                     st.session_state["wishlist"].append({
                         "title":       row["title"],
-                        "image":       None,
+                        "image":       row.get("image", ""),   # now stored!
                         "area":        row.get("country", ""),
                         "local_id":    recipe_id,
                         "ingredients": ingredients,
                     })
 
-                    # 2. Persist to DB so it survives a reload.
-                    try:
-                        import json
-                        from src.data.database import execute
-                        user_id = st.session_state.get("user_id")
-                        if user_id:
-                            execute(
-                                """
-                                INSERT OR IGNORE INTO wishlist
-                                    (user_id, title, image, area, local_id, ingredients)
-                                VALUES (?, ?, ?, ?, ?, ?)
-                                """,
-                                (
-                                    user_id,
-                                    row["title"],
-                                    None,
-                                    row.get("country", ""),
-                                    recipe_id,
-                                    json.dumps(ingredients),
-                                ),
-                            )
-                    except Exception:
-                        pass  # session_state save already worked
-
+                    # 2. Persist to the database so the wishlist survives
+                    #    closing and reopening the browser.
+                    user_id = st.session_state.get("user_id")
+                    if user_id:
+                        execute(
+                            """
+                            INSERT OR IGNORE INTO wishlist
+                                (user_id, title, image, area, local_id, ingredients)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                user_id,
+                                row["title"],
+                                row.get("image", ""),
+                                row.get("country", ""),
+                                recipe_id,
+                                json.dumps(ingredients),
+                            ),
+                        )
                     st.rerun()
 
+        # ── Right: cook time, difficulty, thumbs up/down ──────────────────
         with col_stats:
             st.metric("Cook time",  f"{row.get('time_minutes', '—')} min")
             st.metric("Difficulty", row.get("difficulty", "—"))
 
+            # Feedback buttons: clicking them records a rating in cooking_history
+            # so the k-NN model learns the user's taste over time.
             st.caption("Was this a good pick?")
             fb_col1, fb_col2 = st.columns(2)
             with fb_col1:
-                if st.button("👍", key=f"up_{recipe_id}", use_container_width=True, help="Good recommendation"):
+                if st.button("👍", key=f"up_{recipe_id}",
+                             use_container_width=True, help="Good recommendation"):
                     record_feedback(row, rating=5)
                     st.toast("Thanks! This helps the model learn your taste.", icon="✅")
                     st.rerun()
             with fb_col2:
-                if st.button("👎", key=f"dn_{recipe_id}", use_container_width=True, help="Not for me"):
+                if st.button("👎", key=f"dn_{recipe_id}",
+                             use_container_width=True, help="Not for me"):
                     record_feedback(row, rating=1)
                     st.toast("Got it! We'll show you fewer recipes like this.", icon="❌")
                     st.rerun()
+
+        # ── Expandable details ────────────────────────────────────────────
+        # The expander sits below all three columns.
+        # It shows the full ingredient list (with measures) on the left
+        # and the step-by-step instructions on the right.
+        with st.expander("📖 Show details"):
+
+            col_ing, col_inst = st.columns([1, 2])
+
+            with col_ing:
+                st.markdown("**Ingredients**")
+                # ingredients_display has "measure + name" strings like "500g Chicken".
+                # We fall back to the plain ML ingredient list if display list is missing.
+                display_ingredients = row.get("ingredients_display") or row.get("ingredients", [])
+                for ing in display_ingredients:
+                    st.caption(f"• {ing}")
+
+            with col_inst:
+                st.markdown("**Instructions**")
+                instructions = row.get("instructions", "")
+                if instructions:
+                    st.write(instructions)
+                else:
+                    st.caption("No instructions available.")
