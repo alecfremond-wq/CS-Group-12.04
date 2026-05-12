@@ -1,0 +1,11 @@
+{
+  "calorie_goal": 2000,
+  "manual_overrides": {
+    "Mon": {
+      "Breakfast": 2000,
+      "Lunch": 0,
+      "Dinner": 0,
+      "Snacks": 0
+    }
+  }
+}
