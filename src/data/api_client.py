@@ -320,6 +320,31 @@ def extract_ingredients_from_meal(meal: dict) -> list[str]:
     return ingredients
 
 
+@st.cache_data(ttl=24 * 60 * 60)
+def get_themealdb_ingredients() -> list[str]:
+    """Return every ingredient name known to TheMealDB, sorted alphabetically.
+
+    Used by the Pantry page to populate the ingredient picker so that
+    names in the pantry match names embedded in recipe data.
+    Cached for 24 h — the list changes very rarely.
+    """
+    try:
+        resp = requests.get(
+            f"{THEMEALDB_BASE}/list.php",
+            params={"i": "list"},
+            timeout=20,
+        )
+        resp.raise_for_status()
+        meals = resp.json().get("meals") or []
+        return sorted(
+            m["strIngredient"].strip().lower()
+            for m in meals
+            if (m.get("strIngredient") or "").strip()
+        )
+    except requests.RequestException:
+        return []
+
+
 # ---------------------------------------------------------------------------
 # Nutrition — Spoonacular
 # ---------------------------------------------------------------------------
