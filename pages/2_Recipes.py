@@ -701,8 +701,47 @@ wishlist_ids = [
     if isinstance(w, dict) and w.get("local_id") is not None
 ]
 
+def _clean_for_ml(ingredients: list[str]) -> list[str]:
+    """Strip quantities/measures from a list of ingredients before ML comparison.
+
+    The ML model compares ingredients using Jaccard similarity — it checks
+    how many words two recipes have in common. If one recipe stores
+    "2 cups flour" and another stores "flour", they won't match even though
+    they're the same ingredient.
+
+    This function removes the quantity part so the ML only sees the name:
+        "2 cups all-purpose flour"  →  "all-purpose flour"
+        "1 large egg"               →  "egg"
+        "salt"                      →  "salt"  (no change needed)
+
+    We only use this cleaned version for ML comparisons, NOT for display.
+    The display in the expander still shows the full string with quantities.
+    """
+    import re
+    cleaned = []
+    for ing in ingredients:
+        s = ing.strip()
+        # Remove leading numbers and fractions (e.g. "2", "1/2", "1.5")
+        s = re.sub(r"^[\d\s½¼¾⅓⅔⅛./-]+x?\s*", "", s)
+        # Remove common unit words at the start (e.g. "cups", "tbsp", "large")
+        units = (
+            r"^(cups?|tbsp?|tsp?|tablespoons?|teaspoons?|grams?|g|kg|oz|lbs?|"
+            r"pounds?|ml|liters?|litres?|cloves?|slices?|pieces?|pinch|handful|"
+            r"bunch|cans?|large|medium|small|whole|finely|chopped|shredded|"
+            r"sliced|diced|minced|fresh|dried|ground|packed)\s+"
+        )
+        s = re.sub(units, "", s, flags=re.IGNORECASE)
+        s = s.strip().lower()
+        if len(s) > 1:
+            cleaned.append(s)
+    return cleaned
+
+
+# Build the list of liked ingredients for the ML model.
+# We apply _clean_for_ml() so the ML sees just ingredient names,
+# not quantities like "2 cups flour" — that would confuse the similarity check.
 liked_ingredients = [
-    w["ingredients"]
+    _clean_for_ml(w["ingredients"])
     for w in wishlist
     if isinstance(w, dict) and w.get("ingredients")
 ]
