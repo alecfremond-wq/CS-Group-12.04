@@ -67,6 +67,15 @@ def list_cuisines():
         return []
 
 
+@st.cache_data(ttl=24 * 60 * 60)
+def list_cuisines_with_recipes():
+    """Same as list_cuisines() — returns a plain list of cuisine name strings.
+
+    This function exists so the Recipes page can import it by name.
+    """
+    return list_cuisines()
+
+
 @st.cache_data(ttl=60 * 60)
 def filter_by_cuisine(cuisine):
     """Return a list of recipe stubs (id, name, thumbnail) for a cuisine.
