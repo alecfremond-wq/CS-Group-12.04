@@ -8,10 +8,10 @@ runOnSave = true
 
 [theme]
 # Light, food-friendly palette. Feel free to iterate.
-primaryColor = "#E07A5F"
+primaryColor = "#6B9448"
 backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F4F1DE"
-textColor = "#3D405B"
+secondaryBackgroundColor = "#F7F9F4"
+textColor = "#3D5C22"
 font = "sans serif"
 
 [browser]

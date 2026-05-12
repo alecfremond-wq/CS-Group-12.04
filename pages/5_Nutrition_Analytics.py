@@ -426,7 +426,7 @@ with col_left:
 with col_right:
     st.markdown(
         '<div style="text-align:right;padding-top:16px">'
-        '<span style="color:#ED7D3A">■</span> Actual &nbsp;'
+        '<span style="color:#6B9448">■</span> Actual &nbsp;'
         '<span style="color:#F5F5DC">■</span> Goal'
         "</div>",
         unsafe_allow_html=True,
@@ -434,7 +434,7 @@ with col_right:
 
 # ── Bar chart ──────────────────────────────────────────────────────────────────
 
-bar_colors = ["#ED7D3A" if day == selected else "#FFCC99" for day in DAYS]
+bar_colors = ["#6B9448" if day == selected else "#B8D4A0" for day in DAYS]
 
 fig = go.Figure()
 fig.add_trace(go.Bar(
@@ -458,8 +458,8 @@ st.plotly_chart(fig, use_container_width=True)
 pill_cols = st.columns(7)
 for i, (day, total) in enumerate(zip(DAYS, totals)):
     label      = f"{total/1000:.1f}k" if total >= 1000 else str(total)
-    line_color = "#FF6B35" if day == selected else "#C8C8C8"
-    border     = "2px solid #FF6B35" if day == selected else "1px solid #e0e0e0"
+    line_color = "#6B9448" if day == selected else "#C8C8C8"
+    border     = "2px solid #6B9448" if day == selected else "1px solid #e0e0e0"
     with pill_cols[i]:
         st.markdown(
             f'<div style="border:{border};border-radius:8px;padding:8px 4px 0;'
