@@ -1,37 +1,20 @@
 
 """
-2_Recipes.py 
-
-Recipes page - lets users search and browse recipes via TheMealDB and Spoonacular APIs, 
-filter by cuisine on an interactive world map, view nutritional data, and save dishes to the Meal Planner.
-INteracts with the database (planner_pool, meal_plan, recipes tables) and the ML Recommender to rank 
-search results by the user's taste profile.
-
-Dependencies: 
-- recipes_data.py (local recipe list)
-- src/data/api_client.py (TheMealDB and Spoonacular API wrappers)
-- src/data/database.py (DB query and execute functions)
-- src/models/recommender.py (ML ranking) 
-- src/components/ui.py (UI helper functions)
-- streamlit_plotly_events (world map click events)
-
-Authors: Giulia De Angelis and Camilla Piano 
-Date: May 11, 2026 
-
-Sources: 
-- ChatGPT (4o): ideas 
-- Claude: code generation (see in code comments) 
-- TheMealDB API: https://www.themealdb.com/api.php
-- Spoonacular API: https://spoonacular.com/food-api/docs
-
+Recipes — search and browse recipes (API + DB).
+Owner: <assign on Apr 22>
+Grading coverage:
+    * Req. 2 (API — TheMealDB + Spoonacular)
+    * Req. 4 (user interaction — search, filter, add-to-wishlist)
+    * Req. 5 (ML — search results ranked by taste profile when available)
+TODOs for the owner:
+    - when a user clicks "Save recipe", persist to the `recipes` table
+      so the Recommender has data to learn from.
 """
 
-import json
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from recipes_data import RECIPES as LOCAL_RECIPES
 from src.components.ui import empty_state, page_header
 from src.data.api_client import (
     filter_by_cuisine,
@@ -137,8 +120,6 @@ page_header("🍲 Recipes", "Search recipes or browse by cuisine.")
 
 # Always show the Meal Planner summary at the top of the page
 show_my_planner_banner()
-
-local_title_to_id = {r["name"].lower(): r["id"] for r in LOCAL_RECIPES}
 
 
 # ── World Map data ────────────────────────────────────────────────────────────
@@ -617,127 +598,6 @@ def extract_ingredients(meal: dict) -> list[str]:
     ]
 
 
-# ── Allergy filter ────────────────────────────────────────────────────────────
-
-# Maps each profile allergy → ingredient keywords to block
-_ALLERGY_KEYWORDS: dict[str, list[str]] = {
-    "Gluten":    ["flour", "wheat", "bread", "pasta", "barley", "rye",
-                  "semolina", "couscous", "crouton", "soy sauce", "breadcrumb",
-                  "noodle", "tortilla", "pita", "bun", "roll", "baguette"],
-    "Celiac":    ["flour", "wheat", "bread", "pasta", "barley", "rye",
-                  "semolina", "couscous", "crouton", "soy sauce", "breadcrumb",
-                  "noodle", "tortilla", "pita"],
-    "Lactose":   ["milk", "cheese", "butter", "cream", "yogurt", "yoghurt",
-                  "mozzarella", "parmesan", "ricotta", "whey", "lactose",
-                  "cheddar", "brie", "gouda", "feta", "ghee", "custard"],
-    "Eggs":      ["egg", "eggs", "mayonnaise", "mayo", "meringue",
-                  "aioli", "hollandaise"],
-    "Nuts":      ["almond", "walnut", "cashew", "hazelnut", "pistachio",
-                  "pecan", "macadamia", "pine nut", "chestnut", "brazil nut"],
-    "Peanut":    ["peanut", "groundnut", "peanut butter", "monkey nut"],
-    "Soy":       ["soy", "tofu", "tempeh", "miso", "edamame", "soya",
-                  "soy sauce", "tamari", "natto"],
-    "Shellfish": ["shrimp", "prawn", "lobster", "crab", "crayfish",
-                  "scallop", "clam", "mussel", "oyster", "barnacle",
-                  "langoustine", "crawfish"],
-}
-
-
-def is_safe_for_user(meal: dict, allergies: list[str]) -> tuple[bool, list[str]]:
-    """
-    Check whether a meal is safe given the user's allergy list.
-
-    Looks for allergy keyword matches inside the meal's ingredient strings.
-    Returns:
-        (safe: bool, triggered_allergies: list[str])
-        safe=True  → no allergen found in ingredients
-        safe=False → list of allergens detected
-    """
-    if not allergies:
-        return True, []
-
-    ingredients_raw = extract_ingredients(meal)
-    ingredients_lower = " ".join(ingredients_raw).lower()
-
-    triggered = []
-    for allergy in allergies:
-        keywords = _ALLERGY_KEYWORDS.get(allergy, [allergy.lower()])
-        if any(kw in ingredients_lower for kw in keywords):
-            triggered.append(allergy)
-
-    return len(triggered) == 0, triggered
-
-
-# ── Diet filter ───────────────────────────────────────────────────────────────
-
-# Ingredients that indicate a recipe is NOT suitable for a given diet.
-# Pescatarian = no meat but fish is OK, so only block meat keywords.
-_DIET_FORBIDDEN: dict[str, list[str]] = {
-    "Vegetarian": [
-        "beef", "chicken", "pork", "lamb", "veal", "turkey", "duck",
-        "bacon", "ham", "sausage", "salami", "pepperoni", "lard",
-        "anchovies", "tuna", "salmon", "shrimp", "prawn", "lobster",
-        "crab", "cod", "haddock", "tilapia", "mince", "meatball",
-        "chorizo", "prosciutto", "pancetta", "gelatin",
-    ],
-    "Vegan": [
-        # all meat + fish (same as vegetarian)
-        "beef", "chicken", "pork", "lamb", "veal", "turkey", "duck",
-        "bacon", "ham", "sausage", "salami", "pepperoni", "lard",
-        "anchovies", "tuna", "salmon", "shrimp", "prawn", "lobster",
-        "crab", "cod", "haddock", "tilapia", "mince", "meatball",
-        "chorizo", "prosciutto", "pancetta", "gelatin",
-        # dairy & eggs
-        "milk", "cheese", "butter", "cream", "yogurt", "yoghurt",
-        "mozzarella", "parmesan", "ricotta", "whey", "ghee", "custard",
-        "egg", "eggs", "mayonnaise", "honey",
-    ],
-    "Pescatarian": [
-        "beef", "chicken", "pork", "lamb", "veal", "turkey", "duck",
-        "bacon", "ham", "sausage", "salami", "pepperoni", "lard",
-        "mince", "meatball", "chorizo", "prosciutto", "pancetta",
-    ],
-    "Low-Carb": [
-        "pasta", "rice", "bread", "flour", "potato", "sugar",
-        "honey", "corn", "oats", "noodle", "couscous", "quinoa",
-        "tortilla", "pita", "bun", "roll",
-    ],
-    "High-Protein": [],   # hard to infer "too low protein" from ingredients alone
-    "Omnivore": [],       # no restrictions
-}
-
-_DIET_LABELS: dict[str, str] = {
-    "Vegetarian":  "🌿 Not vegetarian",
-    "Vegan":       "🌱 Not vegan",
-    "Pescatarian": "🐟 Contains meat",
-    "Low-Carb":    "🍞 Contains high-carb ingredients",
-}
-
-
-def is_suitable_for_diet(meal: dict, diet: str) -> tuple[bool, str]:
-    """
-    Check whether a meal fits the user's diet.
-
-    Returns:
-        (suitable: bool, warning_label: str)
-        suitable=True  → no forbidden ingredient found
-        suitable=False → human-readable label explaining the issue
-    """
-    forbidden = _DIET_FORBIDDEN.get(diet, [])
-    if not forbidden:
-        return True, ""
-
-    ingredients_raw = extract_ingredients(meal)
-    ingredients_lower = " ".join(ingredients_raw).lower()
-
-    found = [kw for kw in forbidden if kw in ingredients_lower]
-    if found:
-        label = _DIET_LABELS.get(diet, f"Not suitable for {diet}")
-        return False, label
-
-    return True, ""
-
-
 def get_pantry() -> set[str]:
     """Load the user's pantry from the database."""
     user_id = st.session_state.get("user_id")
@@ -763,12 +623,7 @@ def get_pantry() -> set[str]:
 
 
 def pantry_pct(meal: dict, pantry: set[str]) -> float | None:
-    """Return fraction of ingredients already in pantry.
-
-    Uses the smart matcher from pantry_repo (handles plurals, substrings,
-    word overlap) so TheMealDB ingredient names like 'chicken breast'
-    match pantry items like 'chicken'.
-    """
+    """Return fraction of ingredients already in pantry."""
     if not pantry:
         return None
 
@@ -776,10 +631,8 @@ def pantry_pct(meal: dict, pantry: set[str]) -> float | None:
     if not ingredients:
         return None
 
-    # coverage() replaces the old exact match — works for both TheMealDB
-    # and Spoonacular ingredient name formats
-    from src.data.pantry_repo import coverage
-    return coverage(ingredients, pantry)
+    names = [i.lower() for i in ingredients]
+    return sum(1 for n in names if n in pantry) / len(names)
 
 
 # ── Wishlist / taste-profile setup ────────────────────────────────────────────
@@ -820,8 +673,6 @@ def render_meal_card(
     ml_score: float | None = None,
     pantry: float | None = None,
     card_key: str = "",  # unique prefix to avoid StreamlitDuplicateElementKey
-    user_allergies: list[str] | None = None,  # allergies from user profile
-    user_diet: str | None = None,             # diet from user profile
 ) -> None:
     """Draw a single recipe card.
 
@@ -830,12 +681,6 @@ def render_meal_card(
     same meal title produce duplicate widget keys and crash the app.
     """
     meal_title = meal["strMeal"]
-
-    # ── Allergy check ─────────────────────────────────────────────────────────
-    safe, triggered = is_safe_for_user(meal, user_allergies or [])
-
-    # ── Diet check ────────────────────────────────────────────────────────────
-    diet_ok, diet_warning = is_suitable_for_diet(meal, user_diet or "Omnivore")
 
     with st.container(border=True):
         col_img, col_meta = st.columns([1, 3])
@@ -848,23 +693,6 @@ def render_meal_card(
             st.caption(
                 f"{meal.get('strArea', '—')} · {meal.get('strCategory', '—')}"
             )
-
-            # ── Allergy badge ─────────────────────────────────────────────────
-            if user_allergies:
-                if not safe:
-                    st.error(
-                        f"⚠️ Contains allergens: **{', '.join(triggered)}** "
-                        f"— not suitable for your allergy profile."
-                    )
-                else:
-                    st.success("✅ Safe for your allergy profile")
-
-            # ── Diet badge ────────────────────────────────────────────────────
-            if user_diet and user_diet != "Omnivore":
-                if not diet_ok:
-                    st.warning(f"⚠️ {diet_warning}")
-                else:
-                    st.success(f"✅ Suitable for {user_diet} diet")
 
             if ml_score is not None and not pd.isna(ml_score):
                 st.progress(float(ml_score), text=f"Match score: {ml_score:.0%}")
@@ -888,42 +716,16 @@ def render_meal_card(
                 st.caption("❤️ Saved to wishlist")
             else:
                 if st.button("❤️ Save to wishlist", key=f"{card_key}_wish_{meal_title}"):
-                    local_id    = local_title_to_id.get(meal_title.lower())
-                    ingredients = extract_ingredients(meal)
-
-                    # 1. Add to session_state so the rest of the app sees it immediately.
-                    st.session_state["wishlist"].append({
-                        "title":       meal_title,
-                        "image":       meal.get("strMealThumb"),
-                        "area":        meal.get("strArea", ""),
-                        "local_id":    local_id,
-                        "ingredients": ingredients,
-                    })
-
-                    # 2. Also save to the database so it survives a page reload.
-                    # INSERT OR IGNORE means: if this recipe is already in the wishlist,
-                    # do nothing instead of crashing (the UNIQUE constraint on title).
-                    try:
-                        user_id = st.session_state.get("user_id")
-                        if user_id:
-                            execute(
-                                """
-                                INSERT OR IGNORE INTO wishlist
-                                    (user_id, title, image, area, local_id, ingredients)
-                                VALUES (?, ?, ?, ?, ?, ?)
-                                """,
-                                (
-                                    user_id,
-                                    meal_title,
-                                    meal.get("strMealThumb"),
-                                    meal.get("strArea", ""),
-                                    local_id,
-                                    json.dumps(ingredients),  # store as JSON string
-                                ),
-                            )
-                    except Exception:
-                        pass  # session_state save already worked, DB is best-effort
-
+                    local_id = local_title_to_id.get(meal_title.lower())
+                    st.session_state["wishlist"].append(
+                        {
+                            "title": meal_title,
+                            "image": meal.get("strMealThumb"),
+                            "area": meal.get("strArea", ""),
+                            "local_id": local_id,
+                            "ingredients": extract_ingredients(meal),
+                        }
+                    )
                     st.rerun()
 
             # ── Meal Planner ──────────────────────────────────────────────
@@ -986,48 +788,24 @@ def render_meal_card(
                     "➕ Add to Meal Planner",
                     key=f"{card_key}_planner_{meal_title}",
                 ):
-                    # ── Helper: fetch nutrition with two-level fallback ────────
-                    def _fetch_nutrition(meal_dict: dict, title: str) -> tuple:
-                        """
-                        Try to get kcal/macros for a recipe.
-
-                        Priority:
-                          1. Already in the meal dict (Spoonacular results).
-                          2. fetch_nutrition_for_meal → Spoonacular ingredient parser.
-                          3. fetch_kcal_for_title → Spoonacular title search (kcal only).
-                          4. None (user can fill in manually via Nutrition Analytics).
-
-                        Always returns a 4-tuple (kcal, protein_g, carbs_g, fat_g).
-                        Any value can be None if unavailable.
-                        """
-                        kcal      = meal_dict.get("kcal_per_serv")
-                        protein_g = meal_dict.get("protein_g")
-                        carbs_g   = meal_dict.get("carbs_g")
-                        fat_g     = meal_dict.get("fat_g")
-
-                        # Level 2 — Spoonacular ingredient parser
-                        if kcal is None:
-                            try:
-                                nutrition = fetch_nutrition_for_meal(meal_dict)
-                                kcal      = nutrition.get("kcal")
-                                protein_g = nutrition.get("protein_g")
-                                carbs_g   = nutrition.get("carbs_g")
-                                fat_g     = nutrition.get("fat_g")
-                            except Exception:
-                                pass
-
-                        # Level 3 — Spoonacular title search (kcal only)
-                        if kcal is None:
-                            try:
-                                kcal = fetch_kcal_for_title(title)
-                            except Exception:
-                                pass
-
-                        return kcal, protein_g, carbs_g, fat_g
-
                     # If the recipe doesn't exist in the DB yet, create it.
+                    # Also save kcal_per_serv if available (Spoonacular provides
+                    # this when addRecipeNutrition=True is set in api_client.py).
                     if local_id is None:
-                        kcal, protein_g, carbs_g, fat_g = _fetch_nutrition(meal, meal_title)
+                        kcal      = meal.get("kcal_per_serv")
+                        protein_g = meal.get("protein_g")
+                        carbs_g   = meal.get("carbs_g")
+                        fat_g     = meal.get("fat_g")
+
+                        # TheMealDB recipes don't carry nutrition data.
+                        # We extract their ingredients and send them to
+                        # Spoonacular's nutrition parser to get real values.
+                        if kcal is None:
+                            nutrition = fetch_nutrition_for_meal(meal)
+                            kcal      = nutrition["kcal"]
+                            protein_g = nutrition["protein_g"]
+                            carbs_g   = nutrition["carbs_g"]
+                            fat_g     = nutrition["fat_g"]
 
                         execute(
                             """INSERT INTO recipes
@@ -1042,33 +820,28 @@ def render_meal_card(
                         if not new_row.empty:
                             local_id = int(new_row.iloc[0]["id"])
                     else:
-                        # Recipe already exists — update nutrition if missing in DB.
-                        existing_kcal = query_df(
-                            "SELECT kcal_per_serv FROM recipes WHERE id = ? LIMIT 1",
-                            (local_id,),
-                        )
-                        db_kcal = (
-                            existing_kcal.iloc[0]["kcal_per_serv"]
-                            if not existing_kcal.empty
-                            else None
-                        )
+                        # Recipe already exists — update nutrition if missing.
+                        kcal      = meal.get("kcal_per_serv")
+                        protein_g = meal.get("protein_g")
+                        carbs_g   = meal.get("carbs_g")
+                        fat_g     = meal.get("fat_g")
 
-                        if db_kcal:
-                            # Already stored — just reuse it for the toast message.
-                            kcal = int(db_kcal)
-                            protein_g = carbs_g = fat_g = None
-                        else:
-                            # Missing in DB — fetch and store.
-                            kcal, protein_g, carbs_g, fat_g = _fetch_nutrition(meal, meal_title)
+                        # If still missing (TheMealDB recipe), fetch via Spoonacular
+                        if kcal is None:
+                            nutrition = fetch_nutrition_for_meal(meal)
+                            kcal      = nutrition["kcal"]
+                            protein_g = nutrition["protein_g"]
+                            carbs_g   = nutrition["carbs_g"]
+                            fat_g     = nutrition["fat_g"]
 
-                            if kcal is not None:
-                                execute(
-                                    """UPDATE recipes
-                                       SET kcal_per_serv = ?, protein_g = ?,
-                                           carbs_g = ?, fat_g = ?
-                                       WHERE id = ?""",
-                                    (kcal, protein_g, carbs_g, fat_g, local_id),
-                                )
+                        if kcal is not None:
+                            execute(
+                                """UPDATE recipes
+                                   SET kcal_per_serv = ?, protein_g = ?,
+                                       carbs_g = ?, fat_g = ?
+                                   WHERE id = ?""",
+                                (kcal, protein_g, carbs_g, fat_g, local_id),
+                            )
 
                     if local_id:
                         execute(
@@ -1076,9 +849,8 @@ def render_meal_card(
                             (user_id, local_id),
                         )
 
-                    # Toast: show kcal if available so the user can verify immediately
-                    kcal_str = f" · {kcal} kcal/porzione" if kcal else ""
-                    st.toast(f"✅ '{meal_title}' aggiunto al Meal Planner{kcal_str}!", icon="🍽️")
+                    # Toast persists across the rerun — much more visible than st.success
+                    st.toast(f"✅ '{meal_title}' added to Meal Planner!", icon="🍽️")
                     if kcal is None:
                         st.toast(
                             "⚠️ Calorie non trovate per questa ricetta. "
@@ -1106,8 +878,8 @@ with tab_search:
 
         veg = diet in ("vegetarian", "vegan")
         vgn = diet == "vegan"
-        gf = "Gluten" in allergies or "Celiac" in allergies
-        df = "Lactose" in allergies
+        gf = "gluten" in allergies
+        df = "lactose" in allergies
 
         results = search_recipes_by_name(query) + search_spoonacular(
             query=query,
@@ -1117,33 +889,10 @@ with tab_search:
             dairy_free=df,
         )
 
-        # ── Allergy filter UI ─────────────────────────────────────────────────
-        if allergies:
-            hide_unsafe = st.toggle(
-                "🚫 Hide recipes with my allergens",
-                value=True,
-                help="Recipes containing your allergens will be hidden.",
-            )
-            if hide_unsafe:
-                safe_results = [m for m in results if is_safe_for_user(m, allergies)[0]]
-                hidden_count = len(results) - len(safe_results)
-                if hidden_count > 0:
-                    st.info(
-                        f"ℹ️ {hidden_count} recipe(s) hidden because they contain "
-                        f"allergens from your profile "
-                        f"({', '.join(allergies)}). "
-                        f"Toggle off to see them."
-                    )
-                results = safe_results
-        else:
-            allergies = []
-
         if not results:
             empty_state("No recipes found — try another word.")
         else:
-            recipes_df = pd.DataFrame(LOCAL_RECIPES).rename(
-                columns={"name": "title"}
-            )
+            recipes_df = pd.DataFrame(columns=["title"])
 
             rec = Recommender(recipes_df)
             top_results = results[:10]
@@ -1194,8 +943,6 @@ with tab_search:
                     ml_score=score,
                     pantry=pantry_pct(meal, user_pantry),
                     card_key=f"search_{idx}",
-                    user_allergies=allergies,
-                    user_diet=profile.get("diet", "Omnivore"),
                 )
 
 
@@ -1324,8 +1071,6 @@ with tab_cuisine:
                         meal,
                         pantry=pantry_pct(meal, user_pantry),
                         card_key=f"cuisine_{idx}",
-                        user_allergies=profile.get("allergies", []),
-                        user_diet=profile.get("diet", "Omnivore"),
                     )
         else:
             st.info("👆 Click a country on the map to explore its recipes.")

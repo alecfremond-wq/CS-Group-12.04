@@ -133,9 +133,11 @@ def _backfill_nutrition(recipe_id: int, title: str) -> int | None:
     Returns kcal as int, or None if the lookup failed.
     """
     try:
-        if source == "mealdb":
-            meal = get_meal_by_id(str(recipe_id))
-            nutrition = fetch_nutrition_for_meal(meal) if meal else fetch_nutrition_by_title(title)
+        # Try MealDB first (ingredient-based, more accurate).
+        # If the recipe isn't in MealDB (returns None), fall back to title search.
+        meal = get_meal_by_id(str(recipe_id))
+        if meal:
+            nutrition = fetch_nutrition_for_meal(meal)
         else:
             nutrition = fetch_nutrition_by_title(title)
 

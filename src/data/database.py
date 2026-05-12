@@ -42,6 +42,13 @@ def _migrate(conn) -> None:
             conn.commit()
         except sqlite3.OperationalError:
             pass
+
+    # Add mealdb_id to recipes if it doesn't exist yet
+    try:
+        conn.execute("ALTER TABLE recipes ADD COLUMN mealdb_id TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # column already exists
     # UNIQUE can't be set via ALTER TABLE in SQLite — we use an index instead
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users (username)"
