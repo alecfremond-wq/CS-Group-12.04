@@ -267,6 +267,13 @@ if not profile:
                 box-shadow: 0 4px 12px rgba(255, 107, 53, 0.3);
                 background: #fff5f2;
             }
+            /* Allergy toggle — orange accent */
+            div[data-testid="stToggle"] label {
+                font-weight: 500;
+            }
+            div[data-testid="stToggle"] input:checked + div {
+                background-color: #FF6B35 !important;
+            }
             </style>
         """, unsafe_allow_html=True)
 
