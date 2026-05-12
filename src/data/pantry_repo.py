@@ -6,8 +6,8 @@ with the `pantry` and `ingredients` tables on disk, which is what
 2_Recipes.py reads from to compute the "Pantry-friendly" badge.
 
 Also exposes get_canonical_ingredients(), the list of every ingredient
-name actually used by the local recipes catalogue. Pantry.py shows this
-list as a dropdown so that whatever the user picks is guaranteed to
+name stored in the `ingredients` table of the database. Pantry.py shows
+this list as a dropdown so that whatever the user picks is guaranteed to
 match an ingredient string used in a recipe (lowercased, exact match
 on both sides — same rule Recipes.py applies).
 
@@ -27,23 +27,18 @@ from src.data.database import execute, query_df
 
 
 def get_canonical_ingredients() -> list[str]:
-    """Return every ingredient name used by the local recipes catalogue,
+    """Return every ingredient name stored in the database,
     lowercased, deduplicated, alphabetically sorted.
 
-    Pulled fresh from recipes_data.RECIPES so it stays in sync with
-    whatever 2_Recipes.py actually matches against. Recipes.py compares
-    pantry items against ingredient lists with `.lower()` on both sides,
-    so storing the canonical form here means the comparison succeeds.
+    Pulled from the `ingredients` table, which is populated whenever
+    a user adds a recipe to the Meal Planner. This keeps the dropdown
+    in sync with what is actually in the database rather than a static
+    local list.
     """
-    from recipes_data import RECIPES
-
-    seen: set[str] = set()
-    for recipe in RECIPES:
-        for ingredient in recipe.get("ingredients", []):
-            cleaned = (ingredient or "").lower().strip()
-            if cleaned:
-                seen.add(cleaned)
-    return sorted(seen)
+    df = query_df("SELECT DISTINCT name FROM ingredients ORDER BY name")
+    if df is None or df.empty:
+        return []
+    return df["name"].str.lower().str.strip().tolist()
 
 
 def _ensure_ingredient_id(name: str) -> int:
@@ -125,7 +120,7 @@ def clear_pantry(user_id: int) -> None:
 
 
 def is_canonical(name: str) -> bool:
-    """Return True if `name` matches an ingredient used by a local recipe.
+    """Return True if `name` matches an ingredient already in the database.
 
     Used by the Pantry page to warn the user when they type something that
     won't help recipe matching.
