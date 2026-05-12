@@ -36,24 +36,56 @@ from src.utils.session import init_session_state, require_profile
 
 # ── Ingredient extractor (defined early — used by nutrition helper below) ─────
 
-def extract_ingredients(meal: dict) -> list[str]:
+def extract_ingredients(meal: dict, for_display: bool = False) -> list[str]:
     """Pull the ingredient list out of a TheMealDB or Spoonacular result.
 
-    Spoonacular already gives us full strings like "2 cups flour" in _ingredients.
-    TheMealDB splits the name and amount into separate fields:
-        strIngredient1 = "Flour",  strMeasure1 = "2 cups"
-    We combine them so the result looks like "2 cups Flour", "1 Egg", etc.
-    """
-    if meal.get("_ingredients"):
-        return [i.strip() for i in meal["_ingredients"] if i.strip()]
+    We have two modes depending on who is calling this function:
 
+    for_display=False (default) → ML mode
+        Returns plain ingredient names like "flour", "egg", "garlic".
+        Used when saving to the wishlist and when scoring recipes in the
+        ML model. Plain names match across different recipe sources
+        (TheMealDB says "flour", Spoonacular says "flour" → they match).
+
+    for_display=True → display mode
+        Returns full strings with quantities like "2 cups flour", "1 large egg".
+        Used only for showing the ingredient list to the user in the expander.
+
+    TheMealDB recipes:
+        The API gives us separate fields for name and amount:
+            strIngredient1 = "Flour"   strMeasure1 = "2 cups"
+        In ML mode we return just "Flour".
+        In display mode we combine them into "2 cups Flour".
+
+    Spoonacular recipes:
+        The API gives us two ready-made fields per ingredient:
+            "name"     = "flour"                         ← ML mode
+            "original" = "2 cups all-purpose flour"      ← display mode
+        We stored both as "_ingredients" and "_ingredients_display"
+        in api_client.py, so we just pick the right one here.
+    """
+    # ── Spoonacular recipe ────────────────────────────────────────────────────
+    if meal.get("_ingredients"):
+        if for_display and meal.get("_ingredients_display"):
+            # Show the full string with quantities (e.g. "2 cups flour")
+            return [i.strip() for i in meal["_ingredients_display"] if i.strip()]
+        else:
+            # Return plain names (e.g. "flour") for ML or wishlist saving
+            return [i.strip() for i in meal["_ingredients"] if i.strip()]
+
+    # ── TheMealDB recipe ──────────────────────────────────────────────────────
     ingredients = []
     for i in range(1, 21):
         name    = (meal.get(f"strIngredient{i}") or "").strip()
         measure = (meal.get(f"strMeasure{i}")    or "").strip()
         if not name:
             continue
-        ingredients.append(f"{measure} {name}" if measure else name)
+        if for_display and measure:
+            # Display mode: combine measure + name → "2 cups Flour"
+            ingredients.append(f"{measure} {name}")
+        else:
+            # ML mode: just the name → "Flour"
+            ingredients.append(name)
     return ingredients
 
 
@@ -864,7 +896,10 @@ def render_meal_card(
                 col_ing, col_inst = st.columns([1, 2])
                 with col_ing:
                     st.markdown("**Ingredients**")
-                    for ing in extract_ingredients(meal):
+                    # for_display=True → shows quantities like "2 cups flour"
+                    # instead of just "flour". This is only for the visual card,
+                    # NOT for the wishlist or ML (those use the default False).
+                    for ing in extract_ingredients(meal, for_display=True):
                         st.markdown(f"- {ing}")
                 with col_inst:
                     st.markdown("**Instructions**")

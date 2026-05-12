@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS meal_plan (
     user_id     INTEGER NOT NULL REFERENCES users(id)    ON DELETE CASCADE,
     meal_date   TEXT    NOT NULL,          -- stored as "YYYY-MM-DD"
     meal_type   TEXT    NOT NULL
-                    CHECK(meal_type IN ('Breakfast','Lunch','Dinner')),
+                    CHECK(meal_type IN ('Breakfast','Lunch','Dinner','Snacks')),
     recipe_id   INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
     UNIQUE (user_id, meal_date, meal_type)
 );
@@ -112,20 +112,6 @@ CREATE TABLE IF NOT EXISTS planner_pool (
     title TEXT,
     meal_type TEXT
 );
-CREATE TABLE IF NOT EXISTS meal_plan_new (
-    id INTEGER PRIMARY KEY,
-    user_id INTEGER,
-    meal_date TEXT,
-    meal_type TEXT CHECK(meal_type IN ('Breakfast','Lunch','Dinner','Snacks')),
-    recipe_id INTEGER
-);
-
-INSERT INTO meal_plan_new
-SELECT * FROM meal_plan;
-
-DROP TABLE meal_plan;
-
-ALTER TABLE meal_plan_new RENAME TO meal_plan;
 
 -- ============================================================
 -- wishlist: recipes the user has saved with the heart button
@@ -148,3 +134,13 @@ CREATE TABLE IF NOT EXISTS wishlist (
     UNIQUE (user_id, title)         -- one entry per recipe per user
 );
 
+-- follows: stores who follows whom.
+-- follower_id = the user who clicked "Follow"
+-- followed_id = the user they are following
+-- UNIQUE prevents following the same person twice.
+CREATE TABLE IF NOT EXISTS follows (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    follower_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    followed_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE (follower_id, followed_id)
+);

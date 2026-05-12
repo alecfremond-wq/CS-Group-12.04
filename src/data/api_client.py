@@ -497,7 +497,26 @@ def search_spoonacular(query="", vegetarian=False, vegan=False,
                 "strArea":         "International",
                 "strCategory":     r.get("dishTypes", [""])[0].title() if r.get("dishTypes") else "—",
                 "strInstructions": re.sub(r"<[^>]+>", "", r.get("summary", "")),
-                "_ingredients":    [i.get("original","").strip() for i in r.get("extendedIngredients",[]) if i.get("original","").strip()],
+                # WHY TWO INGREDIENT FIELDS?
+                # Spoonacular gives us two useful fields per ingredient:
+                #   "name"     → just the ingredient name,  e.g. "flour"
+                #   "original" → the full cooking string,   e.g. "2 cups all-purpose flour, sifted"
+                #
+                # We need BOTH for different purposes:
+                #
+                # _ingredients (plain names) → used by the ML model and the
+                #   wishlist. The ML model compares ingredient names across
+                #   recipes to find similarities. If we give it "2 cups
+                #   all-purpose flour, sifted" it can't match that against
+                #   "flour" in our TheMealDB catalogue — so scores drop to zero.
+                #   Plain names like "flour" match perfectly.
+                #
+                # _ingredients_display (full strings) → used only for showing
+                #   the ingredient list to the user in the recipe card expander.
+                #   Here we WANT the full string so the user sees "2 cups flour"
+                #   instead of just "flour".
+                "_ingredients":         [i.get("name","").strip() for i in r.get("extendedIngredients",[]) if i.get("name","").strip()],
+                "_ingredients_display": [i.get("original","").strip() for i in r.get("extendedIngredients",[]) if i.get("original","").strip()],
                 "source":          "spoonacular",
                 "kcal_per_serv":   kcal,
             })
