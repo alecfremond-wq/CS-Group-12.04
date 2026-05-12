@@ -141,14 +141,10 @@ def is_canonical(name: str) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _singularize(word: str) -> str:
-    """Crude English plural → singular. Good enough for ingredient names.
-
-    Handles the three patterns that cover ~95% of the food vocabulary:
-        berries  → berry
-        tomatoes → tomato
-        eggs     → egg
-    Everything shorter than 4 letters is left alone (avoids breaking 'is', 'as').
-    """
+    # Convert a plural word to its singular form
+    # This handles the 3 most common patterns in English food vocabulary:
+    #   "berries" → "berry", "tomatoes" → "tomato", "eggs" → "egg"
+    # Words shorter than 3 letters are left unchanged to avoid breaking short words
     w = word.lower().strip()
     if len(w) > 3 and w.endswith("ies"):
         return w[:-3] + "y"
@@ -160,12 +156,10 @@ def _singularize(word: str) -> str:
 
 
 def _tokenize(name: str) -> set[str]:
-    """Break a multi-word ingredient name into a set of singularized words.
-
-    'Cherry Tomatoes' → {'cherry', 'tomato'}
-    'Extra-Virgin Olive Oil' → {'extra', 'virgin', 'olive', 'oil'}
-    Single-letter words are dropped (they're noise, not ingredients).
-    """
+    # Split a multi-word ingredient name into individual words, singularized
+    # Example: "Cherry Tomatoes" → {"cherry", "tomato"}
+    # Example: "Extra-Virgin Olive Oil" → {"extra", "virgin", "olive", "oil"}
+    # Single-letter words are dropped because they carry no useful meaning
     return {
         _singularize(tok)
         for tok in re.findall(r"[a-zA-Z]+", name.lower())
@@ -174,30 +168,25 @@ def _tokenize(name: str) -> set[str]:
 
 
 def matches(recipe_ingredient: str, pantry: Iterable[str]) -> bool:
-    """Return True if any pantry item is a plausible match for this recipe ingredient.
-
-    Three rules, applied in order — first hit wins:
-        1. Exact (lowercased) match. Fastest path; covers the local catalogue.
-        2. Singularized match — handles 'tomato' ↔ 'tomatoes', 'egg' ↔ 'eggs'.
-        3. Subset rule — every word of the pantry item appears in the recipe
-           ingredient's words. So pantry 'olive oil' matches recipe
-           'extra virgin olive oil', and pantry 'tomato' matches recipe
-           'cherry tomatoes' (after singularization). This is the rule that
-           actually carries API recipes.
-    """
+    # Check whether a recipe ingredient can be found in the user's pantry
+    # We apply 3 rules in order — the first match wins:
     if not pantry:
         return False
 
     pantry_set = {p.lower().strip() for p in pantry}
     r_low = recipe_ingredient.lower().strip()
 
+    # Rule 1 — exact match (fastest): "chicken" == "chicken"
     if r_low in pantry_set:
         return True
 
+    # Rule 2 — singular match: pantry has "egg", recipe says "eggs"
     r_sing = _singularize(r_low)
     if r_sing in pantry_set:
         return True
 
+    # Rule 3 — subset match: pantry has "olive oil", recipe says "extra virgin olive oil"
+    # We check that every word in the pantry item appears in the recipe ingredient's words
     r_words = _tokenize(recipe_ingredient)
     if not r_words:
         return False
@@ -211,16 +200,15 @@ def matches(recipe_ingredient: str, pantry: Iterable[str]) -> bool:
 
 
 def coverage(ingredient_list: Iterable[str], pantry: Iterable[str]) -> Optional[float]:
-    """What fraction of `ingredient_list` does the user already have?
-
-    Drop-in replacement for the inner 4 lines of Recipes.py's pantry_pct().
-    Returns None when either side is empty so the caller can skip the badge.
-    """
+    # Calculate what fraction of a recipe's ingredients the user already has
+    # Returns a value between 0.0 and 1.0 (e.g. 0.75 means 75% of ingredients available)
+    # Returns None if either the recipe or the pantry is empty — the badge won't be shown
     ingredients = [i for i in ingredient_list if i and i.strip()]
     pantry_set = {p.lower().strip() for p in pantry if p and p.strip()}
 
     if not pantry_set or not ingredients:
         return None
 
+    # Count how many recipe ingredients have a match in the pantry
     matched = sum(1 for ing in ingredients if matches(ing, pantry_set))
     return matched / len(ingredients)

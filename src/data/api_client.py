@@ -322,12 +322,10 @@ def extract_ingredients_from_meal(meal: dict) -> list[str]:
 
 @st.cache_data(ttl=24 * 60 * 60)
 def get_themealdb_ingredients() -> list[str]:
-    """Return every ingredient name known to TheMealDB, sorted alphabetically.
-
-    Used by the Pantry page to populate the ingredient picker so that
-    names in the pantry match names embedded in recipe data.
-    Cached for 24 h — the list changes very rarely.
-    """
+    # Fetch the full list of ingredients from TheMealDB and return them sorted
+    # We use TheMealDB (free, no quota) instead of Spoonacular (paid, limited)
+    # so that ingredient names in the pantry exactly match those used in recipes
+    # The result is cached for 24 hours — the list almost never changes
     try:
         resp = requests.get(
             f"{THEMEALDB_BASE}/list.php",
@@ -336,12 +334,14 @@ def get_themealdb_ingredients() -> list[str]:
         )
         resp.raise_for_status()
         meals = resp.json().get("meals") or []
+        # Extract the ingredient name from each entry, lowercase and sort alphabetically
         return sorted(
             m["strIngredient"].strip().lower()
             for m in meals
             if (m.get("strIngredient") or "").strip()
         )
     except requests.RequestException:
+        # If the API is unavailable, return an empty list — the pantry still works
         return []
 
 

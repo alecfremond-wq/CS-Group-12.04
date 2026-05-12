@@ -12,12 +12,17 @@ from src.data.pantry_repo import (
 )
 from src.utils.session import init_session_state, require_profile
 
+# Initialize session state and make sure the user has completed onboarding
 init_session_state()
 require_profile()
 page_header("🥫 Pantry", "What's currently in your kitchen?")
 
+# Get the current user's ID from the session (set during login)
 USER_ID = st.session_state.get("user_id", 1)
 CUSTOM_OPTION = "✏️  Other (type a custom ingredient)"
+
+# Fetch all ingredient names from TheMealDB API — this gives us ~500 ingredients
+# that exactly match the names used in recipes, so the pantry badge works correctly
 CANONICAL = get_themealdb_ingredients()
 
 st.caption(
@@ -26,9 +31,12 @@ st.caption(
     "on the Recipes page."
 )
 
+# ── Add ingredient form ────────────────────────────────────────────────────────
+# clear_on_submit=True resets all fields automatically after the user submits
 with st.form("add_item", clear_on_submit=True):
     cols = st.columns([3, 1, 1, 2])
     with cols[0]:
+        # Dropdown pre-filled with TheMealDB ingredients + a custom option at the end
         choice = st.selectbox(
             "Ingredient",
             options=[""] + CANONICAL + [CUSTOM_OPTION],
@@ -36,6 +44,7 @@ with st.form("add_item", clear_on_submit=True):
             help="Choose a name from this list to ensure it matches recipe ingredients.",
         )
         custom_name = ""
+        # If the user picks "Other", show a free-text field to type any ingredient
         if choice == CUSTOM_OPTION:
             custom_name = st.text_input(
                 "Custom ingredient name",
@@ -49,7 +58,10 @@ with st.form("add_item", clear_on_submit=True):
         expires = st.date_input("Expires on", value=date.today())
     submitted = st.form_submit_button("➕ Add to pantry", type="primary")
 
+# ── Handle form submission ─────────────────────────────────────────────────────
 if submitted:
+    # Determine the final ingredient name depending on whether the user
+    # picked from the list or typed a custom name
     if choice == CUSTOM_OPTION:
         ingredient_name = custom_name.strip().lower()
     elif choice and choice != CUSTOM_OPTION:
@@ -60,6 +72,7 @@ if submitted:
     if not ingredient_name:
         st.warning("Please pick an ingredient (or type a custom name) before saving.")
     else:
+        # Add to session_state immediately so the UI updates right away
         st.session_state["pantry"].append(
             {
                 "name": ingredient_name,
@@ -68,6 +81,7 @@ if submitted:
                 "expires_on": expires,
             }
         )
+        # Also persist to the database so the data survives page navigation
         try:
             add_to_pantry(USER_ID, ingredient_name, qty, unit, expires)
             st.success(f"Added **{ingredient_name}** ✓")
@@ -77,6 +91,7 @@ if submitted:
                 "The Recipes page may not see it until next reload."
             )
 
+# ── Load pantry from the database ─────────────────────────────────────────────
 db_pantry = list_pantry(USER_ID)
 
 if db_pantry.empty and not st.session_state["pantry"]:
@@ -85,7 +100,7 @@ else:
     today = date.today()
 
     def _expiry_badge(expires_on_raw) -> tuple[str, str]:
-        """Return (emoji, label) based on how close the expiry date is."""
+        # Parse the expiry date — it can come as a string from SQLite or as a date object
         try:
             if isinstance(expires_on_raw, str):
                 exp = datetime.strptime(expires_on_raw[:10], "%Y-%m-%d").date()
@@ -93,7 +108,11 @@ else:
                 exp = expires_on_raw.date()
             else:
                 exp = expires_on_raw
+
+            # Calculate how many days are left before the ingredient expires
             days = (exp - today).days
+
+            # Return a colored dot and a label based on urgency
             if days < 0:
                 return "🔴", "Expired"
             elif days <= 3:
@@ -106,7 +125,7 @@ else:
     st.markdown("---")
 
     if not db_pantry.empty:
-        # Summary counts
+        # Count how many items are expired or expiring soon for the summary metrics
         total = len(db_pantry)
         expired = sum(
             1 for _, r in db_pantry.iterrows()
@@ -117,6 +136,7 @@ else:
             if _expiry_badge(r["expires_on"])[0] == "🟡"
         )
 
+        # Display 3 summary metrics at the top of the pantry
         m1, m2, m3 = st.columns(3)
         m1.metric("Total items", total)
         m2.metric("Expiring soon 🟡", expiring_soon)
@@ -124,7 +144,7 @@ else:
 
         st.markdown("---")
 
-        # Ingredient cards
+        # Display each ingredient as a row with name, quantity, expiry badge and delete button
         for _, row in db_pantry.iterrows():
             emoji, label = _expiry_badge(row["expires_on"])
             qty_str = f"{row['quantity']:g} {row['unit'] or ''}".strip()
@@ -133,8 +153,11 @@ else:
             col_name.markdown(f"**{row['name'].title()}**")
             col_qty.markdown(f"`{qty_str}`")
             col_exp.markdown(f"{emoji} {label}")
+
+            # Delete button — scoped to this specific row using its database id as key
             if col_btn.button("🗑️", key=f"rm_{int(row['id'])}", help="Remove"):
                 remove_from_pantry(int(row["id"]), USER_ID)
+                # Also remove from session_state to keep UI in sync with the database
                 st.session_state["pantry"] = [
                     p for p in st.session_state["pantry"]
                     if p.get("name", "").lower() != row["name"]
@@ -142,6 +165,8 @@ else:
                 st.rerun()
 
         st.markdown("---")
+
+        # Clear all button — wipes both session_state and the database rows for this user
         if st.button("🗑️ Clear pantry", type="secondary"):
             st.session_state["pantry"] = []
             try:
@@ -151,7 +176,7 @@ else:
             st.rerun()
 
     else:
-        # Fallback: session-only data (no DB rows yet)
+        # Fallback: if the database is unavailable, display items from session_state only
         for item in st.session_state["pantry"]:
             emoji, label = _expiry_badge(item.get("expires_on"))
             qty_str = f"{item['quantity']:g} {item['unit'] or ''}".strip()
