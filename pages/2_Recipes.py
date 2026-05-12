@@ -986,24 +986,48 @@ def render_meal_card(
                     "➕ Add to Meal Planner",
                     key=f"{card_key}_planner_{meal_title}",
                 ):
-                    # If the recipe doesn't exist in the DB yet, create it.
-                    # Also save kcal_per_serv if available (Spoonacular provides
-                    # this when addRecipeNutrition=True is set in api_client.py).
-                    if local_id is None:
-                        kcal      = meal.get("kcal_per_serv")
-                        protein_g = meal.get("protein_g")
-                        carbs_g   = meal.get("carbs_g")
-                        fat_g     = meal.get("fat_g")
+                    # ── Helper: fetch nutrition with two-level fallback ────────
+                    def _fetch_nutrition(meal_dict: dict, title: str) -> tuple:
+                        """
+                        Try to get kcal/macros for a recipe.
 
-                        # TheMealDB recipes don't carry nutrition data.
-                        # We extract their ingredients and send them to
-                        # Spoonacular's nutrition parser to get real values.
+                        Priority:
+                          1. Already in the meal dict (Spoonacular results).
+                          2. fetch_nutrition_for_meal → Spoonacular ingredient parser.
+                          3. fetch_kcal_for_title → Spoonacular title search (kcal only).
+                          4. None (user can fill in manually via Nutrition Analytics).
+
+                        Always returns a 4-tuple (kcal, protein_g, carbs_g, fat_g).
+                        Any value can be None if unavailable.
+                        """
+                        kcal      = meal_dict.get("kcal_per_serv")
+                        protein_g = meal_dict.get("protein_g")
+                        carbs_g   = meal_dict.get("carbs_g")
+                        fat_g     = meal_dict.get("fat_g")
+
+                        # Level 2 — Spoonacular ingredient parser
                         if kcal is None:
-                            nutrition = fetch_nutrition_for_meal(meal)
-                            kcal      = nutrition["kcal"]
-                            protein_g = nutrition["protein_g"]
-                            carbs_g   = nutrition["carbs_g"]
-                            fat_g     = nutrition["fat_g"]
+                            try:
+                                nutrition = fetch_nutrition_for_meal(meal_dict)
+                                kcal      = nutrition.get("kcal")
+                                protein_g = nutrition.get("protein_g")
+                                carbs_g   = nutrition.get("carbs_g")
+                                fat_g     = nutrition.get("fat_g")
+                            except Exception:
+                                pass
+
+                        # Level 3 — Spoonacular title search (kcal only)
+                        if kcal is None:
+                            try:
+                                kcal = fetch_kcal_for_title(title)
+                            except Exception:
+                                pass
+
+                        return kcal, protein_g, carbs_g, fat_g
+
+                    # If the recipe doesn't exist in the DB yet, create it.
+                    if local_id is None:
+                        kcal, protein_g, carbs_g, fat_g = _fetch_nutrition(meal, meal_title)
 
                         execute(
                             """INSERT INTO recipes
@@ -1018,28 +1042,33 @@ def render_meal_card(
                         if not new_row.empty:
                             local_id = int(new_row.iloc[0]["id"])
                     else:
-                        # Recipe already exists — update nutrition if missing.
-                        kcal      = meal.get("kcal_per_serv")
-                        protein_g = meal.get("protein_g")
-                        carbs_g   = meal.get("carbs_g")
-                        fat_g     = meal.get("fat_g")
+                        # Recipe already exists — update nutrition if missing in DB.
+                        existing_kcal = query_df(
+                            "SELECT kcal_per_serv FROM recipes WHERE id = ? LIMIT 1",
+                            (local_id,),
+                        )
+                        db_kcal = (
+                            existing_kcal.iloc[0]["kcal_per_serv"]
+                            if not existing_kcal.empty
+                            else None
+                        )
 
-                        # If still missing (TheMealDB recipe), fetch via Spoonacular
-                        if kcal is None:
-                            nutrition = fetch_nutrition_for_meal(meal)
-                            kcal      = nutrition["kcal"]
-                            protein_g = nutrition["protein_g"]
-                            carbs_g   = nutrition["carbs_g"]
-                            fat_g     = nutrition["fat_g"]
+                        if db_kcal:
+                            # Already stored — just reuse it for the toast message.
+                            kcal = int(db_kcal)
+                            protein_g = carbs_g = fat_g = None
+                        else:
+                            # Missing in DB — fetch and store.
+                            kcal, protein_g, carbs_g, fat_g = _fetch_nutrition(meal, meal_title)
 
-                        if kcal is not None:
-                            execute(
-                                """UPDATE recipes
-                                   SET kcal_per_serv = ?, protein_g = ?,
-                                       carbs_g = ?, fat_g = ?
-                                   WHERE id = ?""",
-                                (kcal, protein_g, carbs_g, fat_g, local_id),
-                            )
+                            if kcal is not None:
+                                execute(
+                                    """UPDATE recipes
+                                       SET kcal_per_serv = ?, protein_g = ?,
+                                           carbs_g = ?, fat_g = ?
+                                       WHERE id = ?""",
+                                    (kcal, protein_g, carbs_g, fat_g, local_id),
+                                )
 
                     if local_id:
                         execute(
@@ -1047,8 +1076,9 @@ def render_meal_card(
                             (user_id, local_id),
                         )
 
-                    # Toast persists across the rerun — much more visible than st.success
-                    st.toast(f"✅ '{meal_title}' added to Meal Planner!", icon="🍽️")
+                    # Toast: show kcal if available so the user can verify immediately
+                    kcal_str = f" · {kcal} kcal/porzione" if kcal else ""
+                    st.toast(f"✅ '{meal_title}' aggiunto al Meal Planner{kcal_str}!", icon="🍽️")
                     if kcal is None:
                         st.toast(
                             "⚠️ Calorie non trovate per questa ricetta. "
