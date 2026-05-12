@@ -58,22 +58,38 @@ page_header("👥 Friends", "Follow other users and see their saved recipes.")
 my_id = st.session_state.get("user_id")
 
 # ── Make sure the follows table exists ────────────────────────────────────────
-# We create the table here directly instead of relying only on schema.sql.
-# This is a safety net: on Streamlit Cloud the database is sometimes reset,
-# and schema.sql has some non-idempotent statements that can cause init_db()
-# to stop early before reaching the follows table.
-# CREATE TABLE IF NOT EXISTS means: only create it if it doesn't exist yet —
-# so running this every page load is completely safe and costs almost nothing.
+# We create the table here with a 'status' column that tracks whether a follow
+# request is waiting for approval ('pending') or has been accepted ('accepted').
+#
+# Why status?
+#   When user A clicks "Follow" on user B, we don't want B's wishlist to be
+#   visible immediately. Instead, B gets a follow request they can accept or
+#   decline. Only after accepting does A see B's wishlist.
+#
+# The DEFAULT 'accepted' means that if we ever insert a row without specifying
+# the status, it defaults to accepted — useful for the migration below.
 execute(
     """
     CREATE TABLE IF NOT EXISTS follows (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         follower_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         followed_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        status      TEXT    NOT NULL DEFAULT 'pending',
         UNIQUE (follower_id, followed_id)
     )
     """
 )
+
+# ── Migration: add 'status' column to existing follows table ──────────────────
+# If the app was already running before we added this feature, the follows table
+# exists but has no 'status' column. SQLite lets us add a column with
+# ALTER TABLE ... ADD COLUMN. We wrap it in try/except because SQLite throws
+# an error if the column already exists — and that's fine, we just ignore it.
+try:
+    execute("ALTER TABLE follows ADD COLUMN status TEXT NOT NULL DEFAULT 'accepted'")
+except Exception:
+    # Column already exists — nothing to do.
+    pass
 
 
 # ── Helper: load full recipe details from TheMealDB ───────────────────────────
@@ -190,21 +206,52 @@ with col_search:
                         st.markdown(f"**{user['name']}** (@{user['username']})")
 
                     with col_btn:
-                        # Check if we already follow this user.
-                        already_following = query_df(
+                        # Check the current follow status between us and this user.
+                        # We select the 'status' column so we know whether a request
+                        # is still pending or has already been accepted.
+                        follow_row = query_df(
                             """
-                            SELECT 1 FROM follows
+                            SELECT status FROM follows
                             WHERE follower_id = ? AND followed_id = ?
                             """,
                             (my_id, int(user["id"])),
                         )
-                        is_following = (
-                            already_following is not None
-                            and not already_following.empty
-                        )
 
-                        if is_following:
-                            # Already following → show Unfollow button.
+                        # Three possible states:
+                        #   1. No row exists          → we don't follow them yet
+                        #   2. Row exists, pending    → request sent, waiting
+                        #   3. Row exists, accepted   → we follow them
+
+                        if follow_row is None or follow_row.empty:
+                            # State 1: not following yet → show Follow button.
+                            # Clicking sends a follow REQUEST (status = 'pending').
+                            # The other user must accept before we can see their wishlist.
+                            if st.button("Follow ＋", key=f"follow_{user['id']}",
+                                         use_container_width=True):
+                                execute(
+                                    """
+                                    INSERT OR IGNORE INTO follows
+                                        (follower_id, followed_id, status)
+                                    VALUES (?, ?, 'pending')
+                                    """,
+                                    (my_id, int(user["id"])),
+                                )
+                                st.rerun()
+
+                        elif follow_row.iloc[0]["status"] == "pending":
+                            # State 2: request sent but not yet accepted.
+                            # Show a greyed-out label and a cancel button.
+                            st.caption("⏳ Pending")
+                            if st.button("Cancel", key=f"cancel_{user['id']}",
+                                         use_container_width=True):
+                                execute(
+                                    "DELETE FROM follows WHERE follower_id = ? AND followed_id = ?",
+                                    (my_id, int(user["id"])),
+                                )
+                                st.rerun()
+
+                        else:
+                            # State 3: accepted → we follow them, show Unfollow button.
                             if st.button("Unfollow", key=f"unfollow_{user['id']}",
                                          use_container_width=True):
                                 execute(
@@ -212,46 +259,86 @@ with col_search:
                                     (my_id, int(user["id"])),
                                 )
                                 st.rerun()
-                        else:
-                            # Not following yet → show Follow button.
-                            if st.button("Follow ＋", key=f"follow_{user['id']}",
-                                         use_container_width=True):
-                                # INSERT OR IGNORE: if the row already exists somehow,
-                                # do nothing instead of crashing.
-                                execute(
-                                    """
-                                    INSERT OR IGNORE INTO follows (follower_id, followed_id)
-                                    VALUES (?, ?)
-                                    """,
-                                    (my_id, int(user["id"])),
-                                )
-                                st.rerun()
 
 # ── Right panel: My Followers ─────────────────────────────────────────────────
 with col_followers:
     st.subheader("👤 My Followers")
-    st.caption("People who are following you.")
 
-    # Load everyone who follows the current user.
-    # We look for rows in follows where followed_id = my_id (I am the one being followed).
-    # Then we join with users to get their name and username.
-    followers = query_df(
+    # Load ALL follow rows where the current user is the one being followed.
+    # We also fetch the follower's id so we can use it in Accept/Decline buttons.
+    # The 'status' column tells us whether each request is pending or accepted.
+    all_followers = query_df(
         """
-        SELECT u.name, u.username
+        SELECT u.id, u.name, u.username, f.status
         FROM follows f
         JOIN users u ON f.follower_id = u.id
         WHERE f.followed_id = ?
-        ORDER BY u.name
+        ORDER BY f.status DESC, u.name
         """,
         (my_id,),
     )
 
-    if followers is None or followers.empty:
-        # Nobody follows this user yet.
+    # ── Part A: Pending follow requests ──────────────────────────────────────
+    # Filter to only the rows where status = 'pending'.
+    # These are people who clicked Follow on your profile but you haven't
+    # decided yet — you can Accept or Decline each one.
+
+    if all_followers is not None and not all_followers.empty:
+        pending = all_followers[all_followers["status"] == "pending"]
+    else:
+        pending = None
+
+    if pending is not None and not pending.empty:
+        st.markdown("**📬 Follow Requests**")
+        for _, req in pending.iterrows():
+            with st.container(border=True):
+                st.markdown(f"**{req['name']}** (@{req['username']})")
+
+                btn_accept, btn_decline = st.columns(2)
+
+                with btn_accept:
+                    # Accept → update the status from 'pending' to 'accepted'.
+                    # After this, the follower can see your wishlist.
+                    if st.button("✅ Accept", key=f"accept_{req['id']}",
+                                 use_container_width=True):
+                        execute(
+                            """
+                            UPDATE follows SET status = 'accepted'
+                            WHERE follower_id = ? AND followed_id = ?
+                            """,
+                            (int(req["id"]), my_id),
+                        )
+                        st.rerun()
+
+                with btn_decline:
+                    # Decline → delete the row entirely.
+                    # The person can try to follow again later if they want.
+                    if st.button("❌ Decline", key=f"decline_{req['id']}",
+                                 use_container_width=True):
+                        execute(
+                            """
+                            DELETE FROM follows
+                            WHERE follower_id = ? AND followed_id = ?
+                            """,
+                            (int(req["id"]), my_id),
+                        )
+                        st.rerun()
+
+    # ── Part B: Accepted followers ────────────────────────────────────────────
+    # Filter to only the rows where status = 'accepted'.
+    # These are people whose follow request you already approved.
+
+    if all_followers is not None and not all_followers.empty:
+        accepted = all_followers[all_followers["status"] == "accepted"]
+    else:
+        accepted = None
+
+    st.markdown("**✅ Followers**")
+
+    if accepted is None or accepted.empty:
         st.caption("Nobody is following you yet.")
     else:
-        # Show one small card per follower.
-        for _, follower in followers.iterrows():
+        for _, follower in accepted.iterrows():
             with st.container(border=True):
                 st.markdown(f"**{follower['name']}**")
                 st.caption(f"@{follower['username']}")
@@ -263,21 +350,23 @@ st.divider()
 
 st.subheader("❤️ Friends' Wishlists")
 
-# Load everyone the current user follows, joined with the users table
-# so we have their name and username (not just their ID).
+# Load only the people the current user follows AND whose request was accepted.
+# We add AND f.status = 'accepted' so that pending requests don't show up here
+# yet — you can only see someone's wishlist after they approved your request.
 following = query_df(
     """
     SELECT u.id, u.name, u.username
     FROM follows f
     JOIN users u ON f.followed_id = u.id
     WHERE f.follower_id = ?
+      AND f.status = 'accepted'
     ORDER BY u.name
     """,
     (my_id,),
 )
 
 if following is None or following.empty:
-    st.info("You're not following anyone yet — search for a username above!")
+    st.info("You're not following anyone yet (or your requests are still pending).")
 else:
     # One collapsible section per followed user.
     for _, friend in following.iterrows():
