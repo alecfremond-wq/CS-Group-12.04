@@ -55,6 +55,44 @@ def _migrate(conn) -> None:
     )
     conn.commit()
 
+    # Older databases created meal_plan without the "Snacks" option.
+    # SQLite cannot edit CHECK constraints in place, so we rebuild the table.
+    meal_plan_sql_row = conn.execute(
+        """
+        SELECT sql
+        FROM sqlite_master
+        WHERE type = 'table' AND name = 'meal_plan'
+        """
+    ).fetchone()
+    meal_plan_sql = meal_plan_sql_row["sql"] if meal_plan_sql_row else ""
+
+    if meal_plan_sql and "Snacks" not in meal_plan_sql:
+        conn.executescript(
+            """
+            ALTER TABLE meal_plan RENAME TO meal_plan_old;
+
+            CREATE TABLE meal_plan (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                meal_date   TEXT    NOT NULL,
+                meal_type   TEXT    NOT NULL
+                                CHECK(meal_type IN ('Breakfast','Lunch','Dinner','Snacks')),
+                recipe_id   INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+                UNIQUE (user_id, meal_date, meal_type)
+            );
+
+            INSERT INTO meal_plan (id, user_id, meal_date, meal_type, recipe_id)
+            SELECT id, user_id, meal_date, meal_type, recipe_id
+            FROM meal_plan_old;
+
+            DROP TABLE meal_plan_old;
+
+            CREATE INDEX IF NOT EXISTS idx_meal_plan_user_date
+                ON meal_plan (user_id, meal_date);
+            """
+        )
+        conn.commit()
+
 
 def init_db():
     """Create the database file and its tables if they don't exist yet.

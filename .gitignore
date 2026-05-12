@@ -40,3 +40,4 @@ htmlcov/
 
 # --- Jupyter ---
 .ipynb_checkpoints/
+pages/calorie_data.json
