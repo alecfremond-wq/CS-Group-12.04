@@ -34,7 +34,6 @@ from src.components.ui import page_header
 from src.data.api_client import (
     fetch_nutrition_by_title,
     fetch_nutrition_for_meal,
-    get_meal_by_id,
 )
 from src.data.database import execute, query_df
 from src.utils.session import init_session_state, require_profile
@@ -133,13 +132,10 @@ def _backfill_nutrition(recipe_id: int, title: str) -> int | None:
     Returns kcal as int, or None if the lookup failed.
     """
     try:
-        # Try MealDB first (ingredient-based, more accurate).
-        # If the recipe isn't in MealDB (returns None), fall back to title search.
-        meal = get_meal_by_id(str(recipe_id))
-        if meal:
-            nutrition = fetch_nutrition_for_meal(meal)
-        else:
-            nutrition = fetch_nutrition_by_title(title)
+        # recipe_id in our DB is the SQLite auto-increment ID, NOT the TheMealDB
+        # ID — so get_meal_by_id would never find it. Title search works for both
+        # MealDB and Spoonacular recipes and is already cached 24h in api_client.
+        nutrition = fetch_nutrition_by_title(title)
 
         kcal = nutrition.get("kcal")
 
