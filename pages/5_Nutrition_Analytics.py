@@ -158,8 +158,9 @@ def load_from_meal_plan(user_id) -> tuple:
             if not (day and meal):
                 continue
 
-            if row["kcal_per_serv"]:
-                kcal = int(row["kcal_per_serv"])
+            raw_kcal = row["kcal_per_serv"]
+            if raw_kcal is not None and not pd.isna(raw_kcal) and raw_kcal > 0:
+                kcal = int(raw_kcal)
             else:
                 kcal = 0
                 # Track recipes that are in the plan but have no kcal data
