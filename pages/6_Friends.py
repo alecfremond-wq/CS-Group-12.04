@@ -408,7 +408,7 @@ else:
         # Load this friend's wishlist from the database.
         wishlist = query_df(
             """
-            SELECT title, area, ingredients
+            SELECT title, image, area, ingredients
             FROM wishlist
             WHERE user_id = ?
             ORDER BY title
@@ -543,3 +543,49 @@ else:
                                             st.markdown(f"- {ing}")
                                 except Exception:
                                     pass
+
+                        # ── Save to my wishlist button ────────────────────────
+                        # Check if the current user already has this recipe saved.
+                        # We compare by title because that's the unique identifier
+                        # we use in the wishlist table (UNIQUE on user_id + title).
+                        already_saved = any(
+                            isinstance(w, dict) and w.get("title") == title
+                            for w in st.session_state.get("wishlist", [])
+                        )
+
+                        if already_saved:
+                            # Already saved — just show a small label.
+                            st.caption("❤️ Already in your wishlist")
+                        else:
+                            # The key must be unique per button on the page.
+                            # We combine friend ID + recipe title to achieve that.
+                            if st.button(
+                                "+ Save to wishlist",
+                                key=f"save_{friend['id']}_{title}",
+                            ):
+                                # Add to the in-memory session list so the rest
+                                # of the app (Recipes page, ML model) sees it right away.
+                                st.session_state.setdefault("wishlist", []).append({
+                                    "title":       title,
+                                    "image":       recipe.get("image"),
+                                    "area":        recipe.get("area", ""),
+                                    "local_id":    None,
+                                    "ingredients": json.loads(recipe["ingredients"] or "[]"),
+                                })
+                                # Persist to the database so it survives a reload.
+                                execute(
+                                    """
+                                    INSERT OR IGNORE INTO wishlist
+                                        (user_id, title, image, area, local_id, ingredients)
+                                    VALUES (?, ?, ?, ?, ?, ?)
+                                    """,
+                                    (
+                                        my_id,
+                                        title,
+                                        recipe.get("image"),
+                                        recipe.get("area", ""),
+                                        None,
+                                        recipe["ingredients"] or "[]",
+                                    ),
+                                )
+                                st.rerun()
