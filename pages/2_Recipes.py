@@ -15,6 +15,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from recipes_data import RECIPES as LOCAL_RECIPES
 from src.components.ui import empty_state, page_header
 from src.data.api_client import (
     filter_by_cuisine,
@@ -120,6 +121,8 @@ page_header("🍲 Recipes", "Search recipes or browse by cuisine.")
 
 # Always show the Meal Planner summary at the top of the page
 show_my_planner_banner()
+
+local_title_to_id = {r["name"].lower(): r["id"] for r in LOCAL_RECIPES}
 
 
 # ── World Map data ────────────────────────────────────────────────────────────
@@ -716,12 +719,13 @@ def render_meal_card(
                 st.caption("❤️ Saved to wishlist")
             else:
                 if st.button("❤️ Save to wishlist", key=f"{card_key}_wish_{meal_title}"):
+                    local_id = local_title_to_id.get(meal_title.lower())
                     st.session_state["wishlist"].append(
                         {
                             "title": meal_title,
                             "image": meal.get("strMealThumb"),
                             "area": meal.get("strArea", ""),
-                            "local_id": None,
+                            "local_id": local_id,
                             "ingredients": extract_ingredients(meal),
                         }
                     )
@@ -729,9 +733,10 @@ def render_meal_card(
 
             # ── Meal Planner ──────────────────────────────────────────────
             user_id = st.session_state.get("user_id")
-            local_id = None
+            local_id = local_title_to_id.get(meal_title.lower())
 
             # If not in the local recipe list, check the DB
+            if local_id is None:
                 existing_recipe = query_df(
                     """
                     SELECT id
@@ -890,7 +895,9 @@ with tab_search:
         if not results:
             empty_state("No recipes found — try another word.")
         else:
-            recipes_df = pd.DataFrame(columns=["title"])
+            recipes_df = pd.DataFrame(LOCAL_RECIPES).rename(
+                columns={"name": "title"}
+            )
 
             rec = Recommender(recipes_df)
             top_results = results[:10]
