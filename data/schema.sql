@@ -137,10 +137,12 @@ CREATE TABLE IF NOT EXISTS wishlist (
 -- follows: stores who follows whom.
 -- follower_id = the user who clicked "Follow"
 -- followed_id = the user they are following
+-- status      = 'pending' (request sent, not yet accepted) or 'accepted'
 -- UNIQUE prevents following the same person twice.
 CREATE TABLE IF NOT EXISTS follows (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     follower_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     followed_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status      TEXT    NOT NULL DEFAULT 'pending',
     UNIQUE (follower_id, followed_id)
 );
