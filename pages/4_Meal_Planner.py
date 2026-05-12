@@ -2,7 +2,7 @@
 Streamlit page that renders a weekly meal-planning grid.
 Users can assign recipes to specific meal slots (Breakfast, Lunch, Dinner, Snacks) for each day of the week, navigate between weeks, and remove meals.
 
-The `sys.path.append(...)`(line 58) is a workaround so that shared modules living in a sibling 
+The `sys.path.append(...)`(line 51) is a workaround so that shared modules living in a sibling 
 `src/` folder can be imported without installingthe project as a package.
 
 Dependecies:
