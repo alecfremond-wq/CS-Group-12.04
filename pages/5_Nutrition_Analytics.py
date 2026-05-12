@@ -39,57 +39,41 @@ page_header("📊 Nutrition Analytics", "Track your calorie intake.")
 DEFAULT_GOAL = 2000
 DAYS      = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 MEALS     = ["Breakfast", "Lunch", "Dinner", "Snacks"]
-DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "calorie_data.json")
+DATA_FILE = "calorie_data.json"
 
 # ── Persistence helpers ────────────────────────────────────────────────────────
 
 def load_overrides() -> dict:
     """Load manually-edited calorie values saved by the user."""
-    try:
-        if os.path.exists(DATA_FILE):
-            with open(DATA_FILE) as f:
-                raw = json.load(f)
-            return raw.get("manual_overrides", {})
-    except (json.JSONDecodeError, OSError) as e:
-        st.warning(f"Could not read saved overrides: {e}")
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE) as f:
+            raw = json.load(f)
+        return raw.get("manual_overrides", raw)
     return {}
-
 
 def load_saved_goal() -> int:
     """Load the user's last saved calorie goal from disk."""
-    try:
-        if os.path.exists(DATA_FILE):
-            with open(DATA_FILE) as f:
-                raw = json.load(f)
-            return int(raw.get("calorie_goal", DEFAULT_GOAL))
-    except (json.JSONDecodeError, OSError, ValueError):
-        pass
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE) as f:
+            raw = json.load(f)
+        return raw.get("calorie_goal", DEFAULT_GOAL)
     return DEFAULT_GOAL
 
-
 def save_overrides(overrides: dict) -> None:
-    """Persist manual overrides to disk, preserving the current calorie goal."""
-    try:
-        with open(DATA_FILE, "w") as f:
-            json.dump({
-                "calorie_goal": st.session_state.get("calorie_goal", DEFAULT_GOAL),
-                "manual_overrides": overrides,
-            }, f, indent=2)
-    except OSError as e:
-        st.error(f"Could not save overrides: {e}")
-
+    with open(DATA_FILE, "w") as f:
+        json.dump({
+            "calorie_goal": st.session_state.get("calorie_goal", DEFAULT_GOAL),
+            "manual_overrides": overrides,
+        }, f, indent=2)
 
 def save_goal(goal: int) -> None:
     """Persist the calorie goal to disk without touching overrides."""
-    try:
-        overrides = load_overrides()
-        with open(DATA_FILE, "w") as f:
-            json.dump({
-                "calorie_goal": goal,
-                "manual_overrides": overrides,
-            }, f, indent=2)
-    except OSError as e:
-        st.error(f"Could not save goal: {e}")
+    overrides = load_overrides()
+    with open(DATA_FILE, "w") as f:
+        json.dump({
+            "calorie_goal": goal,
+            "manual_overrides": overrides,
+        }, f, indent=2)
 
 # ── Calorie goal banner ────────────────────────────────────────────────────────
 
@@ -130,28 +114,28 @@ _MEAL_MAP = {
     "Dinner": "Dinner", "Snacks": "Snacks",
 }
 
-
-def load_from_meal_plan(user_id) -> dict:
+def load_from_meal_plan(user_id) -> tuple:
     """Fetch this week's planned meals from the DB and return kcal per day/meal.
 
     Always called fresh on every Streamlit run so that adding or removing a
     dish in the Meal Planner is reflected here immediately.
 
-    Returns a nested dict: { "Mon": { "Breakfast": 450, ... }, ... }
-    Only slots with a planned recipe *and* known kcal_per_serv are filled;
-    everything else stays at 0 so we don't show phantom calories.
+    Returns:
+        result       -- nested dict: { "Mon": { "Breakfast": 450, ... }, ... }
+                        Only slots with a planned recipe *and* known kcal_per_serv
+                        are filled; everything else stays at 0.
+        missing_kcal -- list of recipe titles that have no kcal stored in the DB,
+                        so the user knows which ones to fill in manually.
     """
-    # FIX: guard against missing or falsy user_id explicitly
-    if not user_id:
-        st.info("ℹ️ No user profile found — meal-planner data not loaded. "
-                "Please complete your profile to sync planned meals.")
-        return {}
-
     today      = date.today()
     week_start = today - timedelta(days=today.weekday())
     week_end   = week_start + timedelta(days=6)
 
-    result: dict = {}
+    result: dict           = {}
+    missing_kcal: list     = []
+
+    if not user_id:
+        return result, missing_kcal
 
     try:
         df = query_df(
@@ -164,12 +148,8 @@ def load_from_meal_plan(user_id) -> dict:
             """,
             (user_id, week_start.isoformat(), week_end.isoformat()),
         )
-
-        # FIX: explicit check for None or empty before iterating
         if df is None or df.empty:
-            st.info("ℹ️ No meals found in your Meal Planner for the current week. "
-                    "Add recipes there, or enter calories manually below.")
-            return result
+            return result, missing_kcal
 
         for _, row in df.iterrows():
             full_day = pd.to_datetime(row["meal_date"]).strftime("%A")
@@ -178,29 +158,27 @@ def load_from_meal_plan(user_id) -> dict:
             if not (day and meal):
                 continue
 
-            # FIX: safely coerce kcal_per_serv — treat None/NaN/0 as 0
-            raw_kcal = row.get("kcal_per_serv")
-            try:
-                kcal = int(float(raw_kcal)) if raw_kcal is not None and raw_kcal == raw_kcal else 0
-            except (ValueError, TypeError):
+            if row["kcal_per_serv"]:
+                kcal = int(row["kcal_per_serv"])
+            else:
                 kcal = 0
+                # Track recipes that are in the plan but have no kcal data
+                title = row.get("title", "Unknown")
+                if title not in missing_kcal:
+                    missing_kcal.append(title)
 
             result.setdefault(day, {})
+            # Sum up in case multiple recipes are planned for the same slot.
             result[day][meal] = result[day].get(meal, 0) + kcal
 
-    # FIX: surface the real error instead of silently swallowing it
     except Exception as e:
-        st.error(
-            f"⚠️ Could not load meal-plan data: **{e}**\n\n"
-            "Calories from the Meal Planner won't appear until this is resolved. "
-            "You can still enter calories manually using the edit panel below."
-        )
+        st.warning(f"Errore nel caricamento del Meal Planner: {e}")
 
-    return result
+    return result, missing_kcal
 
 # ── Build the working data dict ────────────────────────────────────────────────
 
-def build_data(user_id) -> tuple[dict, set]:
+def build_data(user_id) -> tuple:
     """Combine meal-planner calories with manual overrides.
 
     Priority:
@@ -209,18 +187,21 @@ def build_data(user_id) -> tuple[dict, set]:
       3. Apply manual overrides saved by the user — but ONLY for days/meals
          where no meal-plan entry exists, so that removing a dish from the
          planner zeroes out that slot rather than keeping the old manual value.
+
+    Returns (data, planned_slots, missing_kcal).
+    missing_kcal is a list of recipe titles whose kcal_per_serv is NULL in the
+    DB — displayed as a warning so the user knows to fix them in Recipes.
     """
     # Step 1 — blank slate
     data = {day: {meal: 0 for meal in MEALS} for day in DAYS}
 
     # Step 2 — meal-plan calories (always fresh)
-    plan_calories = load_from_meal_plan(user_id)
-    planned_slots: set = set()
+    plan_calories, missing_kcal = load_from_meal_plan(user_id)
+    planned_slots: set = set()   # track which (day, meal) pairs have a real entry
     for day, meals in plan_calories.items():
         for meal, kcal in meals.items():
-            if day in data and meal in data[day]:   # FIX: bounds-check before writing
-                data[day][meal] = kcal
-                planned_slots.add((day, meal))
+            data[day][meal] = kcal
+            planned_slots.add((day, meal))
 
     # Step 3 — manual overrides only for unplanned slots
     overrides = load_overrides()
@@ -228,22 +209,35 @@ def build_data(user_id) -> tuple[dict, set]:
         for meal in MEALS:
             if (day, meal) not in planned_slots:
                 manual = overrides.get(day, {}).get(meal)
-                # FIX: accept 0 as a valid manual override (was falsy before)
                 if manual is not None:
-                    try:
-                        data[day][meal] = int(manual)
-                    except (ValueError, TypeError):
-                        pass  # ignore corrupt override values
+                    data[day][meal] = manual
 
-    return data, planned_slots
+    return data, planned_slots, missing_kcal
 
 # ── Session state ──────────────────────────────────────────────────────────────
 
 user_id = st.session_state.get("user_id")
 
 # Rebuild data on every run so meal-planner changes appear immediately.
-data, planned_slots = build_data(user_id)
+data, planned_slots, missing_kcal = build_data(user_id)
 st.session_state.cal_data = data
+
+# Warn about recipes without calorie data so the user can fix them in Recipes
+if missing_kcal:
+    with st.expander(
+        f"⚠️ {len(missing_kcal)} ricetta/e nel Meal Planner senza dati calorici — clicca per dettagli",
+        expanded=False,
+    ):
+        st.caption(
+            "Queste ricette sono pianificate questa settimana ma non hanno "
+            "calorie salvate nel database. Vai alla pagina **Ricette**, "
+            "rimuovile dal Meal Planner e aggiungile di nuovo — le calorie "
+            "verranno recuperate automaticamente da Spoonacular. "
+            "In alternativa, inserisci i valori a mano tramite il pannello "
+            "**✏️ Edit** qui sotto."
+        )
+        for t in missing_kcal:
+            st.markdown(f"- {t}")
 
 if "cal_selected" not in st.session_state:
     st.session_state.cal_selected = DAYS[0]
@@ -252,11 +246,10 @@ selected = st.session_state.cal_selected
 totals   = [sum(data[d].values()) for d in DAYS]
 avg      = sum(totals) / 7
 
-
 def day_total(d: str) -> int:
     return sum(data[d].values())
 
-# ── Header ─────────────────────────────────────────────────────────────────────
+# ── Header ────────────────────────────────────────────────────────────────────
 
 col_left, col_right = st.columns([3, 1])
 with col_left:
@@ -275,12 +268,14 @@ with col_right:
         unsafe_allow_html=True,
     )
 
-# ── Bar chart ──────────────────────────────────────────────────────────────────
+# ── Bar chart ─────────────────────────────────────────────────────────────────
 
-bar_colors = [
-    "#ED7D3A" if day == selected else "#FFCC99"
-    for day in DAYS
-]
+bar_colors = []
+for day, total in zip(DAYS, totals):
+    if day == selected:
+        bar_colors.append("#ED7D3A")   # arancione — giorno selezionato
+    else:
+        bar_colors.append("#FFCC99")   # grigio — tutti gli altri
 
 fig = go.Figure()
 
@@ -308,13 +303,18 @@ fig.update_layout(
 )
 st.plotly_chart(fig, use_container_width=True)
 
-# ── Day pills ──────────────────────────────────────────────────────────────────
+# ── Day pills ─────────────────────────────────────────────────────────────────
 
 pill_cols = st.columns(7)
 for i, (day, total) in enumerate(zip(DAYS, totals)):
-    label      = f"{total/1000:.1f}k" if total >= 1000 else str(total)
-    line_color = "#FF6B35" if day == selected else "#C8C8C8"
-    border     = "2px solid #FF6B35" if day == selected else "1px solid #e0e0e0"
+    label = f"{total/1000:.1f}k" if total >= 1000 else str(total)
+
+    if day == selected:
+        line_color = "#FF6B35"
+    else:
+        line_color = "#C8C8C8"
+
+    border = "2px solid #FF6B35" if day == selected else "1px solid #e0e0e0"
 
     with pill_cols[i]:
         st.markdown(
@@ -330,22 +330,22 @@ for i, (day, total) in enumerate(zip(DAYS, totals)):
             st.session_state.cal_selected = day
             st.rerun()
 
-# ── Detail panel ───────────────────────────────────────────────────────────────
+# ── Detail panel ──────────────────────────────────────────────────────────────
 
 day_data  = data[selected]
 total_day = day_total(selected)
-# FIX: guard against all-zero day so progress bar doesn't divide by zero
 max_kcal  = max(max(day_data.values(), default=1), 1)
 
 with st.container(border=True):
     st.markdown(f"**{selected} — {total_day:,} kcal total**")
 
     for meal in MEALS:
-        kcal         = day_data[meal]
+        kcal = day_data[meal]
         is_from_plan = (selected, meal) in planned_slots
 
         c1, c2 = st.columns([5, 1])
         with c1:
+            # Show a small tag if calories come from the meal planner
             tag = " 📅" if is_from_plan and kcal > 0 else ""
             st.markdown(f"{meal}{tag}")
             st.progress(kcal / max_kcal if max_kcal > 0 else 0)
@@ -358,7 +358,7 @@ with st.container(border=True):
     if any((selected, m) in planned_slots for m in MEALS):
         st.caption("📅 = calories synced automatically from your Meal Planner")
 
-# ── Edit meals ─────────────────────────────────────────────────────────────────
+# ── Edit meals ────────────────────────────────────────────────────────────────
 
 with st.expander(f"✏️ Edit calories manually for {selected}"):
     st.caption(
@@ -366,36 +366,27 @@ with st.expander(f"✏️ Edit calories manually for {selected}"):
         "You can override them here, but removing the recipe from the "
         "Meal Planner will reset that slot to 0 automatically."
     )
-    ecols    = st.columns(4)
+    ecols = st.columns(4)
     new_vals = {}
-    MAX_KCAL = 10000
-
+    MAX_KCAL = 10000          # raised ceiling
     for i, meal in enumerate(MEALS):
         with ecols[i]:
-            # FIX: clamp current value before passing to number_input to avoid
-            # ValueError when a stored value exceeds the widget's max_value
-            current = max(0, min(int(day_data[meal]), MAX_KCAL))
+            current = min(int(day_data[meal]), MAX_KCAL)   # clamp to max
             new_vals[meal] = st.number_input(
-                meal,
-                min_value=0,
-                max_value=MAX_KCAL,
-                value=current,
-                step=10,
+                meal, min_value=0, max_value=10000,
+                value=min(int(day_data[meal]), 10000), step=10,
                 key=f"inp_{selected}_{meal}",
             )
-
     if st.button("💾 Save", key="save_day"):
         overrides = load_overrides()
         overrides.setdefault(selected, {})
         for meal, val in new_vals.items():
             overrides[selected][meal] = val
         save_overrides(overrides)
-        st.success(
-            "Saved! Meal-planner slots will still be overridden by the planner on the next sync."
-        )
+        st.success("Saved! Meal-planner slots will still be overridden by the planner on the next sync.")
         st.rerun()
 
-# ── Stats ───────────────────────────────────────────────────────────────────────
+# ── Stats ──────────────────────────────────────────────────────────────────────
 
 totals_dict = {d: day_total(d) for d in DAYS}
 best_day    = min(totals_dict, key=lambda d: abs(totals_dict[d] - GOAL))
