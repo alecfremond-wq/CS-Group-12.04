@@ -31,6 +31,17 @@ st.caption(
     "on the Recipes page."
 )
 
+# Info box explaining how the pantry badge works on the Recipes page
+st.info(
+    "**How the Recipes badge works** \n\n"
+    "On the Recipes page, each recipe shows a badge based on how many of its "
+    "ingredients you already have in your pantry:\n\n"
+    "🟢 **Pantry-friendly** — you have more than 60% of the ingredients\n\n"
+    "🟡 **Partially available** — you have between 30% and 60% of the ingredients\n\n"
+    "No badge — you have less than 30% of the ingredients\n\n"
+    "The more ingredients you add here, the more accurate the badges will be."
+)
+
 # ── Add ingredient form ────────────────────────────────────────────────────────
 # clear_on_submit=True resets all fields automatically after the user submits
 with st.form("add_item", clear_on_submit=True):
