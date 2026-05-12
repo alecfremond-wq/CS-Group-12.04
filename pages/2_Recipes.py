@@ -211,15 +211,6 @@ if "planner_added_title" in st.session_state:
     added_title = st.session_state.pop("planner_added_title")
     st.toast(f"✅ '{added_title}' added to Meal Planner!", icon="🍽️")
 
-if "kcal_missing_warning" in st.session_state:
-    missing_title = st.session_state.pop("kcal_missing_warning")
-    st.warning(
-        f"⚠️ Calories could not be fetched for **{missing_title}** — "
-        "the Spoonacular API quota may be exhausted for today. "
-        "You can enter them manually in **Nutrition Analytics**.",
-        icon="🔑",
-    )
-
 # ── Spoonacular data notice ───────────────────────────────────────────────────
 st.info(
     "🥄 **Calorie & nutrition data** for TheMealDB recipes is estimated via the "
@@ -906,12 +897,7 @@ def render_meal_card(
                             (user_id, local_id),
                         )
 
-                    # Both messages are stored in session state and rendered
-                    # after the rerun — toasts fired just before st.rerun()
-                    # are swallowed before Streamlit can display them.
                     st.session_state["planner_added_title"] = meal_title
-                    if kcal is None:
-                        st.session_state["kcal_missing_warning"] = meal_title
                     st.rerun()
 
 
