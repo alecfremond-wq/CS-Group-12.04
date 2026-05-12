@@ -716,13 +716,12 @@ def render_meal_card(
                 st.caption("❤️ Saved to wishlist")
             else:
                 if st.button("❤️ Save to wishlist", key=f"{card_key}_wish_{meal_title}"):
-                    local_id = local_title_to_id.get(meal_title.lower())
                     st.session_state["wishlist"].append(
                         {
                             "title": meal_title,
                             "image": meal.get("strMealThumb"),
                             "area": meal.get("strArea", ""),
-                            "local_id": local_id,
+                            "local_id": None,
                             "ingredients": extract_ingredients(meal),
                         }
                     )
@@ -730,10 +729,9 @@ def render_meal_card(
 
             # ── Meal Planner ──────────────────────────────────────────────
             user_id = st.session_state.get("user_id")
-            local_id = local_title_to_id.get(meal_title.lower())
+            local_id = None
 
             # If not in the local recipe list, check the DB
-            if local_id is None:
                 existing_recipe = query_df(
                     """
                     SELECT id
