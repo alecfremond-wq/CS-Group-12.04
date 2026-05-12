@@ -5,10 +5,6 @@
 #  Every function that touches a specific profile takes an explicit `user_id`
 #  so that pantry / meal-plan data (which already carry user_id FKs) stays
 #  properly scoped per person.
-# ============================================================================
-#  AI-ASSISTED AUTHORSHIP: scaffold drafted with Anthropic Claude (05/2026),
-#  reviewed by Group 12.04. See README.md.
-# ============================================================================
 
 from __future__ import annotations
 
