@@ -302,6 +302,13 @@ def load_from_meal_plan(user_id) -> dict:
                 recipe_id = int(row["recipe_id"])
                 title     = row.get("title", "")
                 kcal_raw  = _backfill_nutrition(recipe_id, title)
+                if kcal_raw is None:
+                    st.warning(
+                        f"⚠️ Could not fetch calories for **{title}** — "
+                        "Spoonacular API quota may be exhausted. "
+                        "Enter calories manually below.",
+                        icon="🔑",
+                    )
 
             kcal = _safe_int(kcal_raw)
 
