@@ -120,7 +120,7 @@ def save_goal(goal: int) -> None:
 
 # ── DB nutrition backfill ──────────────────────────────────────────────────────
 
-def _backfill_nutrition(recipe_id: int, source: str, title: str) -> int | None:
+def _backfill_nutrition(recipe_id: int, title: str) -> int | None:
     """Fetch kcal from Spoonacular and persist it to the DB.
 
     Called lazily the first time a recipe slot has NULL kcal_per_serv.
@@ -209,7 +209,6 @@ def load_from_meal_plan(user_id) -> dict:
                 mp.meal_type,
                 mp.recipe_id,
                 r.title,
-                r.source,
                 r.kcal_per_serv
             FROM meal_plan mp
             JOIN recipes r ON mp.recipe_id = r.id
@@ -237,10 +236,9 @@ def load_from_meal_plan(user_id) -> dict:
 
             # If kcal is missing, fetch from Spoonacular and backfill the DB
             if _is_null(kcal_raw):
-                source    = row.get("source") or "mealdb"
                 recipe_id = int(row["recipe_id"])
                 title     = row.get("title", "")
-                kcal_raw  = _backfill_nutrition(recipe_id, source, title)
+                kcal_raw  = _backfill_nutrition(recipe_id, title)
 
             kcal = _safe_int(kcal_raw)
 
