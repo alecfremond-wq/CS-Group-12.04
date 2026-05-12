@@ -61,7 +61,6 @@ my_id = st.session_state.get("user_id")
 # We create the table here with a 'status' column that tracks whether a follow
 # request is waiting for approval ('pending') or has been accepted ('accepted').
 #
-# Why status?
 #   When user A clicks "Follow" on user B, we don't want B's wishlist to be
 #   visible immediately. Instead, B gets a follow request they can accept or
 #   decline. Only after accepting does A see B's wishlist.
@@ -92,7 +91,7 @@ except Exception:
     pass
 
 
-# ── Helper: load full recipe details from TheMealDB ───────────────────────────
+# ── Helper: load full recipe details from TheMealDB (same as in recipes page)───────────────────────────
 
 def fetch_full_recipe(title: str) -> dict | None:
     """Try to load the complete recipe data for a given title from TheMealDB.
@@ -101,7 +100,6 @@ def fetch_full_recipe(title: str) -> dict | None:
     the cooking instructions. This function asks TheMealDB for the full
     recipe by searching for the exact title.
 
-    Why search instead of lookup by ID?
         We never stored the TheMealDB ID in the wishlist table, so we
         have to search by name. TheMealDB's search endpoint returns all
         meals whose name CONTAINS the query, so we then check whether
@@ -342,6 +340,37 @@ with col_followers:
             with st.container(border=True):
                 st.markdown(f"**{follower['name']}**")
                 st.caption(f"@{follower['username']}")
+
+                # Check whether WE already follow this person back.
+                # We look for a row where we are the follower and they are the followed.
+                back_row = query_df(
+                    """
+                    SELECT status FROM follows
+                    WHERE follower_id = ? AND followed_id = ?
+                    """,
+                    (my_id, int(follower["id"])),
+                )
+
+                if back_row is None or back_row.empty:
+                    # We don't follow them yet → show a "Follow back" button.
+                    # Clicking sends a pending follow request to them, just like
+                    # the normal Follow button in the search panel.
+                    if st.button("Follow back ＋", key=f"followback_{follower['id']}",
+                                 use_container_width=True):
+                        execute(
+                            """
+                            INSERT OR IGNORE INTO follows
+                                (follower_id, followed_id, status)
+                            VALUES (?, ?, 'pending')
+                            """,
+                            (my_id, int(follower["id"])),
+                        )
+                        st.rerun()
+
+                elif back_row.iloc[0]["status"] == "pending":
+                    # We sent a request but they haven't accepted it yet.
+                    # Just show a small grey label — no button needed.
+                    st.caption("⏳ Request sent")
 
 st.divider()
 
