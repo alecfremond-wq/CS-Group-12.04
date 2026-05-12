@@ -31,11 +31,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from src.components.ui import page_header
-from src.data.api_client import (
-    fetch_nutrition_by_title,
-    fetch_nutrition_for_meal,
-    get_meal_by_id,
-)
+from src.data.api_client import fetch_nutrition_by_title
 from src.data.database import execute, query_df
 from src.utils.session import init_session_state, require_profile
 
@@ -133,11 +129,11 @@ def _backfill_nutrition(recipe_id: int, title: str) -> int | None:
     Returns kcal as int, or None if the lookup failed.
     """
     try:
-        meal = get_meal_by_id(str(recipe_id))
-        if meal:
-            nutrition = fetch_nutrition_for_meal(meal)
-        else:
-            nutrition = fetch_nutrition_by_title(title)
+        # The DB does not store the original MealDB ID — only the SQLite row id.
+        # get_meal_by_id() would therefore look up the wrong recipe entirely.
+        # fetch_nutrition_by_title() works for both MealDB and Spoonacular recipes
+        # and is the correct strategy here.
+        nutrition = fetch_nutrition_by_title(title)
 
         kcal = nutrition.get("kcal")
 
