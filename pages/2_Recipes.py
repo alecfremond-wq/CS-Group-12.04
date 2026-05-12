@@ -57,6 +57,44 @@ def extract_ingredients(meal: dict) -> list[str]:
     return ingredients
 
 
+# ── Allergy helper ───────────────────────────────────────────────────────────
+
+# Keyword map: allergy name → words to look for inside ingredient strings
+_ALLERGY_KEYWORDS: dict[str, list[str]] = {
+    "gluten":    ["flour", "wheat", "bread", "pasta", "noodle", "soy sauce",
+                  "barley", "rye", "semolina", "couscous", "breadcrumb"],
+    "celiac":    ["flour", "wheat", "bread", "pasta", "noodle", "soy sauce",
+                  "barley", "rye", "semolina", "couscous", "breadcrumb"],
+    "lactose":   ["milk", "cream", "butter", "cheese", "yogurt", "yoghurt",
+                  "dairy", "whey", "lactose"],
+    "nuts":      ["almond", "cashew", "walnut", "pecan", "hazelnut", "pistachio",
+                  "macadamia", "pine nut", "chestnut", "nut"],
+    "peanut":    ["peanut", "groundnut"],
+    "eggs":      ["egg", "eggs"],
+    "soy":       ["soy", "tofu", "edamame", "miso", "tempeh", "tamari"],
+    "shellfish": ["shrimp", "prawn", "crab", "lobster", "clam", "mussel",
+                  "oyster", "scallop", "squid", "octopus", "crayfish"],
+}
+
+
+def check_allergy_conflicts(meal: dict, user_allergies: list[str]) -> list[str]:
+    """Return a list of allergen names that appear in the recipe ingredients.
+
+    Compares the meal's ingredient strings (case-insensitive) against the
+    keyword list for each allergy the user has declared.
+    Returns an empty list when the meal is safe for the user.
+    """
+    if not user_allergies:
+        return []
+    ingredients_text = " ".join(extract_ingredients(meal)).lower()
+    conflicts = []
+    for allergy in user_allergies:
+        keywords = _ALLERGY_KEYWORDS.get(allergy.lower(), [allergy.lower()])
+        if any(kw in ingredients_text for kw in keywords):
+            conflicts.append(allergy)
+    return conflicts
+
+
 # ── Nutrition helper ──────────────────────────────────────────────────────────
 
 def _fetch_nutrition_robust(meal: dict) -> dict:
@@ -758,6 +796,21 @@ has_taste_profile = (
     )
 )
 
+# ── Allergy filter toggle ─────────────────────────────────────────────────────
+
+user_allergies: list[str] = profile.get("allergies") or []
+
+if user_allergies:
+    _labels = ", ".join(user_allergies)
+    hide_unsafe = st.toggle(
+        f"🛡️ Hide recipes that contain my allergens ({_labels})",
+        value=True,
+        key="hide_unsafe_recipes",
+        help="Turn off to see all recipes — unsafe ones will still show a warning badge.",
+    )
+else:
+    hide_unsafe = False
+
 tab_search, tab_cuisine = st.tabs(["🔎 Search", "🌍 Browse by cuisine"])
 
 
@@ -768,6 +821,7 @@ def render_meal_card(
     ml_score: float | None = None,
     pantry: float | None = None,
     card_key: str = "",
+    user_allergies: list[str] | None = None,
 ) -> None:
     """Draw a single recipe card.
 
@@ -796,6 +850,28 @@ def render_meal_card(
                     st.success("🟢 Pantry-friendly")
                 elif pantry > 0.3:
                     st.warning("🟡 Partially available")
+
+            # ── Allergy badge ─────────────────────────────────────────────
+            if user_allergies:
+                conflicts = check_allergy_conflicts(meal, user_allergies)
+                if conflicts:
+                    st.markdown(
+                        f'<div style="display:inline-flex;align-items:center;gap:8px;'
+                        f'background:#FCEBEB;color:#A32D2D;border:0.5px solid #F09595;'
+                        f'border-radius:999px;padding:5px 14px;font-size:13px;font-weight:500;margin:4px 0;">'
+                        f'⚠️ Not safe for your allergies — contains {", ".join(conflicts)}'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        '<div style="display:inline-flex;align-items:center;gap:8px;'
+                        'background:#EAF3DE;color:#3B6D11;border:0.5px solid #97C459;'
+                        'border-radius:999px;padding:5px 14px;font-size:13px;font-weight:500;margin:4px 0;">'
+                        '✅ Safe for your allergies — you\'re good to go!'
+                        '</div>',
+                        unsafe_allow_html=True,
+                    )
 
             with st.expander("🧾 Ingredients & Instructions"):
                 col_ing, col_inst = st.columns([1, 2])
@@ -1006,11 +1082,15 @@ with tab_search:
             user_pantry = get_pantry()
 
             for idx, (meal, score) in enumerate(scored_results):
+                conflicts = check_allergy_conflicts(meal, user_allergies)
+                if hide_unsafe and conflicts:
+                    continue
                 render_meal_card(
                     meal,
                     ml_score=score,
                     pantry=pantry_pct(meal, user_pantry),
                     card_key=f"search_{idx}",
+                    user_allergies=user_allergies,
                 )
 
 
@@ -1114,10 +1194,14 @@ with tab_cuisine:
             else:
                 user_pantry = get_pantry()
                 for idx, meal in enumerate(cuisine_results[:10]):
+                    conflicts = check_allergy_conflicts(meal, user_allergies)
+                    if hide_unsafe and conflicts:
+                        continue
                     render_meal_card(
                         meal,
                         pantry=pantry_pct(meal, user_pantry),
                         card_key=f"cuisine_{idx}",
+                        user_allergies=user_allergies,
                     )
         else:
             st.info("👆 Click a country on the map to explore its recipes.")
