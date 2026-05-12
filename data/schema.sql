@@ -1,3 +1,4 @@
+
 -- CookTogether database schema.
 -- Edit this file to add tables/columns. `init_db()` runs it on app start.
 -- All statements are idempotent (IF NOT EXISTS) so reloading is safe.
@@ -18,6 +19,7 @@ CREATE TABLE IF NOT EXISTS recipes (
     instructions    TEXT,
     image_url       TEXT,
     source_url      TEXT,           -- where the recipe came from (API or manual)
+    mealdb_id       TEXT,           -- TheMealDB idMeal (e.g. '52772'), NULL for Spoonacular
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
