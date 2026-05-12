@@ -29,6 +29,7 @@ from src.data.api_client import (
     search_spoonacular,
 )
 from src.data.database import query_df, execute
+from src.data.pantry_repo import coverage
 from src.models.recommender import Recommender
 from src.utils.session import init_session_state, require_profile
 
@@ -681,14 +682,13 @@ def get_pantry() -> set[str]:
 
 
 def pantry_pct(meal: dict, pantry: set[str]) -> float | None:
-    """Return fraction of ingredients already in pantry."""
+    """Return fraction of ingredients already in pantry using smart matching."""
     if not pantry:
         return None
     ingredients = extract_ingredients(meal)
     if not ingredients:
         return None
-    names = [i.lower() for i in ingredients]
-    return sum(1 for n in names if n in pantry) / len(names)
+    return coverage(ingredients, pantry)
 
 
 # ── Wishlist / taste-profile setup ────────────────────────────────────────────
