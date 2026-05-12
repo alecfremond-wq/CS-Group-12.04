@@ -25,14 +25,10 @@ def load_meals_for_week(user_id: int, week_start: date, week_end: date):
         AND mp.meal_date BETWEEN ? AND ?
         ORDER BY mp.meal_date, mp.meal_type
     """
-    meals_df = query_df(
-        query,
-        (user_id, week_start.isoformat(), week_end.isoformat())
-    )
+    meals_df = query_df(query,(user_id, week_start.isoformat(), week_end.isoformat())) 
+    
     if meals_df is None:
-        meals_df = pd.DataFrame(
-            columns=["id", "meal_date", "meal_type", "recipe_id", "title"]
-        )
+        meals_df = pd.DataFrame(columns=["id", "meal_date", "meal_type", "recipe_id", "title"])
     return meals_df
 
 # --- WEEK START ---
@@ -48,8 +44,8 @@ week_id = week_start.isoformat()
 if st.session_state.get("active_week") != week_id:
     keys_to_delete = [
         k for k in list(st.session_state.keys())
-        if isinstance(k, str) and k.startswith("meal_")
-    ]
+        if isinstance(k, str) and k.startswith("meal_")]
+    
     for k in keys_to_delete:
         del st.session_state[k]
     st.session_state.active_week = week_id
@@ -76,8 +72,7 @@ recipes_df = query_df(
     WHERE pp.user_id = ?
     ORDER BY r.title
     """,
-    (st.session_state.user_id,)
-)
+    (st.session_state.user_id,))
 
 if recipes_df is None:
     recipes_df = pd.DataFrame(columns=["id", "title"])
@@ -126,8 +121,7 @@ icons = {
     "Breakfast": "🍳",
     "Lunch": "🥗",
     "Dinner": "🍝",
-    "Snacks": "🍰"
-}
+    "Snacks": "🍰"   }
 
 for meal in MEALS:
     row = st.columns(8)
@@ -167,8 +161,7 @@ for meal in MEALS:
                         options=options,
                         format_func=lambda x: "Select..." if x == PLACEHOLDER else recipe_dict.get(x, x),
                         key=select_key,
-                        label_visibility="collapsed"
-                    )
+                        label_visibility="collapsed" )
 
                     selected = selected_raw if selected_raw != PLACEHOLDER else None
 
@@ -184,8 +177,7 @@ for meal in MEALS:
                                 d.isoformat(),
                                 meal,
                                 selected
-                            )
-                        )
+                            ))
                         st.rerun()
 
 st.divider()
