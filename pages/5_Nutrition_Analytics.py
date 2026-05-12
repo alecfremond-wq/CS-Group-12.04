@@ -286,6 +286,8 @@ def load_from_meal_plan(user_id) -> dict:
             )
             return result
 
+        failed_titles: list[str] = []
+
         for _, row in df.iterrows():
             full_day = pd.to_datetime(row["meal_date"]).strftime("%A")
             day  = _DAY_MAP.get(full_day)
@@ -303,17 +305,22 @@ def load_from_meal_plan(user_id) -> dict:
                 title     = row.get("title", "")
                 kcal_raw  = _backfill_nutrition(recipe_id, title)
                 if kcal_raw is None:
-                    st.warning(
-                        f"⚠️ Could not fetch calories for **{title}** — "
-                        "Spoonacular API quota may be exhausted. "
-                        "Enter calories manually below.",
-                        icon="🔑",
-                    )
+                    failed_titles.append(title)
 
             kcal = _safe_int(kcal_raw)
 
             result.setdefault(day, {})
             result[day][meal] = result[day].get(meal, 0) + kcal
+
+        # Show a single consolidated warning if any recipes failed
+        if failed_titles:
+            names = ", ".join(f"**{t}**" for t in failed_titles)
+            st.warning(
+                f"⚠️ Calorie data could not be fetched for {names}. "
+                "The Spoonacular API quota may be exhausted for today — "
+                "you can enter calories manually in the edit panel below.",
+                icon="🔑",
+            )
 
     except Exception as e:
         st.error(
