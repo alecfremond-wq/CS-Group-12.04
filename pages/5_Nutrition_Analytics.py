@@ -36,72 +36,30 @@ page_header("📊 Nutrition Analytics", "Track your calorie intake.")
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
-DEFAULT_GOAL = 2000
+GOAL      = 2000
 DAYS      = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-MEALS     = ["Breakfast", "Lunch", "Dinner", "Snacks"]
+MEALS     = ["Breakfast", "Lunch", "Snacks", "Dinner"]
 DATA_FILE = "calorie_data.json"
 
-# ── Persistence helpers ────────────────────────────────────────────────────────
+# ── Persistence helpers (manual overrides only) ────────────────────────────────
 
 def load_overrides() -> dict:
-    """Load manually-edited calorie values saved by the user."""
+    """Load manually-edited calorie values saved by the user.
+
+    We only store *overrides* here — values the user explicitly typed in
+    the edit panel. Meal-planner calories are always re-fetched live.
+    """
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE) as f:
             raw = json.load(f)
+        # Support both the old flat format and the new "manual_overrides" key.
         return raw.get("manual_overrides", raw)
     return {}
 
-def load_saved_goal() -> int:
-    """Load the user's last saved calorie goal from disk."""
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE) as f:
-            raw = json.load(f)
-        return raw.get("calorie_goal", DEFAULT_GOAL)
-    return DEFAULT_GOAL
-
 def save_overrides(overrides: dict) -> None:
+    """Persist manual calorie overrides to disk."""
     with open(DATA_FILE, "w") as f:
-        json.dump({
-            "calorie_goal": st.session_state.get("calorie_goal", DEFAULT_GOAL),
-            "manual_overrides": overrides,
-        }, f, indent=2)
-
-def save_goal(goal: int) -> None:
-    """Persist the calorie goal to disk without touching overrides."""
-    overrides = load_overrides()
-    with open(DATA_FILE, "w") as f:
-        json.dump({
-            "calorie_goal": goal,
-            "manual_overrides": overrides,
-        }, f, indent=2)
-
-# ── Calorie goal banner ────────────────────────────────────────────────────────
-
-if "calorie_goal" not in st.session_state:
-    st.session_state.calorie_goal = load_saved_goal()
-
-with st.container(border=True):
-    banner_col1, banner_col2, banner_col3 = st.columns([3, 2, 1])
-    with banner_col1:
-        st.markdown("🎯 **Your daily calorie goal**")
-        st.caption("Set a personal target to track against the chart and stats.")
-    with banner_col2:
-        goal_input = st.number_input(
-            "kcal/day",
-            min_value=500,
-            max_value=10000,
-            value=st.session_state.calorie_goal,
-            step=50,
-            label_visibility="collapsed",
-            key="goal_input_widget",
-        )
-    with banner_col3:
-        if st.button("✅ Set goal", use_container_width=True):
-            st.session_state.calorie_goal = goal_input
-            save_goal(goal_input)
-            st.rerun()
-
-GOAL = st.session_state.calorie_goal
+        json.dump({"manual_overrides": overrides}, f, indent=2)
 
 # ── Meal-planner sync ──────────────────────────────────────────────────────────
 
@@ -223,16 +181,12 @@ def day_total(d: str) -> int:
 col_left, col_right = st.columns([3, 1])
 with col_left:
     st.caption("Current week")
-    st.markdown(
-        f"<span style='font-size:2em;font-weight:700'>{avg:,.0f} kcal avg/day</span>"
-        f"<span style='font-size:1em;font-weight:400'> — Average daily calorie intake across the past 7 days</span>",
-        unsafe_allow_html=True,
-    )
+    st.markdown(f"## {avg:,.0f} kcal avg/day")
 with col_right:
     st.markdown(
         '<div style="text-align:right;padding-top:16px">'
-        '<span style="color:#ED7D3A">■</span> Actual &nbsp;'
-        '<span style="color:#F5F5DC">■</span> Goal'
+        '<span style="color:#FF6B35">■</span> Actual &nbsp;'
+        '<span style="color:#D0CFC8">■</span> Goal'
         "</div>",
         unsafe_allow_html=True,
     )
@@ -242,15 +196,15 @@ with col_right:
 bar_colors = []
 for day, total in zip(DAYS, totals):
     if day == selected:
-        bar_colors.append("#ED7D3A")   # arancione — giorno selezionato
+        bar_colors.append("#FF6B35")   # arancione — giorno selezionato
     else:
-        bar_colors.append("#FFCC99")   # grigio — tutti gli altri
+        bar_colors.append("#C8C8C8")   # grigio — tutti gli altri
 
 fig = go.Figure()
 
 fig.add_trace(go.Bar(
     x=DAYS, y=[GOAL] * 7,
-    name="Goal", marker_color="#F5F5DC", width=0.55,
+    name="Goal", marker_color="#D0CFC8", width=0.55,
 ))
 
 fig.add_trace(go.Bar(
