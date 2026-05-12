@@ -237,10 +237,11 @@ GOAL = st.session_state.calorie_goal
 
 # ── Meal-planner sync ──────────────────────────────────────────────────────────
 
-def load_from_meal_plan(user_id) -> dict:
-    """Return calorie data for the current week from the meal plan DB.
+def load_from_meal_plan(user_id) -> tuple[dict, list[str]]:
+    """Return calorie data for the current week from the meal plan DB,
+    plus a list of recipe titles whose kcal could not be fetched.
 
-    { "Mon": { "Breakfast": 450, ... }, ... }
+    { "Mon": { "Breakfast": 450, ... }, ... }, ["Beef Mechado", ...]
 
     Works for both MealDB and Spoonacular recipes:
       - If kcal_per_serv is already in the DB → use it directly (no API call).
@@ -260,7 +261,7 @@ def load_from_meal_plan(user_id) -> dict:
             "ℹ️ No user profile found — meal-planner data not loaded. "
             "Please complete your profile to sync planned meals."
         )
-        return result
+        return result, []
 
     today      = date.today()
     week_start = today - timedelta(days=today.weekday())
@@ -291,6 +292,7 @@ def load_from_meal_plan(user_id) -> dict:
                 "ℹ️ No meals found in your Meal Planner for the current week. "
                 "Add recipes there, or enter calories manually below."
             )
+            return result, []
         else:
             for _, row in df.iterrows():
                 full_day = pd.to_datetime(row["meal_date"]).strftime("%A")
@@ -336,9 +338,8 @@ def load_from_meal_plan(user_id) -> dict:
                         if kcal_result is None:
                             failed_titles.append(title)
 
-        # Backfill attempted for all NULL kcal recipes — no banner shown.
-        # The static info notice on the Recipes page already tells the user
-        # that Spoonacular quota can run out and to enter kcal manually.
+        # Backfill attempted for all NULL kcal recipes — no banner shown here.
+        # failed_titles is returned to the caller which shows a single notice.
 
     except Exception as e:
         st.error(
@@ -347,19 +348,19 @@ def load_from_meal_plan(user_id) -> dict:
             "You can still enter calories manually using the edit panel below."
         )
 
-    return result
+    return result, failed_titles
 
 
 # ── Build the working data dict ────────────────────────────────────────────────
 
-def build_data(user_id) -> tuple[dict, set]:
+def build_data(user_id) -> tuple[dict, set, list[str]]:
     """Merge meal-plan calories with manual overrides.
 
-    Returns (calorie_data, planned_slots).
+    Returns (calorie_data, planned_slots, failed_titles).
     """
     data = {day: {meal: 0 for meal in MEALS} for day in DAYS}
 
-    plan_calories = load_from_meal_plan(user_id)
+    plan_calories, failed_titles = load_from_meal_plan(user_id)
     planned_slots: set = set()
 
     for day, meals_map in plan_calories.items():
@@ -380,15 +381,24 @@ def build_data(user_id) -> tuple[dict, set]:
                     except (ValueError, TypeError):
                         pass
 
-    return data, planned_slots
+    return data, planned_slots, failed_titles
 
 
 # ── Session state ──────────────────────────────────────────────────────────────
 
 user_id = st.session_state.get("user_id")
 
-data, planned_slots = build_data(user_id)
+data, planned_slots, failed_titles = build_data(user_id)
 st.session_state.cal_data = data
+
+if failed_titles:
+    names = ", ".join(f"**{t}**" for t in failed_titles)
+    st.info(
+        f"🥄 Calorie data for {names} could not be fetched — "
+        "the Spoonacular API free-tier quota (150 points/day) may be exhausted. "
+        "You can enter the missing calories manually in the edit panel below.",
+        icon="ℹ️",
+    )
 
 if "cal_selected" not in st.session_state:
     st.session_state.cal_selected = DAYS[0]
