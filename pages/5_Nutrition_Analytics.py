@@ -132,12 +132,11 @@ def _backfill_nutrition(recipe_id: int, title: str) -> int | None:
     Returns kcal as int, or None if the lookup failed.
     """
     try:
-        # recipe_id in our DB is the SQLite auto-increment ID, NOT the TheMealDB
-        # ID — so get_meal_by_id would never find it. Title search works for both
-        # MealDB and Spoonacular recipes and is already cached 24h in api_client.
         nutrition = fetch_nutrition_by_title(title)
-
         kcal = nutrition.get("kcal")
+
+        # DEBUG — rimuovi dopo il test
+        st.write(f"🔍 DEBUG backfill recipe={recipe_id} title={title!r} → kcal={kcal} full={nutrition}")
 
         if kcal is not None:
             execute(
