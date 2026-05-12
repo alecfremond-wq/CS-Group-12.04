@@ -1,20 +1,7 @@
 # ============================================================================
 #  session.py  —  helpers for Streamlit's "memory" (st.session_state)
 # ----------------------------------------------------------------------------
-#  WHY DOES THIS FILE EXIST?
-#  Streamlit re-runs your whole Python script every time the user clicks a
-#  button or types in a text box. Anything stored in a normal variable is
-#  forgotten on the next click. To keep data around (like the user's profile
-#  or their pantry list) we put it into `st.session_state`, which is a
-#  special dictionary Streamlit keeps alive between reruns.
-#
-#  This file centralises the default values so that every page can assume
-#  the keys already exist, instead of checking "if 'pantry' not in ..." over
-#  and over.
-# ============================================================================
-#  AI-ASSISTED AUTHORSHIP: scaffold drafted with Anthropic Claude (04/2026),
-#  reviewed by Group 12.04. See README.md.
-# ============================================================================
+
 
 import json                                 # used to decode the wishlist ingredient list from the database
 
