@@ -20,6 +20,72 @@ from src.data.api_client import (
 from src.models.recommender import Recommender
 from src.utils.session import init_session_state, require_profile
 
+# ── Allergy filtering ─────────────────────────────────────────────────────────
+#
+# We don't want to recommend recipes that contain ingredients the user is
+# allergic to. To check this, we keep a simple dictionary that maps each
+# allergy name to a list of ingredient keywords we should watch out for.
+# For example, if the user is allergic to "Lactose", we look for words
+# like "milk", "cheese", "butter" etc. in the recipe's ingredient list.
+# If we find any of them → skip that recipe.
+
+_ALLERGY_KEYWORDS: dict[str, list[str]] = {
+    "Gluten":    ["flour", "wheat", "bread", "pasta", "barley", "rye",
+                  "semolina", "couscous", "crouton", "soy sauce", "breadcrumb",
+                  "noodle", "tortilla", "pita", "bun", "roll", "baguette"],
+    "Celiac":    ["flour", "wheat", "bread", "pasta", "barley", "rye",
+                  "semolina", "couscous", "crouton", "soy sauce", "breadcrumb",
+                  "noodle", "tortilla", "pita"],
+    "Lactose":   ["milk", "cheese", "butter", "cream", "yogurt", "yoghurt",
+                  "mozzarella", "parmesan", "ricotta", "whey", "lactose",
+                  "cheddar", "brie", "gouda", "feta", "ghee", "custard"],
+    "Eggs":      ["egg", "eggs", "mayonnaise", "mayo", "meringue",
+                  "aioli", "hollandaise"],
+    "Nuts":      ["almond", "walnut", "cashew", "hazelnut", "pistachio",
+                  "pecan", "macadamia", "pine nut", "chestnut", "brazil nut"],
+    "Peanut":    ["peanut", "groundnut", "peanut butter", "monkey nut"],
+    "Soy":       ["soy", "tofu", "tempeh", "miso", "edamame", "soya",
+                  "soy sauce", "tamari", "natto"],
+    "Shellfish": ["shrimp", "prawn", "lobster", "crab", "crayfish",
+                  "scallop", "clam", "mussel", "oyster", "barnacle",
+                  "langoustine", "crawfish"],
+}
+
+
+def _is_safe_for_user(ingredients: list[str], allergies: list[str]) -> bool:
+    """Check if a recipe is safe for the user based on their allergies.
+
+    We go through each allergy the user has and check if any of the
+    matching keywords show up anywhere in the ingredient list.
+    If we find a match → the recipe is NOT safe → return False.
+    If nothing matches → the recipe is safe → return True.
+
+    Example: user has "Lactose" allergy, recipe has "parmesan" as ingredient
+    → "parmesan" is in the Lactose keyword list → not safe → return False.
+    """
+    if not allergies:
+        # No allergies set → every recipe is safe
+        return True
+
+    # Join all ingredients into one big string so we can search easily.
+    # e.g. ["garlic", "parmesan", "pasta"] → "garlic parmesan pasta"
+    all_ingredients_text = " ".join(ingredients).lower()
+
+    for allergy in allergies:
+        # Look up the keywords for this allergy.
+        # If the allergy name isn't in our dictionary, use the allergy name
+        # itself as the keyword (e.g. a custom allergy like "mushroom").
+        keywords = _ALLERGY_KEYWORDS.get(allergy, [allergy.lower()])
+
+        # Check if any keyword appears in the ingredient text
+        for keyword in keywords:
+            if keyword in all_ingredients_text:
+                # Found a match → this recipe is not safe
+                return False
+
+    # No allergen found → recipe is safe
+    return True
+
 
 # ── Ingredient cleaning ───────────────────────────────────────────────────────
 
@@ -197,6 +263,35 @@ if has_signal:
     picks = filtered.head(5).reset_index(drop=True)
 else:
     picks = rec.recommend(history_df, top_n=5)
+
+# ── Filter out recipes that contain the user's allergens ──────────────────────
+#
+# We get the allergy list from the user profile (set during Onboarding).
+# Then we go through each recommended recipe and remove any that contain
+# allergen ingredients. We do this AFTER the ML ranking so the model can
+# still consider all recipes — we just hide the unsafe ones at the end.
+
+profile    = st.session_state.get("user_profile") or {}
+allergies  = profile.get("allergies") or []
+
+# Make sure allergies is a list — in the DB it's sometimes stored as a
+# comma-separated string like "Gluten,Lactose", so we split it if needed.
+if isinstance(allergies, str):
+    allergies = [a.strip() for a in allergies.split(",") if a.strip()]
+
+if allergies:
+    # Keep only recipes that are safe for this user.
+    safe_mask = picks["ingredients"].apply(
+        lambda ing: _is_safe_for_user(list(ing) if isinstance(ing, list) else [], allergies)
+    )
+    n_removed = (~safe_mask).sum()
+    picks = picks[safe_mask].reset_index(drop=True)
+
+    if n_removed > 0:
+        st.caption(
+            f"ℹ️ {n_removed} recipe(s) were hidden because they contain "
+            f"ingredients from your allergy list ({', '.join(allergies)})."
+        )
 
 if picks.empty:
     st.info("Nothing to recommend yet — save some recipes on the **Recipes** page first.")
