@@ -143,78 +143,118 @@ def extract_full_ingredients(meal: dict) -> list[str]:
     return ingredients
 
 
-# ── Section 1: Search for a user ──────────────────────────────────────────────
+# ── Section 1: Search + Followers side by side ────────────────────────────────
+#
+# We use st.columns([3, 2]) to split the top of the page into two panels:
+#   col_search    (left, wider)  → search box and results
+#   col_followers (right)        → list of people who follow YOU
+#
+# This way the user can search for someone AND see their own followers
+# at the same time without scrolling.
 
-st.subheader("🔎 Find a user")
-st.caption("Type the exact username of the person you want to follow.")
+col_search, col_followers = st.columns([3, 2])
 
-# A text box where the user types the username they're looking for.
-search_query = st.text_input("Username", placeholder="e.g. alex123")
+# ── Left panel: Search ────────────────────────────────────────────────────────
+with col_search:
+    st.subheader("🔎 Find a user")
+    st.caption("Type the exact username of the person you want to follow.")
 
-# Only run the search if something was typed.
-if search_query:
+    # A text box where the user types the username they're looking for.
+    search_query = st.text_input("Username", placeholder="e.g. alex123")
 
-    # Query the users table for a matching username.
-    # LOWER() makes it case-insensitive, AND id != my_id stops self-following.
-    results = query_df(
+    # Only run the search if something was typed.
+    if search_query:
+
+        # Query the users table for a matching username.
+        # LOWER() makes it case-insensitive, AND id != my_id stops self-following.
+        results = query_df(
+            """
+            SELECT id, name, username
+            FROM users
+            WHERE LOWER(username) = LOWER(?)
+              AND id != ?
+            """,
+            (search_query.strip(), my_id),
+        )
+
+        if results is None or results.empty:
+            st.info("No user found with that username. Make sure you typed it exactly.")
+        else:
+            for _, user in results.iterrows():
+                with st.container(border=True):
+
+                    # Two columns: user info on the left, button on the right.
+                    col_info, col_btn = st.columns([3, 1])
+
+                    with col_info:
+                        st.markdown(f"**{user['name']}** (@{user['username']})")
+
+                    with col_btn:
+                        # Check if we already follow this user.
+                        already_following = query_df(
+                            """
+                            SELECT 1 FROM follows
+                            WHERE follower_id = ? AND followed_id = ?
+                            """,
+                            (my_id, int(user["id"])),
+                        )
+                        is_following = (
+                            already_following is not None
+                            and not already_following.empty
+                        )
+
+                        if is_following:
+                            # Already following → show Unfollow button.
+                            if st.button("Unfollow", key=f"unfollow_{user['id']}",
+                                         use_container_width=True):
+                                execute(
+                                    "DELETE FROM follows WHERE follower_id = ? AND followed_id = ?",
+                                    (my_id, int(user["id"])),
+                                )
+                                st.rerun()
+                        else:
+                            # Not following yet → show Follow button.
+                            if st.button("Follow ＋", key=f"follow_{user['id']}",
+                                         use_container_width=True):
+                                # INSERT OR IGNORE: if the row already exists somehow,
+                                # do nothing instead of crashing.
+                                execute(
+                                    """
+                                    INSERT OR IGNORE INTO follows (follower_id, followed_id)
+                                    VALUES (?, ?)
+                                    """,
+                                    (my_id, int(user["id"])),
+                                )
+                                st.rerun()
+
+# ── Right panel: My Followers ─────────────────────────────────────────────────
+with col_followers:
+    st.subheader("👤 My Followers")
+    st.caption("People who are following you.")
+
+    # Load everyone who follows the current user.
+    # We look for rows in follows where followed_id = my_id (I am the one being followed).
+    # Then we join with users to get their name and username.
+    followers = query_df(
         """
-        SELECT id, name, username
-        FROM users
-        WHERE LOWER(username) = LOWER(?)
-          AND id != ?
+        SELECT u.name, u.username
+        FROM follows f
+        JOIN users u ON f.follower_id = u.id
+        WHERE f.followed_id = ?
+        ORDER BY u.name
         """,
-        (search_query.strip(), my_id),
+        (my_id,),
     )
 
-    if results is None or results.empty:
-        st.info("No user found with that username. Make sure you typed it exactly.")
+    if followers is None or followers.empty:
+        # Nobody follows this user yet.
+        st.caption("Nobody is following you yet.")
     else:
-        for _, user in results.iterrows():
+        # Show one small card per follower.
+        for _, follower in followers.iterrows():
             with st.container(border=True):
-
-                # Two columns: user info on the left, button on the right.
-                col_info, col_btn = st.columns([3, 1])
-
-                with col_info:
-                    st.markdown(f"**{user['name']}** (@{user['username']})")
-
-                with col_btn:
-                    # Check if we already follow this user.
-                    already_following = query_df(
-                        """
-                        SELECT 1 FROM follows
-                        WHERE follower_id = ? AND followed_id = ?
-                        """,
-                        (my_id, int(user["id"])),
-                    )
-                    is_following = (
-                        already_following is not None
-                        and not already_following.empty
-                    )
-
-                    if is_following:
-                        # Already following → show Unfollow button.
-                        if st.button("Unfollow", key=f"unfollow_{user['id']}",
-                                     use_container_width=True):
-                            execute(
-                                "DELETE FROM follows WHERE follower_id = ? AND followed_id = ?",
-                                (my_id, int(user["id"])),
-                            )
-                            st.rerun()
-                    else:
-                        # Not following yet → show Follow button.
-                        if st.button("Follow ＋", key=f"follow_{user['id']}",
-                                     use_container_width=True):
-                            # INSERT OR IGNORE: if the row already exists somehow,
-                            # do nothing instead of crashing.
-                            execute(
-                                """
-                                INSERT OR IGNORE INTO follows (follower_id, followed_id)
-                                VALUES (?, ?)
-                                """,
-                                (my_id, int(user["id"])),
-                            )
-                            st.rerun()
+                st.markdown(f"**{follower['name']}**")
+                st.caption(f"@{follower['username']}")
 
 st.divider()
 
