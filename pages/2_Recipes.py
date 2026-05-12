@@ -213,8 +213,8 @@ if "planner_added_title" in st.session_state:
 
 # ── Spoonacular data notice ───────────────────────────────────────────────────
 st.info(
-    "🥄 **Calorie & nutrition data** for TheMealDB recipes is estimated via the "
-    "[Spoonacular API](https://spoonacular.com/food-api) (free tier: 150 points/day). "
+    "**Calorie & nutrition data** for TheMealDB recipes is estimated via the "
+    "[Spoonacular API](https://spoonacular.com/food-api) (free tier: 50 points/day). "
     "If calorie data is missing on a recipe, the daily quota may be exhausted — "
     "you can always enter calories manually in **Nutrition Analytics**.",
     icon="ℹ️",
