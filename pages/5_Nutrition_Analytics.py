@@ -14,9 +14,13 @@ Every time the page loads (or reruns) we:
   2. Pull this week's meal_plan rows from the DB.
   3. For each row that already has kcal_per_serv → use it directly.
      For rows with NULL kcal_per_serv (MealDB recipe never enriched, or
-     Spoonacular recipe saved before nutrition was fetched) → call
-     Spoonacular via _backfill_nutrition() and write the result back to
-     the DB so future loads cost zero API calls for that recipe.
+     Spoonacular recipe saved before nutrition was fetched):
+       - Try Spoonacular complexSearch by title (Strategy 1).
+       - If that returns nothing, search MealDB for the dish name and
+         run Spoonacular's ingredient parser on its ingredients,
+         dividing totals by 4 servings (Strategy 2).
+       - Write the result back to the DB so future loads cost zero
+         API calls for that recipe.
   4. Overlay any *manual* overrides the user saved via the edit panel
      (stored in calorie_data.json under "manual_overrides") but ONLY for
      slots that have no planned meal.
@@ -31,7 +35,11 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from src.components.ui import page_header
-from src.data.api_client import fetch_nutrition_by_title
+from src.data.api_client import (
+    fetch_nutrition_by_title,
+    fetch_nutrition_from_ingredients,
+    search_recipes_by_name,
+)
 from src.data.database import execute, query_df
 from src.utils.session import init_session_state, require_profile
 
@@ -70,6 +78,19 @@ def _safe_int(v, default: int = 0) -> int:
         return int(float(v)) if not _is_null(v) else default
     except (ValueError, TypeError):
         return default
+
+
+def _extract_ingredients_from_mealdb(meal: dict) -> list[str]:
+    """Pull the ingredient+measure strings from a raw TheMealDB meal dict."""
+    ingredients = []
+    for i in range(1, 21):
+        name    = (meal.get(f"strIngredient{i}") or "").strip()
+        measure = (meal.get(f"strMeasure{i}")    or "").strip()
+        if not name:
+            continue
+        ingredients.append(f"{measure} {name}" if measure else name)
+    return ingredients
+
 
 # ── Persistence helpers ────────────────────────────────────────────────────────
 
@@ -114,6 +135,7 @@ def save_goal(goal: int) -> None:
     except OSError as e:
         st.error(f"Could not save goal: {e}")
 
+
 # ── DB nutrition backfill ──────────────────────────────────────────────────────
 
 def _backfill_nutrition(recipe_id: int, title: str) -> int | None:
@@ -123,30 +145,70 @@ def _backfill_nutrition(recipe_id: int, title: str) -> int | None:
     After this runs once, all future page loads read straight from SQLite —
     zero additional Spoonacular API calls for that recipe.
 
-    For MealDB recipes     → fetch_nutrition_for_meal() (ingredient parser + title fallback).
-    For Spoonacular recipes → fetch_nutrition_by_title() (complexSearch, already per-serving).
+    Two strategies — mirrors exactly what 2_Recipes.py does at save time:
 
-    Returns kcal as int, or None if the lookup failed.
+    Strategy 1 — complexSearch by title (fast).
+      Works for Spoonacular recipes and well-known MealDB dishes
+      (e.g. "Spaghetti Bolognese", "Chicken Tikka Masala").
+      Returns accurate per-serving macros directly from Spoonacular.
+
+    Strategy 2 — MealDB ingredient-parser fallback (slower).
+      Used when Strategy 1 returns nothing (e.g. "Beef Mechado",
+      "Beef Mandi"). Searches MealDB for the dish name, extracts its
+      ingredients, sends them to Spoonacular's parseIngredients endpoint,
+      and divides whole-recipe totals by 4 servings.
+
+    Both api_client functions are @st.cache_data(ttl=24h), so each unique
+    dish is only fetched once per day regardless of how many times this
+    function is called.
+
+    Returns kcal as int, or None if every strategy fails.
     """
+    kcal: int | None = None
+
     try:
-        # The DB does not store the original MealDB ID — only the SQLite row id.
-        # get_meal_by_id() would therefore look up the wrong recipe entirely.
-        # fetch_nutrition_by_title() works for both MealDB and Spoonacular recipes
-        # and is the correct strategy here.
+        # ── Strategy 1: title-based Spoonacular complexSearch ──────────
         nutrition = fetch_nutrition_by_title(title)
-
         kcal = nutrition.get("kcal")
+    except Exception:
+        pass
 
-        if kcal is not None:
+    if kcal is None:
+        try:
+            # ── Strategy 2: MealDB ingredient-parser fallback ──────────
+            # search_recipes_by_name hits the MealDB /search endpoint,
+            # which is already @st.cache_data in api_client.py.
+            matches = search_recipes_by_name(title)
+            if matches:
+                # Prefer exact title match; fall back to the first result
+                meal = next(
+                    (m for m in matches
+                     if m.get("strMeal", "").lower() == title.lower()),
+                    matches[0],
+                )
+                # _extract_ingredients_from_mealdb returns a plain list —
+                # fetch_nutrition_from_ingredients expects a list, not a tuple.
+                ingredients = _extract_ingredients_from_mealdb(meal)
+                if ingredients:
+                    raw = fetch_nutrition_from_ingredients(ingredients)
+                    if raw.get("kcal") is not None:
+                        # parseIngredients returns whole-recipe totals → ÷ 4 servings
+                        kcal = int(raw["kcal"] / 4)
+        except Exception:
+            pass
+
+    # ── Persist to DB so this is only fetched once per recipe ever ─────
+    if kcal is not None:
+        try:
             execute(
                 "UPDATE recipes SET kcal_per_serv = ? WHERE id = ?",
                 (kcal, recipe_id),
             )
-        return kcal
+        except Exception as e:
+            st.warning(f"Could not persist nutrition for '{title}': {e}")
 
-    except Exception as e:
-        st.warning(f"Could not fetch nutrition for recipe {recipe_id} ({title}): {e}")
-        return None
+    return kcal
+
 
 # ── Calorie goal banner ────────────────────────────────────────────────────────
 
@@ -172,6 +234,7 @@ with st.container(border=True):
 
 GOAL = st.session_state.calorie_goal
 
+
 # ── Meal-planner sync ──────────────────────────────────────────────────────────
 
 def load_from_meal_plan(user_id) -> dict:
@@ -179,10 +242,12 @@ def load_from_meal_plan(user_id) -> dict:
 
     { "Mon": { "Breakfast": 450, ... }, ... }
 
-    Both MealDB and Spoonacular recipes are handled:
+    Works for both MealDB and Spoonacular recipes:
       - If kcal_per_serv is already in the DB → use it directly (no API call).
-      - If kcal_per_serv is NULL → call Spoonacular via _backfill_nutrition()
-        and write the result back so it's only fetched once per recipe ever.
+      - If kcal_per_serv is NULL → call _backfill_nutrition() which tries
+        Spoonacular complexSearch first, then MealDB ingredient parser as
+        a fallback, and writes the result back so it's only fetched once
+        per recipe ever.
     """
     result: dict = {}
 
@@ -230,7 +295,9 @@ def load_from_meal_plan(user_id) -> dict:
 
             kcal_raw = row.get("kcal_per_serv")
 
-            # If kcal is missing, fetch from Spoonacular and backfill the DB
+            # If kcal is missing, run the two-strategy backfill and persist to DB.
+            # Works for both MealDB (no native nutrition) and Spoonacular recipes
+            # that were saved before nutrition was fetched.
             if _is_null(kcal_raw):
                 recipe_id = int(row["recipe_id"])
                 title     = row.get("title", "")
@@ -249,6 +316,7 @@ def load_from_meal_plan(user_id) -> dict:
         )
 
     return result
+
 
 # ── Build the working data dict ────────────────────────────────────────────────
 
@@ -282,6 +350,7 @@ def build_data(user_id) -> tuple[dict, set]:
 
     return data, planned_slots
 
+
 # ── Session state ──────────────────────────────────────────────────────────────
 
 user_id = st.session_state.get("user_id")
@@ -299,6 +368,7 @@ avg      = sum(totals) / 7
 
 def day_total(d: str) -> int:
     return sum(data[d].values())
+
 
 # ── Header ─────────────────────────────────────────────────────────────────────
 
