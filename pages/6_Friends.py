@@ -1,6 +1,8 @@
 """
 Friends — find other users and see their wishlists.
 
+!!! fertig kommentieren!!!
+
 How this page works:
     1. The user types a username into the search box.
     2. We look that username up in the 'users' table in our database.
@@ -54,6 +56,24 @@ page_header("👥 Friends", "Follow other users and see their saved recipes.")
 # my_id is the database ID of the person currently logged in.
 # We use it in every query so we only touch data that belongs to this user.
 my_id = st.session_state.get("user_id")
+
+# ── Make sure the follows table exists ────────────────────────────────────────
+# We create the table here directly instead of relying only on schema.sql.
+# This is a safety net: on Streamlit Cloud the database is sometimes reset,
+# and schema.sql has some non-idempotent statements that can cause init_db()
+# to stop early before reaching the follows table.
+# CREATE TABLE IF NOT EXISTS means: only create it if it doesn't exist yet —
+# so running this every page load is completely safe and costs almost nothing.
+execute(
+    """
+    CREATE TABLE IF NOT EXISTS follows (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        follower_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        followed_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        UNIQUE (follower_id, followed_id)
+    )
+    """
+)
 
 
 # ── Helper: load full recipe details from TheMealDB ───────────────────────────
