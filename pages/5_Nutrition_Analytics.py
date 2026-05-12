@@ -248,6 +248,10 @@ def load_from_meal_plan(user_id) -> dict:
         Spoonacular complexSearch first, then MealDB ingredient parser as
         a fallback, and writes the result back so it's only fetched once
         per recipe ever.
+
+    Also checks planner_pool for any saved recipes with NULL kcal — even
+    ones not yet scheduled — so the missing-calories warning is shown for
+    everything the user has added, not just scheduled meals.
     """
     result: dict = {}
 
@@ -262,7 +266,10 @@ def load_from_meal_plan(user_id) -> dict:
     week_start = today - timedelta(days=today.weekday())
     week_end   = week_start + timedelta(days=6)
 
+    failed_titles: list[str] = []
+
     try:
+        # ── 1. Scheduled meals → feed the chart ───────────────────────────
         df = query_df(
             """
             SELECT
@@ -284,43 +291,54 @@ def load_from_meal_plan(user_id) -> dict:
                 "ℹ️ No meals found in your Meal Planner for the current week. "
                 "Add recipes there, or enter calories manually below."
             )
-            return result
+        else:
+            for _, row in df.iterrows():
+                full_day = pd.to_datetime(row["meal_date"]).strftime("%A")
+                day  = _DAY_MAP.get(full_day)
+                meal = _MEAL_MAP.get(row["meal_type"])
+                if not (day and meal):
+                    continue
 
-        failed_titles: list[str] = []
+                kcal_raw = row.get("kcal_per_serv")
 
-        for _, row in df.iterrows():
-            full_day = pd.to_datetime(row["meal_date"]).strftime("%A")
-            day  = _DAY_MAP.get(full_day)
-            meal = _MEAL_MAP.get(row["meal_type"])
-            if not (day and meal):
-                continue
+                # If kcal is missing, run the two-strategy backfill and persist to DB.
+                if _is_null(kcal_raw):
+                    recipe_id = int(row["recipe_id"])
+                    title     = row.get("title", "")
+                    kcal_raw  = _backfill_nutrition(recipe_id, title)
+                    if kcal_raw is None:
+                        failed_titles.append(title)
 
-            kcal_raw = row.get("kcal_per_serv")
+                kcal = _safe_int(kcal_raw)
+                result.setdefault(day, {})
+                result[day][meal] = result[day].get(meal, 0) + kcal
 
-            # If kcal is missing, run the two-strategy backfill and persist to DB.
-            # Works for both MealDB (no native nutrition) and Spoonacular recipes
-            # that were saved before nutrition was fetched.
-            if _is_null(kcal_raw):
-                recipe_id = int(row["recipe_id"])
-                title     = row.get("title", "")
-                kcal_raw  = _backfill_nutrition(recipe_id, title)
-                if kcal_raw is None:
-                    failed_titles.append(title)
+        # ── 2. All planner_pool recipes → catch unscheduled NULL kcal ────
+        # Recipes saved to the pool but not yet placed on a day won't appear
+        # in meal_plan, so we check them separately just for the warning.
+        pool_df = query_df(
+            """
+            SELECT r.id AS recipe_id, r.title, r.kcal_per_serv
+            FROM planner_pool pp
+            JOIN recipes r ON pp.recipe_id = r.id
+            WHERE pp.user_id = ?
+            """,
+            (user_id,),
+        )
 
-            kcal = _safe_int(kcal_raw)
+        if pool_df is not None and not pool_df.empty:
+            for _, row in pool_df.iterrows():
+                if _is_null(row.get("kcal_per_serv")):
+                    title = row.get("title", "")
+                    # Only attempt backfill + warn if not already in failed_titles
+                    if title not in failed_titles:
+                        kcal_result = _backfill_nutrition(int(row["recipe_id"]), title)
+                        if kcal_result is None:
+                            failed_titles.append(title)
 
-            result.setdefault(day, {})
-            result[day][meal] = result[day].get(meal, 0) + kcal
-
-        # Show a single consolidated warning if any recipes failed
-        if failed_titles:
-            names = ", ".join(f"**{t}**" for t in failed_titles)
-            st.warning(
-                f"⚠️ Calorie data could not be fetched for {names}. "
-                "The Spoonacular API quota may be exhausted for today — "
-                "you can enter calories manually in the edit panel below.",
-                icon="🔑",
-            )
+        # Backfill attempted for all NULL kcal recipes — no banner shown.
+        # The static info notice on the Recipes page already tells the user
+        # that Spoonacular quota can run out and to enter kcal manually.
 
     except Exception as e:
         st.error(
@@ -493,16 +511,32 @@ with st.expander(f"✏️ Edit calories manually for {selected}"):
                 value=current, step=10, key=f"inp_{selected}_{meal}",
             )
 
-    if st.button("💾 Save", key="save_day"):
-        overrides = load_overrides()
-        overrides.setdefault(selected, {})
-        for meal, val in new_vals.items():
-            overrides[selected][meal] = val
-        save_overrides(overrides)
-        st.success(
-            "Saved! Meal-planner slots will still be overridden by the planner on the next sync."
-        )
-        st.rerun()
+    btn_save, btn_clear = st.columns([1, 1])
+
+    with btn_save:
+        if st.button("💾 Save", key="save_day", use_container_width=True):
+            overrides = load_overrides()
+            overrides.setdefault(selected, {})
+            for meal, val in new_vals.items():
+                # Only persist non-zero manual values for slots not already
+                # controlled by the Meal Planner — avoids accidentally writing
+                # a stale default (e.g. 2000) over a planned recipe's calories.
+                if (selected, meal) not in planned_slots and val > 0:
+                    overrides[selected][meal] = val
+                elif (selected, meal) not in planned_slots and val == 0:
+                    # Explicitly set to 0 means the user wants to clear it
+                    overrides[selected].pop(meal, None)
+            save_overrides(overrides)
+            st.success("Saved!")
+            st.rerun()
+
+    with btn_clear:
+        if st.button("🗑️ Clear manual entries", key="clear_day", use_container_width=True):
+            overrides = load_overrides()
+            overrides.pop(selected, None)
+            save_overrides(overrides)
+            st.success(f"Manual entries for {selected} cleared.")
+            st.rerun()
 
 # ── Stats ───────────────────────────────────────────────────────────────────────
 
