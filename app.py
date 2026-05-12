@@ -26,6 +26,23 @@ st.set_page_config(
 
 # --- one-time initialisation -----------------------------------------------
 init_db()
+# ONE-TIME BACKFILL — fixes existing NULL kcal rows using title lookup
+import sqlite3
+from src.data.api_client import fetch_nutrition_by_title
+
+with sqlite3.connect('data/cooktogether.db') as _conn:
+    null_rows = _conn.execute(
+        "SELECT id, title FROM recipes WHERE kcal_per_serv IS NULL"
+    ).fetchall()
+
+for _id, _title in null_rows:
+    _nutrition = fetch_nutrition_by_title(_title)
+    if _nutrition.get("kcal") is not None:
+        with sqlite3.connect('data/cooktogether.db') as _conn:
+            _conn.execute(
+                "UPDATE recipes SET kcal_per_serv = ? WHERE id = ?",
+                (_nutrition["kcal"], _id)
+            )
 init_session_state()
 
 
