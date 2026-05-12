@@ -1,5 +1,5 @@
 """
-Nutrition Analytics — calorie & macro tracker for the current week.
+Nutrition Analytics — calorie tracker for the current week.
 
 Owner: <assign on Apr 22>
 Grading coverage:
@@ -11,11 +11,12 @@ Sync logic
 The meal planner is the source of truth for planned meals.
 Every time the page loads (or reruns) we:
   1. Start from a blank slate (all zeros).
-  2. Pull this week's meal_plan rows from the DB (recipe_id + source).
-  3. For each row that already has nutrition in the recipes table → use it.
-     For MealDB rows with NULL nutrition → call fetch_nutrition_for_meal()
-     via Spoonacular and write the result back to the DB (backfill), so
-     future loads cost zero API calls for that recipe.
+  2. Pull this week's meal_plan rows from the DB.
+  3. For each row that already has kcal_per_serv → use it directly.
+     For rows with NULL kcal_per_serv (MealDB recipe never enriched, or
+     Spoonacular recipe saved before nutrition was fetched) → call
+     Spoonacular via _backfill_nutrition() and write the result back to
+     the DB so future loads cost zero API calls for that recipe.
   4. Overlay any *manual* overrides the user saved via the edit panel
      (stored in calorie_data.json under "manual_overrides") but ONLY for
      slots that have no planned meal.
@@ -40,7 +41,7 @@ from src.utils.session import init_session_state, require_profile
 
 init_session_state()
 require_profile()
-page_header("📊 Nutrition Analytics", "Track your calorie & macro intake.")
+page_header("📊 Nutrition Analytics", "Track your calorie intake.")
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -71,13 +72,6 @@ def _is_null(v) -> bool:
 def _safe_int(v, default: int = 0) -> int:
     try:
         return int(float(v)) if not _is_null(v) else default
-    except (ValueError, TypeError):
-        return default
-
-
-def _safe_float(v, default: float = 0.0) -> float:
-    try:
-        return round(float(v), 1) if not _is_null(v) else default
     except (ValueError, TypeError):
         return default
 
@@ -126,54 +120,37 @@ def save_goal(goal: int) -> None:
 
 # ── DB nutrition backfill ──────────────────────────────────────────────────────
 
-def _backfill_nutrition(recipe_id: int, source: str, title: str) -> dict:
-    """Fetch per-serving nutrition from Spoonacular and persist it to the DB.
+def _backfill_nutrition(recipe_id: int, source: str, title: str) -> int | None:
+    """Fetch kcal from Spoonacular and persist it to the DB.
 
     Called lazily the first time a recipe slot has NULL kcal_per_serv.
     After this runs once, all future page loads read straight from SQLite —
     zero additional Spoonacular API calls for that recipe.
 
-    For MealDB recipes  → fetch_nutrition_for_meal() (ingredient parser + title fallback).
+    For MealDB recipes     → fetch_nutrition_for_meal() (ingredient parser + title fallback).
     For Spoonacular recipes → fetch_nutrition_by_title() (complexSearch, already per-serving).
 
-    Returns dict with keys: kcal, protein_g, carbs_g, fat_g.
+    Returns kcal as int, or None if the lookup failed.
     """
-    empty = {"kcal": None, "protein_g": None, "carbs_g": None, "fat_g": None}
-
     try:
         if source == "mealdb":
-            # Get the full MealDB dict so we can use ingredient-level parsing
-            # as a fallback if the title search doesn't find the dish.
             meal = get_meal_by_id(str(recipe_id))
             nutrition = fetch_nutrition_for_meal(meal) if meal else fetch_nutrition_by_title(title)
         else:
-            # Spoonacular recipes — title lookup is the right strategy.
             nutrition = fetch_nutrition_by_title(title)
 
-        # Persist to DB so this never costs another API call.
-        if nutrition.get("kcal") is not None:
+        kcal = nutrition.get("kcal")
+
+        if kcal is not None:
             execute(
-                """
-                UPDATE recipes
-                   SET kcal_per_serv = ?,
-                       protein_g     = ?,
-                       carbs_g       = ?,
-                       fat_g         = ?
-                 WHERE id = ?
-                """,
-                (
-                    nutrition["kcal"],
-                    nutrition.get("protein_g"),
-                    nutrition.get("carbs_g"),
-                    nutrition.get("fat_g"),
-                    recipe_id,
-                ),
+                "UPDATE recipes SET kcal_per_serv = ? WHERE id = ?",
+                (kcal, recipe_id),
             )
-        return nutrition
+        return kcal
 
     except Exception as e:
         st.warning(f"Could not fetch nutrition for recipe {recipe_id} ({title}): {e}")
-        return empty
+        return None
 
 # ── Calorie goal banner ────────────────────────────────────────────────────────
 
@@ -201,26 +178,24 @@ GOAL = st.session_state.calorie_goal
 
 # ── Meal-planner sync ──────────────────────────────────────────────────────────
 
-def load_from_meal_plan(user_id) -> tuple[dict, dict]:
-    """Return (calorie_data, macro_data) for the current week.
+def load_from_meal_plan(user_id) -> dict:
+    """Return calorie data for the current week from the meal plan DB.
 
-    calorie_data : { "Mon": { "Breakfast": 450, ... }, ... }
-    macro_data   : { "Mon": { "Breakfast": {"protein_g": 20.0, "carbs_g": 50.0, "fat_g": 10.0}, ... } }
+    { "Mon": { "Breakfast": 450, ... }, ... }
 
     Both MealDB and Spoonacular recipes are handled:
-      - If the recipes table already has kcal_per_serv (and macros) → use them.
+      - If kcal_per_serv is already in the DB → use it directly (no API call).
       - If kcal_per_serv is NULL → call Spoonacular via _backfill_nutrition()
         and write the result back so it's only fetched once per recipe ever.
     """
-    cal:   dict = {}
-    macro: dict = {}
+    result: dict = {}
 
     if not user_id:
         st.info(
             "ℹ️ No user profile found — meal-planner data not loaded. "
             "Please complete your profile to sync planned meals."
         )
-        return cal, macro
+        return result
 
     today      = date.today()
     week_start = today - timedelta(days=today.weekday())
@@ -235,10 +210,7 @@ def load_from_meal_plan(user_id) -> tuple[dict, dict]:
                 mp.recipe_id,
                 r.title,
                 r.source,
-                r.kcal_per_serv,
-                r.protein_g,
-                r.carbs_g,
-                r.fat_g
+                r.kcal_per_serv
             FROM meal_plan mp
             JOIN recipes r ON mp.recipe_id = r.id
             WHERE mp.user_id     = ?
@@ -252,7 +224,7 @@ def load_from_meal_plan(user_id) -> tuple[dict, dict]:
                 "ℹ️ No meals found in your Meal Planner for the current week. "
                 "Add recipes there, or enter calories manually below."
             )
-            return cal, macro
+            return result
 
         for _, row in df.iterrows():
             full_day = pd.to_datetime(row["meal_date"]).strftime("%A")
@@ -262,35 +234,18 @@ def load_from_meal_plan(user_id) -> tuple[dict, dict]:
                 continue
 
             kcal_raw = row.get("kcal_per_serv")
-            protein  = row.get("protein_g")
-            carbs    = row.get("carbs_g")
-            fat      = row.get("fat_g")
 
             # If kcal is missing, fetch from Spoonacular and backfill the DB
             if _is_null(kcal_raw):
                 source    = row.get("source") or "mealdb"
                 recipe_id = int(row["recipe_id"])
                 title     = row.get("title", "")
-                nutrition = _backfill_nutrition(recipe_id, source, title)
-                kcal_raw  = nutrition.get("kcal")
-                protein   = nutrition.get("protein_g")
-                carbs     = nutrition.get("carbs_g")
-                fat       = nutrition.get("fat_g")
+                kcal_raw  = _backfill_nutrition(recipe_id, source, title)
 
             kcal = _safe_int(kcal_raw)
 
-            cal.setdefault(day, {})
-            macro.setdefault(day, {})
-
-            # Accumulate (multiple recipes can share the same day/meal slot)
-            cal[day][meal] = cal[day].get(meal, 0) + kcal
-
-            prev = macro[day].get(meal, {"protein_g": 0.0, "carbs_g": 0.0, "fat_g": 0.0})
-            macro[day][meal] = {
-                "protein_g": round(prev["protein_g"] + _safe_float(protein), 1),
-                "carbs_g":   round(prev["carbs_g"]   + _safe_float(carbs),   1),
-                "fat_g":     round(prev["fat_g"]     + _safe_float(fat),     1),
-            }
+            result.setdefault(day, {})
+            result[day][meal] = result[day].get(meal, 0) + kcal
 
     except Exception as e:
         st.error(
@@ -299,30 +254,25 @@ def load_from_meal_plan(user_id) -> tuple[dict, dict]:
             "You can still enter calories manually using the edit panel below."
         )
 
-    return cal, macro
+    return result
 
-# ── Build the working data dicts ───────────────────────────────────────────────
+# ── Build the working data dict ────────────────────────────────────────────────
 
-def build_data(user_id) -> tuple[dict, dict, set]:
-    """Merge meal-plan nutrition with manual overrides.
+def build_data(user_id) -> tuple[dict, set]:
+    """Merge meal-plan calories with manual overrides.
 
-    Returns (calorie_data, macro_data, planned_slots).
+    Returns (calorie_data, planned_slots).
     """
-    _empty_macro = lambda: {"protein_g": 0.0, "carbs_g": 0.0, "fat_g": 0.0}
+    data = {day: {meal: 0 for meal in MEALS} for day in DAYS}
 
-    data   = {day: {meal: 0           for meal in MEALS} for day in DAYS}
-    macros = {day: {meal: _empty_macro() for meal in MEALS} for day in DAYS}
-
-    plan_cal, plan_macro = load_from_meal_plan(user_id)
+    plan_calories = load_from_meal_plan(user_id)
     planned_slots: set = set()
 
-    for day, meals_map in plan_cal.items():
+    for day, meals_map in plan_calories.items():
         for meal, kcal in meals_map.items():
             if day in data and meal in data[day]:
                 data[day][meal] = kcal
                 planned_slots.add((day, meal))
-            if day in plan_macro and meal in plan_macro.get(day, {}):
-                macros[day][meal] = plan_macro[day][meal]
 
     # Manual overrides — only for slots with no planned recipe
     overrides = load_overrides()
@@ -336,21 +286,21 @@ def build_data(user_id) -> tuple[dict, dict, set]:
                     except (ValueError, TypeError):
                         pass
 
-    return data, macros, planned_slots
+    return data, planned_slots
 
 # ── Session state ──────────────────────────────────────────────────────────────
 
 user_id = st.session_state.get("user_id")
 
-data, macros, planned_slots = build_data(user_id)
+data, planned_slots = build_data(user_id)
 st.session_state.cal_data = data
 
 if "cal_selected" not in st.session_state:
     st.session_state.cal_selected = DAYS[0]
 
-selected  = st.session_state.cal_selected
-totals    = [sum(data[d].values()) for d in DAYS]
-avg       = sum(totals) / 7
+selected = st.session_state.cal_selected
+totals   = [sum(data[d].values()) for d in DAYS]
+avg      = sum(totals) / 7
 
 
 def day_total(d: str) -> int:
@@ -418,19 +368,17 @@ for i, (day, total) in enumerate(zip(DAYS, totals)):
             st.session_state.cal_selected = day
             st.rerun()
 
-# ── Meal detail panel ──────────────────────────────────────────────────────────
+# ── Detail panel ───────────────────────────────────────────────────────────────
 
-day_data   = data[selected]
-day_macros = macros[selected]
-total_day  = day_total(selected)
-max_kcal   = max(max(day_data.values(), default=1), 1)
+day_data  = data[selected]
+total_day = day_total(selected)
+max_kcal  = max(max(day_data.values(), default=1), 1)
 
 with st.container(border=True):
     st.markdown(f"**{selected} — {total_day:,} kcal total**")
 
     for meal in MEALS:
         kcal         = day_data[meal]
-        meal_macros  = day_macros[meal]
         is_from_plan = (selected, meal) in planned_slots
 
         c1, c2 = st.columns([5, 1])
@@ -438,21 +386,6 @@ with st.container(border=True):
             tag = " 📅" if is_from_plan and kcal > 0 else ""
             st.markdown(f"{meal}{tag}")
             st.progress(kcal / max_kcal if max_kcal > 0 else 0)
-
-            # Macro pills — shown only for meal-plan slots with real data
-            if is_from_plan and kcal > 0:
-                p  = meal_macros.get("protein_g", 0.0)
-                c_ = meal_macros.get("carbs_g",   0.0)
-                f_ = meal_macros.get("fat_g",     0.0)
-                if any([p, c_, f_]):
-                    st.markdown(
-                        f'<span style="font-size:11px;color:#666">'
-                        f'🥩 <b>{p}g</b> protein &nbsp;·&nbsp; '
-                        f'🌾 <b>{c_}g</b> carbs &nbsp;·&nbsp; '
-                        f'🫒 <b>{f_}g</b> fat'
-                        f'</span>',
-                        unsafe_allow_html=True,
-                    )
         with c2:
             st.markdown(
                 f"<div style='text-align:right;padding-top:22px'>{kcal:,} kcal</div>",
@@ -460,58 +393,15 @@ with st.container(border=True):
             )
 
     if any((selected, m) in planned_slots for m in MEALS):
-        st.caption("📅 = calories & macros synced automatically from your Meal Planner (MealDB + Spoonacular)")
+        st.caption("📅 = calories synced automatically from your Meal Planner (MealDB + Spoonacular)")
 
-# ── Macro summary for the selected day ────────────────────────────────────────
-
-day_has_plan = any((selected, m) in planned_slots for m in MEALS)
-if day_has_plan:
-    total_protein = sum(day_macros[m]["protein_g"] for m in MEALS)
-    total_carbs   = sum(day_macros[m]["carbs_g"]   for m in MEALS)
-    total_fat     = sum(day_macros[m]["fat_g"]     for m in MEALS)
-    total_macro_g = total_protein + total_carbs + total_fat
-
-    st.divider()
-    st.markdown(f"**Macronutrient breakdown — {selected}**")
-
-    if total_macro_g > 0:
-        mc1, mc2, mc3 = st.columns(3)
-        mc1.metric("🥩 Protein",       f"{total_protein:.1f} g",
-                   f"{total_protein / total_macro_g * 100:.0f}% of macros")
-        mc2.metric("🌾 Carbohydrates", f"{total_carbs:.1f} g",
-                   f"{total_carbs / total_macro_g * 100:.0f}% of macros")
-        mc3.metric("🫒 Fat",           f"{total_fat:.1f} g",
-                   f"{total_fat / total_macro_g * 100:.0f}% of macros")
-
-        # Donut chart
-        fig_macro = go.Figure(go.Pie(
-            labels=["Protein", "Carbs", "Fat"],
-            values=[total_protein, total_carbs, total_fat],
-            hole=0.55,
-            marker_colors=["#ED7D3A", "#4A90D9", "#F5C842"],
-            textinfo="label+percent",
-            hovertemplate="%{label}: %{value:.1f}g<extra></extra>",
-        ))
-        fig_macro.update_layout(
-            showlegend=False,
-            margin=dict(l=0, r=0, t=10, b=0),
-            height=230,
-        )
-        st.plotly_chart(fig_macro, use_container_width=True)
-    else:
-        st.caption(
-            "Macro data not yet available for this day — "
-            "Spoonacular will fetch it on the next page load."
-        )
-
-# ── Edit meals manually ────────────────────────────────────────────────────────
+# ── Edit meals ─────────────────────────────────────────────────────────────────
 
 with st.expander(f"✏️ Edit calories manually for {selected}"):
     st.caption(
         "Slots marked 📅 are controlled by the Meal Planner. "
         "You can override them here, but removing the recipe from the "
-        "Meal Planner will reset that slot to 0 automatically. "
-        "Manual entries don't carry macro data."
+        "Meal Planner will reset that slot to 0 automatically."
     )
     ecols    = st.columns(4)
     new_vals = {}
@@ -536,7 +426,7 @@ with st.expander(f"✏️ Edit calories manually for {selected}"):
         )
         st.rerun()
 
-# ── Weekly stats ───────────────────────────────────────────────────────────────
+# ── Stats ───────────────────────────────────────────────────────────────────────
 
 totals_dict = {d: day_total(d) for d in DAYS}
 best_day    = min(totals_dict, key=lambda d: abs(totals_dict[d] - GOAL))
@@ -546,19 +436,8 @@ on_goal     = sum(
 )
 weekly = sum(totals_dict.values())
 
-weekly_protein = sum(macros[d][m]["protein_g"] for d in DAYS for m in MEALS)
-weekly_carbs   = sum(macros[d][m]["carbs_g"]   for d in DAYS for m in MEALS)
-weekly_fat     = sum(macros[d][m]["fat_g"]     for d in DAYS for m in MEALS)
-
 st.divider()
 c1, c2, c3 = st.columns(3)
 c1.metric("Best day",     f"{best_day} · {totals_dict[best_day]:,}")
 c2.metric("Days on goal", f"{on_goal} / 7 days")
 c3.metric("Weekly total", f"{weekly:,} kcal")
-
-if any([weekly_protein, weekly_carbs, weekly_fat]):
-    st.markdown("**Weekly macro totals**")
-    wc1, wc2, wc3 = st.columns(3)
-    wc1.metric("🥩 Protein (week)",       f"{weekly_protein:.1f} g")
-    wc2.metric("🌾 Carbohydrates (week)", f"{weekly_carbs:.1f} g")
-    wc3.metric("🫒 Fat (week)",           f"{weekly_fat:.1f} g")
