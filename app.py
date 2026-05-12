@@ -26,12 +26,6 @@ st.set_page_config(
 
 # --- one-time initialisation -----------------------------------------------
 init_db()
-import sqlite3
-with sqlite3.connect('data/cooktogether.db') as _conn:
-    st.write("DB recipes:", _conn.execute(
-        "SELECT id, title, kcal_per_serv FROM recipes ORDER BY id DESC LIMIT 20"
-    ).fetchall())
-
 init_session_state()
 
 
