@@ -195,12 +195,14 @@ for i, item in enumerate(wishlist):
         col_img, col_info = st.columns([1, 4])
 
         with col_img:
-            if display_image:
-                # Show the thumbnail. use_container_width=True makes the
-                # image fill the column width cleanly.
+            # We check isinstance(..., str) and startswith("http") to make sure
+            # display_image is a real URL before passing it to st.image.
+            # Without this check, a NaN value or empty string from the database
+            # would cause an AttributeError inside Streamlit's image renderer.
+            if isinstance(display_image, str) and display_image.startswith("http"):
                 st.image(display_image, use_container_width=True)
             else:
-                # No image available anywhere — show a placeholder emoji.
+                # No valid image URL — show a placeholder emoji.
                 st.markdown("🍽️")
 
         with col_info:
