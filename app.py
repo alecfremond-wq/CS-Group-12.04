@@ -1,5 +1,5 @@
 # ============================================================================
-#  CookTogether — HOME PAGE + ONBOARDING (combined entry point)
+#  CookTogether — entry point and navigation
 #  Run it from the terminal with:   streamlit run app.py
 # ============================================================================
 #  NOTE ON AUTHORSHIP (required by HSG plagiarism rules):
@@ -7,16 +7,20 @@
 #  assistant (Anthropic Claude, April 2026) and then reviewed and adapted
 #  by Group 12.04. See README.md for full citation.
 # ============================================================================
-
+#  TO REVERT NAVIGATION CHANGES:
+#    1. Delete Home.py
+#    2. Run: git checkout app.py
+#  The old file-based navigation is restored automatically.
+# ============================================================================
 
 import streamlit as st
 
 from src.data.database import init_db
-from src.data.user_repo import check_login, create_account, delete_profile, load_profile, save_profile
 from src.utils.session import init_session_state
 
 
-# --- page configuration ----------------------------------------------------
+# ── Page configuration ────────────────────────────────────────────────────────
+
 st.set_page_config(
     page_title="Cooktogether",
     page_icon="🍳",
@@ -24,281 +28,45 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# --- one-time initialisation -----------------------------------------------
-# init_db() creates the SQLite database file and tables if they don't exist yet
-init_db()
-# init_session_state() sets up all default keys in st.session_state
-init_session_state()
+# ── One-time initialisation ───────────────────────────────────────────────────
+# These run on EVERY page load because app.py is the entry point for all pages.
+# Both functions are safe to call multiple times (idempotent).
+
+init_db()           # creates database tables if they don't exist yet
+init_session_state()  # fills in default session_state keys
 
 
-# ===========================================================================
-#  SIDEBAR
-# ===========================================================================
+# ── Navigation ────────────────────────────────────────────────────────────────
+# st.navigation() replaces the old automatic file-based navigation.
+# Each st.Page() entry defines one page: the file path, display name, and icon.
+# Icons use Google Material Symbols syntax: :material/<icon_name>:
+# Full icon list: https://fonts.google.com/icons
+
+pg = st.navigation([
+    st.Page("Home.py",                        title="Home",            icon=":material/home:"),
+    st.Page("pages/2_Recipes.py",             title="Recipes",         icon=":material/menu_book:"),
+    st.Page("pages/3_Pantry.py",              title="Pantry",          icon=":material/kitchen:"),
+    st.Page("pages/4_Meal_Planner.py",        title="Meal Planner",    icon=":material/calendar_month:"),
+    st.Page("pages/5_Nutrition_Analytics.py", title="Nutrition",       icon=":material/bar_chart:"),
+    st.Page("pages/6_Friends.py",             title="Friends",         icon=":material/group:"),
+    st.Page("pages/7_Recommendations.py",     title="Recommendations", icon=":material/auto_awesome:"),
+    st.Page("pages/8_Wishlist.py",            title="Wishlist",        icon=":material/favorite:"),
+])
+
+# ── Sidebar footer ────────────────────────────────────────────────────────────
+# This runs on EVERY page (because app.py is the entry point).
+# It shows the logged-in username at the bottom of the sidebar on all pages.
+
 with st.sidebar:
-    st.markdown("### 🗺️ Getting started")
-    st.markdown(
-        "1. Create an account or log in below.\n"
-        "2. Add items to your **Pantry**.\n"
-        "3. Browse **Recipes** and add favourites to your **Meal Planner**.\n"
-        "4. Check **Nutrition** and **Recommendations** to see insights."
-    )
     st.divider()
-
-    # Show the logged-in user's name in the sidebar, or a prompt to sign in
     if st.session_state.get("user_profile"):
         st.success(
             f"Signed in as **{st.session_state['user_profile'].get('name', 'you')}**"
         )
     else:
-        st.info("No profile yet — create an account to get started.")
+        st.info("No profile yet — go to **Home** to get started.")
 
+# ── Run the selected page ─────────────────────────────────────────────────────
+# pg.run() executes the script of whichever page the user clicked in the sidebar.
 
-# ===========================================================================
-#  SECTION 1 — HOME / APP OVERVIEW
-# ===========================================================================
-st.title("🍳 CookTogether")
-st.subheader("Cook, plan, and eat well — together.")
-
-st.markdown(
-    """
-    **CookTogether** helps students cook more joyfully by combining:
-
-    - a personalised profile (diet, allergies, skill),
-    - recipe discovery based on what you already have in your pantry,
-    - a weekly **meal planner**,
-    - **nutrition analytics** so you can see what you actually eat,
-    - a world map to explore recipes by origin, and
-    - ML-powered **recommendations** that learn from your cooking history.
-
-    Use the sidebar on the left to navigate between pages.
-    """
-)
-
-st.divider()
-
-
-# ===========================================================================
-#  ONBOARDING HELPERS
-# ===========================================================================
-
-# Fixed lists used to populate the dropdowns in the login/signup forms
-DIETS = ["Omnivore", "Vegetarian", "Vegan", "Pescatarian", "Low-Carb", "High-Protein"]
-ALLERGY_OPTIONS = ["Gluten", "Lactose", "Nuts", "Peanut", "Eggs", "Soy", "Shellfish", "Celiac"]
-SKILLS = ["beginner", "intermediate", "advanced"]
-
-
-def _logout() -> None:
-    # Reset every user-related key in session_state back to its default
-    # This ensures the next person who opens the app starts completely fresh
-    st.session_state["user_id"] = None
-    st.session_state["user_profile"] = None
-    st.session_state["pantry"] = []
-    st.session_state["meal_plan"] = {}
-    st.session_state["cooking_history"] = []
-    st.session_state["wishlist"] = []
-    st.session_state["onboarding_editing"] = False
-    st.session_state["show_onboarding"] = False
-    # Also remove the uid from the URL so the user is fully logged out on refresh
-    st.query_params.clear()
-
-
-def _render_auth() -> None:
-    # Login / Sign-up screen — shown when no user is currently logged in
-    st.markdown("## Ready to get started?")
-
-    # Two tabs side by side: one for existing users, one for new users
-    tab_login, tab_signup = st.tabs(["Log in", "Sign up"])
-
-    with tab_login:
-        with st.form("login_form"):
-            username = st.text_input("Username")
-            # type="password" hides the characters as the user types
-            password = st.text_input("Password", type="password")
-            submitted = st.form_submit_button("Log in", type="primary")
-
-        if submitted:
-            if not username or not password:
-                st.error("Please fill in all fields.")
-            else:
-                # check_login hashes the password and compares it to the stored hash
-                # Returns the user_id if credentials match, or None if they don't
-                user_id = check_login(username, password)
-                if user_id is None:
-                    st.error("Wrong username or password.")
-                else:
-                    # Store the user_id and profile in session_state for all pages to use
-                    st.session_state["user_id"] = user_id
-                    st.session_state["user_profile"] = load_profile(user_id)
-                    st.session_state["pantry"] = []
-                    # Write uid to the URL so the user stays logged in on page refresh
-                    st.query_params["uid"] = user_id
-                    st.rerun()
-
-    with tab_signup:
-        with st.form("signup_form"):
-            name      = st.text_input("Your name")
-            username  = st.text_input("Choose a username")
-            password  = st.text_input("Choose a password", type="password")
-            diet      = st.selectbox("Diet", DIETS)
-            allergies = st.multiselect("Allergies / intolerances", ALLERGY_OPTIONS)
-            skill     = st.radio("Cooking skill", SKILLS, horizontal=True)
-            submitted = st.form_submit_button("Create account", type="primary")
-
-        if submitted:
-            if not name.strip() or not username.strip() or not password:
-                st.error("Please fill in all fields.")
-            else:
-                profile = {
-                    "name": name.strip(),
-                    "diet": diet,
-                    "allergies": allergies,
-                    "skill_level": skill,
-                }
-                try:
-                    # create_account inserts the new user into the database
-                    # It raises ValueError if the username is already taken
-                    user_id = create_account(profile, username, password)
-                    st.session_state["user_id"] = user_id
-                    st.session_state["user_profile"] = profile
-                    st.session_state["pantry"] = []
-                    # Write uid to the URL so the user stays logged in on page refresh
-                    st.query_params["uid"] = user_id
-                    st.success("Account created! Welcome 🎉")
-                    st.rerun()
-                except ValueError as e:
-                    st.error(str(e))
-
-
-def _render_edit_form(existing: dict) -> None:
-    # Edit profile form — only name, diet, allergies and skill can be changed
-    # Username and password are not editable here for simplicity
-    with st.form("edit_form", clear_on_submit=False):
-        name = st.text_input("Your name", value=existing.get("name", ""))
-        diet = st.selectbox(
-            "Diet", DIETS,
-            index=DIETS.index(existing.get("diet", "Omnivore"))
-            if existing.get("diet", "Omnivore") in DIETS else 0,
-        )
-        allergies = st.multiselect(
-            "Allergies / intolerances", ALLERGY_OPTIONS,
-            default=[a for a in existing.get("allergies", []) if a in ALLERGY_OPTIONS],
-        )
-        skill = st.radio(
-            "Cooking skill", SKILLS, horizontal=True,
-            index=SKILLS.index(existing.get("skill_level", "beginner"))
-            if existing.get("skill_level", "beginner") in SKILLS else 0,
-        )
-        submitted = st.form_submit_button("Save changes", type="primary")
-
-    if submitted:
-        if not name.strip():
-            st.error("Please enter your name.")
-            return
-        profile = {
-            "name": name.strip(),
-            "diet": diet,
-            "allergies": allergies,
-            "skill_level": skill,
-        }
-        # Save the updated profile to the database and refresh session_state
-        save_profile(profile, user_id=st.session_state["user_id"])
-        st.session_state["user_profile"] = profile
-        st.session_state["onboarding_editing"] = False
-        st.success("Profile updated.")
-        st.rerun()
-
-    if st.button("Cancel", type="secondary"):
-        st.session_state["onboarding_editing"] = False
-        st.rerun()
-
-
-def _render_summary(profile: dict) -> None:
-    # Profile card — shown when the user is already logged in
-    with st.container(border=True):
-        st.markdown(f"### Welcome back, **{profile.get('name') or 'friend'}** 👋")
-        st.caption("Your profile is saved. Other pages are already personalised for you.")
-
-        left, right = st.columns(2)
-        with left:
-            st.markdown(f"**Diet:** {profile.get('diet', '—')}")
-        with right:
-            allergies = profile.get("allergies") or []
-            st.markdown("**Allergies:** " + (", ".join(allergies) if allergies else "_none_"))
-            st.markdown(f"**Skill level:** {profile.get('skill_level', '—')}")
-
-    edit_col, delete_col, logout_col, _ = st.columns([1, 1, 1, 2])
-
-    with edit_col:
-        if st.button("✏️ Edit profile", use_container_width=True):
-            st.session_state["onboarding_editing"] = True
-            st.rerun()
-
-    with delete_col:
-        if st.button("🗑️ Delete account", use_container_width=True):
-            # Delete the user row from the database — CASCADE removes their pantry/meal plan too
-            delete_profile(st.session_state["user_id"])
-            _logout()
-            st.toast("Account deleted.")
-            st.rerun()
-
-    with logout_col:
-        if st.button("🚪 Log out", use_container_width=True):
-            _logout()
-            st.rerun()
-
-
-# ===========================================================================
-#  SECTION 2 — ONBOARDING / PROFILE (rendered below the home text)
-# ===========================================================================
-
-if "show_onboarding" not in st.session_state:
-    st.session_state["show_onboarding"] = False
-
-profile = st.session_state.get("user_profile") or {}
-editing = st.session_state.get("onboarding_editing", False)
-
-if not profile:
-    # No user logged in — show "Get Started" button first
-    # Clicking it reveals the login/signup tabs without a full page reload
-    if not st.session_state["show_onboarding"]:
-        st.markdown("""
-            <style>
-            div.stButton > button {
-                background: white;
-                color: #FF6B35;
-                border: 2px solid #FF6B35;
-                padding: 0.75rem 2.5rem;
-                font-size: 1.1rem;
-                font-weight: 600;
-                border-radius: 50px;
-                cursor: pointer;
-                transition: all 0.25s ease;
-            }
-            div.stButton > button:hover {
-                transform: scale(1.05);
-                box-shadow: 0 4px 12px rgba(255, 107, 53, 0.3);
-                background: #fff5f2;
-            }
-            /* Allergy toggle — orange accent */
-            div[data-testid="stToggle"] label {
-                font-weight: 500;
-            }
-            div[data-testid="stToggle"] input:checked + div {
-                background-color: #FF6B35 !important;
-            }
-            </style>
-        """, unsafe_allow_html=True)
-
-        if st.button("Get Started"):
-            st.session_state["show_onboarding"] = True
-            st.rerun()
-    else:
-        _render_auth()
-
-elif editing:
-    # User is logged in and clicked "Edit profile"
-    _render_edit_form(existing=profile)
-
-else:
-    # User is logged in — show their profile summary with edit/delete/logout buttons
-    _render_summary(profile)
+pg.run()

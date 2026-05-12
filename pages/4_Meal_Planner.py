@@ -10,7 +10,6 @@ from src.data.database import query_df, execute
 from src.utils.session import init_session_state, require_profile
 from src.components.ui import page_header
 
-st.set_page_config(page_title="Meal Planner", page_icon="📅", layout="wide")
 init_session_state()
 
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
