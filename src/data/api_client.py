@@ -500,7 +500,7 @@ def search_spoonacular(query="", vegetarian=False, vegan=False,
                 "strArea":         "International",
                 "strCategory":     r.get("dishTypes", [""])[0].title() if r.get("dishTypes") else "—",
                 "strInstructions": re.sub(r"<[^>]+>", "", r.get("summary", "")),
-                "_ingredients":    [i.get("name","").strip() for i in r.get("extendedIngredients",[]) if i.get("name","").strip()],
+                "_ingredients":    [i.get("original","").strip() for i in r.get("extendedIngredients",[]) if i.get("original","").strip()],
                 "source":          "spoonacular",
                 "kcal_per_serv":   kcal,
             })
