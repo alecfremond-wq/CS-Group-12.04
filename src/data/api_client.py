@@ -4,9 +4,6 @@
 # ----------------------------------------------------------------------------
 #  Docs: https://www.themealdb.com/api.php
 #
-#  AI-ASSISTED AUTHORSHIP: scaffold drafted with Anthropic Claude (04/2026),
-#  reviewed by Group 12.04. See README.md.
-# ============================================================================
 
 import requests
 import streamlit as st
