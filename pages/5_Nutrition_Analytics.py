@@ -394,8 +394,8 @@ st.session_state.cal_data = data
 if failed_titles:
     names = ", ".join(f"**{t}**" for t in failed_titles)
     st.info(
-        f"🥄 Calorie data for {names} could not be fetched — "
-        "the Spoonacular API free-tier quota (150 points/day) may be exhausted. "
+        f"Calorie data for {names} could not be fetched — "
+        "the Spoonacular API free-tier quota (50 points/day) may be exhausted. "
         "You can enter the missing calories manually in the edit panel below.",
         icon="ℹ️",
     )
