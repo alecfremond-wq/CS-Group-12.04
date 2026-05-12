@@ -1032,11 +1032,11 @@ def render_meal_card(
 
                     st.toast(f"✅ '{meal_title}' added to Meal Planner!", icon="🍽️")
                     if kcal is None:
-                        st.toast(
-                            "⚠️ Calories not found for this recipe. "
-                            "You can enter them manually in Nutrition Analytics.",
-                            icon="ℹ️",
-                        )
+                        # Store the warning in session state so it survives
+                        # the rerun — a toast fired just before st.rerun()
+                        # is swallowed before Streamlit can render it.
+                        st.session_state["kcal_missing_warning"] = meal_title
+               
                     st.rerun()
 
 
