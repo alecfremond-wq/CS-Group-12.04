@@ -15,41 +15,41 @@
 #  reviewed by Group 12.04. See README.md.
 # ============================================================================
 
-import sqlite3                                 # built-in Python module for SQLite databases
-from contextlib import contextmanager          # lets us write a `with ...` helper for connections
-from pathlib import Path                       # object-oriented way to work with file paths
+import sqlite3                                 # built-in Python module for SQLite
+from contextlib import contextmanager          # lets us write a clean `with ...` helper
+from pathlib import Path                       # clean way to work with file paths
 
-import pandas as pd                            # pandas is great for turning SQL results into DataFrames
+import pandas as pd                            # turns SQL results into DataFrames
 
 
-# --- locate the database file ---------------------------------------------
-# __file__ is a special variable that holds the path to THIS .py file.
-# .resolve() makes it an absolute path. .parents[2] goes up two folders:
-#   src/data/database.py  ->  src/data  ->  src  ->  <project root>
+# Locate the project root by going up two levels from this file's location:
+#   src/data/database.py  →  src/data  →  src  →  <project root>
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-# Build paths using '/' (Path supports this operator to join folders).
-DB_PATH = _PROJECT_ROOT / "data" / "cooktogether.db"    # the actual .db file
-SCHEMA_PATH = _PROJECT_ROOT / "data" / "schema.sql"     # the SQL script that creates the tables
+DB_PATH     = _PROJECT_ROOT / "data" / "cooktogether.db"   # the SQLite database file
+SCHEMA_PATH = _PROJECT_ROOT / "data" / "schema.sql"        # the SQL script that creates the tables
 
 
 def _migrate(conn) -> None:
-    # Add login columns to any DB created before the login feature was added.
-    # try/except is needed because SQLite errors if the column already exists.
+    # Add columns that were introduced after the initial schema was created
+    # try/except is needed because SQLite raises an error if the column already exists
+    # This means the function is safe to call every time the app starts
     for column in ["username", "password_hash"]:
         try:
             conn.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
             conn.commit()
         except sqlite3.OperationalError:
-            pass
+            pass    # column already exists — nothing to do
 
-    # Add mealdb_id to recipes if it doesn't exist yet
+    # Add mealdb_id to recipes if it was added after a teammate's initial schema
     try:
         conn.execute("ALTER TABLE recipes ADD COLUMN mealdb_id TEXT")
         conn.commit()
     except sqlite3.OperationalError:
-        pass  # column already exists
-    # UNIQUE can't be set via ALTER TABLE in SQLite — we use an index instead
+        pass    # column already exists
+
+    # SQLite does not support UNIQUE constraints in ALTER TABLE
+    # so we create a unique index separately to prevent duplicate usernames
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users (username)"
     )
@@ -60,64 +60,50 @@ def init_db():
     """Create the database file and its tables if they don't exist yet.
 
     Safe to call every time the app starts — the SQL in schema.sql uses
-    'CREATE TABLE IF NOT EXISTS', so existing tables aren't overwritten.
+    'CREATE TABLE IF NOT EXISTS', so existing tables are never overwritten.
 
-    Call this ONCE at app startup (e.g. in app.py or main.py), not on
-    every query. Running executescript() on every connection caused
-    sqlite3.OperationalError on Streamlit Cloud.
+    Call this ONCE at app startup (in app.py), not on every query.
     """
+    # Create the data/ folder if it doesn't exist yet
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     with get_connection() as conn:
         if SCHEMA_PATH.exists():
+            # Run the full schema script to create all tables
             conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+        # Then apply any migrations needed for columns added after the initial schema
         _migrate(conn)
 
 
-# The @contextmanager decorator turns this function into something you can
-# use inside a `with ...:` block — like a recipe that says "set up, hand
-# over, then always clean up even if there's an error".
 @contextmanager
 def get_connection():
-    """Open a SQLite connection and always close it when done.
+    """Open a SQLite connection, yield it, then always close it when done.
 
     NOTE: do NOT call executescript() here. Schema initialisation belongs
     in init_db() only. Calling executescript() on every connection caused
-    sqlite3.OperationalError on Streamlit Cloud because executescript()
-    opens an implicit transaction that conflicts with pd.read_sql_query().
+    sqlite3.OperationalError on Streamlit Cloud.
     """
-
     conn = sqlite3.connect(DB_PATH)
+    # row_factory lets us access columns by name (row["id"]) instead of index (row[0])
     conn.row_factory = sqlite3.Row
 
     try:
         yield conn
-        conn.commit()
+        conn.commit()   # save any changes made during the with block
 
     finally:
-        conn.close()
+        conn.close()    # always close, even if an error occurred
 
 
 def query_df(sql, params=None):
-    """Run a SELECT and return the results as a pandas DataFrame.
-
-    Example:
-        df = query_df("SELECT * FROM recipes WHERE cuisine = ?", ("Italian",))
-    """
-    # Open a connection, pass it to pandas, close it when done.
+    # Run a SELECT query and return the results as a pandas DataFrame
+    # The '?' placeholders are safely replaced by params — prevents SQL injection
     with get_connection() as conn:
-        # `params or ()` means: use the given params, or an empty tuple if None.
-        # The '?' placeholders in the SQL are safely replaced with the params
-        # — this prevents SQL injection bugs.
         return pd.read_sql_query(sql, conn, params=params or ())
 
 
 def execute(sql, params=None):
-    """Run an INSERT, UPDATE or DELETE statement.
-
-    Example:
-        execute("INSERT INTO users (name, diet) VALUES (?, ?)", ("Alec", "vegan"))
-    """
-    with get_connection() as conn:                # open a connection
-        conn.execute(sql, params or ())           # run the SQL with its parameters
-        # The context manager (above) will commit and close automatically.
+    # Run an INSERT, UPDATE or DELETE statement
+    # The context manager commits and closes the connection automatically
+    with get_connection() as conn:
+        conn.execute(sql, params or ())

@@ -25,7 +25,9 @@ st.set_page_config(
 )
 
 # --- one-time initialisation -----------------------------------------------
+# init_db() creates the SQLite database file and tables if they don't exist yet
 init_db()
+# init_session_state() sets up all default keys in st.session_state
 init_session_state()
 
 
@@ -42,6 +44,7 @@ with st.sidebar:
     )
     st.divider()
 
+    # Show the logged-in user's name in the sidebar, or a prompt to sign in
     if st.session_state.get("user_profile"):
         st.success(
             f"Signed in as **{st.session_state['user_profile'].get('name', 'you')}**"
@@ -78,13 +81,15 @@ st.divider()
 #  ONBOARDING HELPERS
 # ===========================================================================
 
+# Fixed lists used to populate the dropdowns in the login/signup forms
 DIETS = ["Omnivore", "Vegetarian", "Vegan", "Pescatarian", "Low-Carb", "High-Protein"]
 ALLERGY_OPTIONS = ["Gluten", "Lactose", "Nuts", "Peanut", "Eggs", "Soy", "Shellfish", "Celiac"]
 SKILLS = ["beginner", "intermediate", "advanced"]
 
 
 def _logout() -> None:
-    """Clear all user data from the session so the next person starts fresh."""
+    # Reset every user-related key in session_state back to its default
+    # This ensures the next person who opens the app starts completely fresh
     st.session_state["user_id"] = None
     st.session_state["user_profile"] = None
     st.session_state["pantry"] = []
@@ -93,21 +98,21 @@ def _logout() -> None:
     st.session_state["wishlist"] = []
     st.session_state["onboarding_editing"] = False
     st.session_state["show_onboarding"] = False
+    # Also remove the uid from the URL so the user is fully logged out on refresh
     st.query_params.clear()
 
 
 def _render_auth() -> None:
-    """Login / Sign-up screen — shown when no user is logged in."""
-
+    # Login / Sign-up screen — shown when no user is currently logged in
     st.markdown("## Ready to get started?")
 
-    # st.tabs creates two clickable tabs side by side
+    # Two tabs side by side: one for existing users, one for new users
     tab_login, tab_signup = st.tabs(["Log in", "Sign up"])
 
     with tab_login:
         with st.form("login_form"):
             username = st.text_input("Username")
-            # type="password" masks what the user types
+            # type="password" hides the characters as the user types
             password = st.text_input("Password", type="password")
             submitted = st.form_submit_button("Log in", type="primary")
 
@@ -115,14 +120,17 @@ def _render_auth() -> None:
             if not username or not password:
                 st.error("Please fill in all fields.")
             else:
-                # check_login returns the user_id if credentials match, else None
+                # check_login hashes the password and compares it to the stored hash
+                # Returns the user_id if credentials match, or None if they don't
                 user_id = check_login(username, password)
                 if user_id is None:
                     st.error("Wrong username or password.")
                 else:
+                    # Store the user_id and profile in session_state for all pages to use
                     st.session_state["user_id"] = user_id
                     st.session_state["user_profile"] = load_profile(user_id)
                     st.session_state["pantry"] = []
+                    # Write uid to the URL so the user stays logged in on page refresh
                     st.query_params["uid"] = user_id
                     st.rerun()
 
@@ -147,11 +155,13 @@ def _render_auth() -> None:
                     "skill_level": skill,
                 }
                 try:
-                    # create_account raises ValueError if the username is already taken
+                    # create_account inserts the new user into the database
+                    # It raises ValueError if the username is already taken
                     user_id = create_account(profile, username, password)
                     st.session_state["user_id"] = user_id
                     st.session_state["user_profile"] = profile
                     st.session_state["pantry"] = []
+                    # Write uid to the URL so the user stays logged in on page refresh
                     st.query_params["uid"] = user_id
                     st.success("Account created! Welcome 🎉")
                     st.rerun()
@@ -160,8 +170,8 @@ def _render_auth() -> None:
 
 
 def _render_edit_form(existing: dict) -> None:
-    """Edit profile fields — username and password stay unchanged here."""
-
+    # Edit profile form — only name, diet, allergies and skill can be changed
+    # Username and password are not editable here for simplicity
     with st.form("edit_form", clear_on_submit=False):
         name = st.text_input("Your name", value=existing.get("name", ""))
         diet = st.selectbox(
@@ -190,6 +200,7 @@ def _render_edit_form(existing: dict) -> None:
             "allergies": allergies,
             "skill_level": skill,
         }
+        # Save the updated profile to the database and refresh session_state
         save_profile(profile, user_id=st.session_state["user_id"])
         st.session_state["user_profile"] = profile
         st.session_state["onboarding_editing"] = False
@@ -202,8 +213,7 @@ def _render_edit_form(existing: dict) -> None:
 
 
 def _render_summary(profile: dict) -> None:
-    """Profile card shown when the user is logged in."""
-
+    # Profile card — shown when the user is already logged in
     with st.container(border=True):
         st.markdown(f"### Welcome back, **{profile.get('name') or 'friend'}** 👋")
         st.caption("Your profile is saved. Other pages are already personalised for you.")
@@ -225,6 +235,7 @@ def _render_summary(profile: dict) -> None:
 
     with delete_col:
         if st.button("🗑️ Delete account", use_container_width=True):
+            # Delete the user row from the database — CASCADE removes their pantry/meal plan too
             delete_profile(st.session_state["user_id"])
             _logout()
             st.toast("Account deleted.")
@@ -247,7 +258,8 @@ profile = st.session_state.get("user_profile") or {}
 editing = st.session_state.get("onboarding_editing", False)
 
 if not profile:
-    # Show "Get Started" button first, expand to login/signup on click
+    # No user logged in — show "Get Started" button first
+    # Clicking it reveals the login/signup tabs without a full page reload
     if not st.session_state["show_onboarding"]:
         st.markdown("""
             <style>
@@ -284,7 +296,9 @@ if not profile:
         _render_auth()
 
 elif editing:
+    # User is logged in and clicked "Edit profile"
     _render_edit_form(existing=profile)
 
 else:
+    # User is logged in — show their profile summary with edit/delete/logout buttons
     _render_summary(profile)

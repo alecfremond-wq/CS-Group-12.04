@@ -22,20 +22,24 @@ _PROFILE_KEYS = ("name", "diet", "allergies", "budget_weekly", "skill_level")
 
 
 def _hash(password: str) -> str:
-    # sha256 turns the password into a fixed-length string — we never store the real password
+    # sha256 converts the password into a fixed-length string of characters
+    # We store this hash instead of the real password — so even if the database
+    # is exposed, nobody can recover the original passwords
     return hashlib.sha256(password.encode()).hexdigest()
 
 
 def create_account(profile: dict, username: str, password: str) -> int:
-    """Create a new user with login credentials. Returns the new user_id.
-    Raises ValueError if the username is already taken.
-    """
+    # Create a new user row in the database and return the new user_id
+    # Raises ValueError if the username is already taken (enforced by UNIQUE index)
     username = username.strip().lower()
 
+    # Check if the username already exists before trying to insert
     taken = query_df("SELECT id FROM users WHERE username = ?", (username,))
     if not taken.empty:
         raise ValueError("This username is already taken.")
 
+    # Convert the allergies list to a comma-separated string for storage
+    # e.g. ["Gluten", "Nuts"] → "gluten,nuts"
     allergies = profile.get("allergies", [])
     allergies_str = ",".join(allergies) if isinstance(allergies, list) else str(allergies or "")
 
@@ -45,18 +49,20 @@ def create_account(profile: dict, username: str, password: str) -> int:
         (
             profile.get("name", ""),
             username,
-            _hash(password),
+            _hash(password),        # store the hash, never the plain password
             profile.get("diet", "omnivore"),
             allergies_str,
             profile.get("skill_level", "beginner"),
         ),
     )
+    # Retrieve the id of the row we just inserted
     df = query_df("SELECT id FROM users WHERE username = ?", (username,))
     return int(df.iloc[0]["id"])
 
 
 def check_login(username: str, password: str) -> Optional[int]:
-    """Return user_id if username + password match, otherwise None."""
+    # Verify login credentials — hash the given password and compare to the stored hash
+    # Returns the user_id if they match, or None if they don't (wrong username or password)
     df = query_df(
         "SELECT id FROM users WHERE username = ? AND password_hash = ?",
         (username.strip().lower(), _hash(password)),
@@ -73,6 +79,7 @@ def save_profile(profile: dict, user_id: Optional[int] = None) -> int:
     `profile["allergies"]` may be a list or a comma-separated string; we
     always store it as a comma-separated string to match the schema.
     """
+    # Normalise allergies to a comma-separated string regardless of input format
     allergies = profile.get("allergies", [])
     if isinstance(allergies, list):
         allergies_str = ",".join(allergies)
@@ -87,6 +94,7 @@ def save_profile(profile: dict, user_id: Optional[int] = None) -> int:
     )
 
     if user_id is not None:
+        # Update the existing row — keeps the same id so all foreign keys stay valid
         execute(
             "UPDATE users "
             "SET name=?, diet=?, allergies=?, skill_level=? "
@@ -95,25 +103,27 @@ def save_profile(profile: dict, user_id: Optional[int] = None) -> int:
         )
         return user_id
 
+    # No user_id provided — insert a new row
     execute(
         "INSERT INTO users (name, diet, allergies, skill_level) "
         "VALUES (?, ?, ?, ?)",
         values,
     )
+    # Retrieve the id of the row we just inserted (last inserted row has the highest id)
     df = query_df("SELECT id FROM users ORDER BY id DESC LIMIT 1")
     return int(df.iloc[0]["id"])
 
 
 def load_profile(user_id: int) -> Optional[dict]:
-    """Return the profile for `user_id` as a dict, or None if not found.
-
-    The dict shape matches st.session_state["user_profile"] exactly.
-    """
+    # Load a user's profile from the database by their id
+    # Returns a dict that matches the shape of st.session_state["user_profile"]
+    # Returns None if no user with that id exists
     df = query_df("SELECT * FROM users WHERE id = ?", (user_id,))
     if df.empty:
         return None
 
     row = df.iloc[0]
+    # Convert the comma-separated allergies string back into a list
     raw_allergies = row["allergies"] or ""
     allergies = [a.strip() for a in raw_allergies.split(",") if a.strip()]
 
@@ -126,11 +136,8 @@ def load_profile(user_id: int) -> Optional[dict]:
 
 
 def load_all_profiles() -> list[dict]:
-    """Return a list of {id, name} dicts for every row in the users table.
-
-    Used by the Onboarding page to render the profile-selection screen.
-    Returns an empty list if no profiles have been created yet.
-    """
+    # Return a list of {id, name} for every user in the database
+    # Used to display a profile-selection screen
     df = query_df("SELECT id, name FROM users ORDER BY id ASC")
     if df.empty:
         return []
@@ -138,9 +145,6 @@ def load_all_profiles() -> list[dict]:
 
 
 def delete_profile(user_id: int) -> None:
-    """Delete the users row for `user_id`.
-
-    The ON DELETE CASCADE on pantry and meal_plan tables means those rows
-    are cleaned up automatically by SQLite.
-    """
+    # Delete the user row — SQLite CASCADE automatically removes
+    # all their pantry items and meal plan entries as well
     execute("DELETE FROM users WHERE id = ?", (user_id,))
