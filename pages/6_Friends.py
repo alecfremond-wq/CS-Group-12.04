@@ -271,106 +271,111 @@ with col_followers:
         FROM follows f
         JOIN users u ON f.follower_id = u.id
         WHERE f.followed_id = ?
-        ORDER BY f.status DESC, u.name
+        ORDER BY CASE WHEN f.status = 'pending' THEN 0 ELSE 1 END, f.id DESC
         """,
         (my_id,),
     )
 
-    # ── Part A: Pending follow requests ──────────────────────────────────────
-    # Filter to only the rows where status = 'pending'.
-    # These are people who clicked Follow on your profile but you haven't
-    # decided yet — you can Accept or Decline each one.
+    # st.container(height=...) creates a fixed-height box with its own scrollbar.
+    # Everything inside stays contained — the Wishlists section below won't move
+    # no matter how many followers there are.
+    # ~320px shows roughly 2-3 follower cards before you need to scroll.
+    with st.container(height=240):
 
-    if all_followers is not None and not all_followers.empty:
-        pending = all_followers[all_followers["status"] == "pending"]
-    else:
-        pending = None
+        # ── Part A: Pending follow requests ──────────────────────────────────
+        # Filter to only the rows where status = 'pending'.
+        # These are people who clicked Follow on your profile but you haven't
+        # decided yet — you can Accept or Decline each one.
 
-    if pending is not None and not pending.empty:
-        st.markdown("**📬 Follow Requests**")
-        for _, req in pending.iterrows():
-            with st.container(border=True):
-                st.markdown(f"**{req['name']}** (@{req['username']})")
+        if all_followers is not None and not all_followers.empty:
+            pending = all_followers[all_followers["status"] == "pending"]
+        else:
+            pending = None
 
-                btn_accept, btn_decline = st.columns(2)
+        if pending is not None and not pending.empty:
+            st.markdown("**📬 Follow Requests**")
+            for _, req in pending.iterrows():
+                with st.container(border=True):
+                    st.markdown(f"**{req['name']}** (@{req['username']})")
 
-                with btn_accept:
-                    # Accept → update the status from 'pending' to 'accepted'.
-                    # After this, the follower can see your wishlist.
-                    if st.button("✅ Accept", key=f"accept_{req['id']}",
-                                 use_container_width=True):
-                        execute(
-                            """
-                            UPDATE follows SET status = 'accepted'
-                            WHERE follower_id = ? AND followed_id = ?
-                            """,
-                            (int(req["id"]), my_id),
-                        )
-                        st.rerun()
+                    btn_accept, btn_decline = st.columns(2)
 
-                with btn_decline:
-                    # Decline → delete the row entirely.
-                    # The person can try to follow again later if they want.
-                    if st.button("❌ Decline", key=f"decline_{req['id']}",
-                                 use_container_width=True):
-                        execute(
-                            """
-                            DELETE FROM follows
-                            WHERE follower_id = ? AND followed_id = ?
-                            """,
-                            (int(req["id"]), my_id),
-                        )
-                        st.rerun()
+                    with btn_accept:
+                        # Accept → update the status from 'pending' to 'accepted'.
+                        # After this, the follower can see your wishlist.
+                        if st.button("✅ Accept", key=f"accept_{req['id']}",
+                                     use_container_width=True):
+                            execute(
+                                """
+                                UPDATE follows SET status = 'accepted'
+                                WHERE follower_id = ? AND followed_id = ?
+                                """,
+                                (int(req["id"]), my_id),
+                            )
+                            st.rerun()
 
-    # ── Part B: Accepted followers ────────────────────────────────────────────
-    # Filter to only the rows where status = 'accepted'.
-    # These are people whose follow request you already approved.
+                    with btn_decline:
+                        # Decline → delete the row entirely.
+                        # The person can try to follow again later if they want.
+                        if st.button("❌ Decline", key=f"decline_{req['id']}",
+                                     use_container_width=True):
+                            execute(
+                                """
+                                DELETE FROM follows
+                                WHERE follower_id = ? AND followed_id = ?
+                                """,
+                                (int(req["id"]), my_id),
+                            )
+                            st.rerun()
 
-    if all_followers is not None and not all_followers.empty:
-        accepted = all_followers[all_followers["status"] == "accepted"]
-    else:
-        accepted = None
+        # ── Part B: Accepted followers ────────────────────────────────────────
+        # Filter to only the rows where status = 'accepted'.
+        # These are people whose follow request you already approved.
 
-    st.markdown("**✅ Followers**")
+        if all_followers is not None and not all_followers.empty:
+            accepted = all_followers[all_followers["status"] == "accepted"]
+        else:
+            accepted = None
 
-    if accepted is None or accepted.empty:
-        st.caption("Nobody is following you yet.")
-    else:
-        for _, follower in accepted.iterrows():
-            with st.container(border=True):
-                st.markdown(f"**{follower['name']}**")
-                st.caption(f"@{follower['username']}")
 
-                # Check whether WE already follow this person back.
-                # We look for a row where we are the follower and they are the followed.
-                back_row = query_df(
-                    """
-                    SELECT status FROM follows
-                    WHERE follower_id = ? AND followed_id = ?
-                    """,
-                    (my_id, int(follower["id"])),
-                )
+        if accepted is None or accepted.empty:
+            st.caption("Nobody is following you yet.")
+        else:
+            for _, follower in accepted.iterrows():
+                with st.container(border=True):
+                    st.markdown(f"**{follower['name']}**")
+                    st.caption(f"@{follower['username']}")
 
-                if back_row is None or back_row.empty:
-                    # We don't follow them yet → show a "Follow back" button.
-                    # Clicking sends a pending follow request to them, just like
-                    # the normal Follow button in the search panel.
-                    if st.button("Follow back ＋", key=f"followback_{follower['id']}",
-                                 use_container_width=True):
-                        execute(
-                            """
-                            INSERT OR IGNORE INTO follows
-                                (follower_id, followed_id, status)
-                            VALUES (?, ?, 'pending')
-                            """,
-                            (my_id, int(follower["id"])),
-                        )
-                        st.rerun()
+                    # Check whether WE already follow this person back.
+                    # We look for a row where we are the follower and they are followed.
+                    back_row = query_df(
+                        """
+                        SELECT status FROM follows
+                        WHERE follower_id = ? AND followed_id = ?
+                        """,
+                        (my_id, int(follower["id"])),
+                    )
 
-                elif back_row.iloc[0]["status"] == "pending":
-                    # We sent a request but they haven't accepted it yet.
-                    # Just show a small grey label — no button needed.
-                    st.caption("⏳ Request sent")
+                    if back_row is None or back_row.empty:
+                        # We don't follow them yet → show a "Follow back" button.
+                        # Clicking sends a pending follow request to them, just like
+                        # the normal Follow button in the search panel.
+                        if st.button("Follow back ＋", key=f"followback_{follower['id']}",
+                                     use_container_width=True):
+                            execute(
+                                """
+                                INSERT OR IGNORE INTO follows
+                                    (follower_id, followed_id, status)
+                                VALUES (?, ?, 'pending')
+                                """,
+                                (my_id, int(follower["id"])),
+                            )
+                            st.rerun()
+
+                    elif back_row.iloc[0]["status"] == "pending":
+                        # We sent a request but they haven't accepted it yet.
+                        # Just show a small grey label — no button needed.
+                        st.caption("⏳ Request sent")
 
 st.divider()
 
