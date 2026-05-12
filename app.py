@@ -44,13 +44,13 @@ init_session_state()  # fills in default session_state keys
 
 pg = st.navigation([
     st.Page("Home.py",                        title="Home",            icon=":material/home:"),
-    st.Page("pages/2_Recipes.py",             title="Recipes",         icon=":material/menu_book:"),
     st.Page("pages/3_Pantry.py",              title="Pantry",          icon=":material/kitchen:"),
+    st.Page("pages/2_Recipes.py",             title="Recipes",         icon=":material/menu_book:"),
     st.Page("pages/4_Meal_Planner.py",        title="Meal Planner",    icon=":material/calendar_month:"),
     st.Page("pages/5_Nutrition_Analytics.py", title="Nutrition",       icon=":material/bar_chart:"),
-    st.Page("pages/6_Friends.py",             title="Friends",         icon=":material/group:"),
     st.Page("pages/7_Recommendations.py",     title="Recommendations", icon=":material/auto_awesome:"),
     st.Page("pages/8_Wishlist.py",            title="Wishlist",        icon=":material/favorite:"),
+    st.Page("pages/6_Friends.py",             title="Friends",         icon=":material/group:"),
 ])
 
 # ── Sidebar footer ────────────────────────────────────────────────────────────
