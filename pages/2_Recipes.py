@@ -29,102 +29,31 @@ from src.data.api_client import (
     search_spoonacular,
 )
 from src.data.database import query_df, execute
-from src.data.pantry_repo import coverage
 from src.models.recommender import Recommender
 from src.utils.session import init_session_state, require_profile
 
 
 # ── Ingredient extractor (defined early — used by nutrition helper below) ─────
 
-def extract_ingredients(meal: dict, for_display: bool = False) -> list[str]:
+def extract_ingredients(meal: dict) -> list[str]:
     """Pull the ingredient list out of a TheMealDB or Spoonacular result.
 
-    We have two modes depending on who is calling this function:
-
-    for_display=False (default) → ML mode
-        Returns plain ingredient names like "flour", "egg", "garlic".
-        Used when saving to the wishlist and when scoring recipes in the
-        ML model. Plain names match across different recipe sources
-        (TheMealDB says "flour", Spoonacular says "flour" → they match).
-
-    for_display=True → display mode
-        Returns full strings with quantities like "2 cups flour", "1 large egg".
-        Used only for showing the ingredient list to the user in the expander.
-
-    TheMealDB recipes:
-        The API gives us separate fields for name and amount:
-            strIngredient1 = "Flour"   strMeasure1 = "2 cups"
-        In ML mode we return just "Flour".
-        In display mode we combine them into "2 cups Flour".
-
-    Spoonacular recipes:
-        The API gives us two ready-made fields per ingredient:
-            "name"     = "flour"                         ← ML mode
-            "original" = "2 cups all-purpose flour"      ← display mode
-        We stored both as "_ingredients" and "_ingredients_display"
-        in api_client.py, so we just pick the right one here.
+    Spoonacular already gives us full strings like "2 cups flour" in _ingredients.
+    TheMealDB splits the name and amount into separate fields:
+        strIngredient1 = "Flour",  strMeasure1 = "2 cups"
+    We combine them so the result looks like "2 cups Flour", "1 Egg", etc.
     """
-    # ── Spoonacular recipe ────────────────────────────────────────────────────
     if meal.get("_ingredients"):
-        if for_display and meal.get("_ingredients_display"):
-            # Show the full string with quantities (e.g. "2 cups flour")
-            return [i.strip() for i in meal["_ingredients_display"] if i.strip()]
-        else:
-            # Return plain names (e.g. "flour") for ML or wishlist saving
-            return [i.strip() for i in meal["_ingredients"] if i.strip()]
+        return [i.strip() for i in meal["_ingredients"] if i.strip()]
 
-    # ── TheMealDB recipe ──────────────────────────────────────────────────────
     ingredients = []
     for i in range(1, 21):
         name    = (meal.get(f"strIngredient{i}") or "").strip()
         measure = (meal.get(f"strMeasure{i}")    or "").strip()
         if not name:
             continue
-        if for_display and measure:
-            # Display mode: combine measure + name → "2 cups Flour"
-            ingredients.append(f"{measure} {name}")
-        else:
-            # ML mode: just the name → "Flour"
-            ingredients.append(name)
+        ingredients.append(f"{measure} {name}" if measure else name)
     return ingredients
-
-
-# ── Allergy helper ───────────────────────────────────────────────────────────
-
-# Keyword map: allergy name → words to look for inside ingredient strings
-_ALLERGY_KEYWORDS: dict[str, list[str]] = {
-    "gluten":    ["flour", "wheat", "bread", "pasta", "noodle", "soy sauce",
-                  "barley", "rye", "semolina", "couscous", "breadcrumb"],
-    "celiac":    ["flour", "wheat", "bread", "pasta", "noodle", "soy sauce",
-                  "barley", "rye", "semolina", "couscous", "breadcrumb"],
-    "lactose":   ["milk", "cream", "butter", "cheese", "yogurt", "yoghurt",
-                  "dairy", "whey", "lactose"],
-    "nuts":      ["almond", "cashew", "walnut", "pecan", "hazelnut", "pistachio",
-                  "macadamia", "pine nut", "chestnut", "nut"],
-    "peanut":    ["peanut", "groundnut"],
-    "eggs":      ["egg", "eggs"],
-    "soy":       ["soy", "tofu", "edamame", "miso", "tempeh", "tamari"],
-    "shellfish": ["shrimp", "prawn", "crab", "lobster", "clam", "mussel",
-                  "oyster", "scallop", "squid", "octopus", "crayfish"],
-}
-
-
-def check_allergy_conflicts(meal: dict, user_allergies: list[str]) -> list[str]:
-    """Return a list of allergen names that appear in the recipe ingredients.
-
-    Compares the meal's ingredient strings (case-insensitive) against the
-    keyword list for each allergy the user has declared.
-    Returns an empty list when the meal is safe for the user.
-    """
-    if not user_allergies:
-        return []
-    ingredients_text = " ".join(extract_ingredients(meal)).lower()
-    conflicts = []
-    for allergy in user_allergies:
-        keywords = _ALLERGY_KEYWORDS.get(allergy.lower(), [allergy.lower()])
-        if any(kw in ingredients_text for kw in keywords):
-            conflicts.append(allergy)
-    return conflicts
 
 
 # ── Nutrition helper ──────────────────────────────────────────────────────────
@@ -277,18 +206,31 @@ page_header("🍲 Recipes", "Search recipes or browse by cuisine.")
 # Always show the Meal Planner summary at the top of the page
 show_my_planner_banner()
 
-local_title_to_id = {r["name"].lower(): r["id"] for r in LOCAL_RECIPES}
+# ── Post-rerun messages (toasts before rerun are swallowed by Streamlit) ────
+if "planner_added_title" in st.session_state:
+    added_title = st.session_state.pop("planner_added_title")
+    st.toast(f"✅ '{added_title}' added to Meal Planner!", icon="🍽️")
+
+if "kcal_missing_warning" in st.session_state:
+    missing_title = st.session_state.pop("kcal_missing_warning")
+    st.warning(
+        f"⚠️ Calories could not be fetched for **{missing_title}** — "
+        "the Spoonacular API quota may be exhausted for today. "
+        "You can enter them manually in **Nutrition Analytics**.",
+        icon="🔑",
+    )
 
 # ── Spoonacular data notice ───────────────────────────────────────────────────
 st.info(
-    "**Calorie & nutrition data** for TheMealDB recipes is estimated via the "
-    "[Spoonacular API](https://spoonacular.com/food-api) (free tier: 50 points/day). "
+    "🥄 **Calorie & nutrition data** for TheMealDB recipes is estimated via the "
+    "[Spoonacular API](https://spoonacular.com/food-api) (free tier: 150 points/day). "
     "If calorie data is missing on a recipe, the daily quota may be exhausted — "
     "you can always enter calories manually in **Nutrition Analytics**.",
     icon="ℹ️",
 )
- 
+
 local_title_to_id = {r["name"].lower(): r["id"] for r in LOCAL_RECIPES}
+
 
 # ── World Map data ────────────────────────────────────────────────────────────
 
@@ -762,13 +704,14 @@ def get_pantry() -> set[str]:
 
 
 def pantry_pct(meal: dict, pantry: set[str]) -> float | None:
-    """Return fraction of ingredients already in pantry using smart matching."""
+    """Return fraction of ingredients already in pantry."""
     if not pantry:
         return None
     ingredients = extract_ingredients(meal)
     if not ingredients:
         return None
-    return coverage(ingredients, pantry)
+    names = [i.lower() for i in ingredients]
+    return sum(1 for n in names if n in pantry) / len(names)
 
 
 # ── Wishlist / taste-profile setup ────────────────────────────────────────────
@@ -781,47 +724,8 @@ wishlist_ids = [
     if isinstance(w, dict) and w.get("local_id") is not None
 ]
 
-def _clean_for_ml(ingredients: list[str]) -> list[str]:
-    """Strip quantities/measures from a list of ingredients before ML comparison.
-
-    The ML model compares ingredients using Jaccard similarity — it checks
-    how many words two recipes have in common. If one recipe stores
-    "2 cups flour" and another stores "flour", they won't match even though
-    they're the same ingredient.
-
-    This function removes the quantity part so the ML only sees the name:
-        "2 cups all-purpose flour"  →  "all-purpose flour"
-        "1 large egg"               →  "egg"
-        "salt"                      →  "salt"  (no change needed)
-
-    We only use this cleaned version for ML comparisons, NOT for display.
-    The display in the expander still shows the full string with quantities.
-    """
-    import re
-    cleaned = []
-    for ing in ingredients:
-        s = ing.strip()
-        # Remove leading numbers and fractions (e.g. "2", "1/2", "1.5")
-        s = re.sub(r"^[\d\s½¼¾⅓⅔⅛./-]+x?\s*", "", s)
-        # Remove common unit words at the start (e.g. "cups", "tbsp", "large")
-        units = (
-            r"^(cups?|tbsp?|tsp?|tablespoons?|teaspoons?|grams?|g|kg|oz|lbs?|"
-            r"pounds?|ml|liters?|litres?|cloves?|slices?|pieces?|pinch|handful|"
-            r"bunch|cans?|large|medium|small|whole|finely|chopped|shredded|"
-            r"sliced|diced|minced|fresh|dried|ground|packed)\s+"
-        )
-        s = re.sub(units, "", s, flags=re.IGNORECASE)
-        s = s.strip().lower()
-        if len(s) > 1:
-            cleaned.append(s)
-    return cleaned
-
-
-# Build the list of liked ingredients for the ML model.
-# We apply _clean_for_ml() so the ML sees just ingredient names,
-# not quantities like "2 cups flour" — that would confuse the similarity check.
 liked_ingredients = [
-    _clean_for_ml(w["ingredients"])
+    w["ingredients"]
     for w in wishlist
     if isinstance(w, dict) and w.get("ingredients")
 ]
@@ -838,8 +742,6 @@ has_taste_profile = (
     )
 )
 
-user_allergies: list[str] = profile.get("allergies") or []
-
 tab_search, tab_cuisine = st.tabs(["🔎 Search", "🌍 Browse by cuisine"])
 
 
@@ -850,7 +752,6 @@ def render_meal_card(
     ml_score: float | None = None,
     pantry: float | None = None,
     card_key: str = "",
-    user_allergies: list[str] | None = None,
 ) -> None:
     """Draw a single recipe card.
 
@@ -880,36 +781,11 @@ def render_meal_card(
                 elif pantry > 0.3:
                     st.warning("🟡 Partially available")
 
-            # ── Allergy badge ─────────────────────────────────────────────
-            if user_allergies:
-                conflicts = check_allergy_conflicts(meal, user_allergies)
-                if conflicts:
-                    st.markdown(
-                        f'<div style="display:inline-flex;align-items:center;gap:8px;'
-                        f'background:#FCEBEB;color:#A32D2D;border:0.5px solid #F09595;'
-                        f'border-radius:999px;padding:5px 14px;font-size:13px;font-weight:500;margin:4px 0;">'
-                        f'⚠️ Not safe for your allergies — contains {", ".join(conflicts)}'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    st.markdown(
-                        '<div style="display:inline-flex;align-items:center;gap:8px;'
-                        'background:#EAF3DE;color:#3B6D11;border:0.5px solid #97C459;'
-                        'border-radius:999px;padding:5px 14px;font-size:13px;font-weight:500;margin:4px 0;">'
-                        '✅ Safe for your allergies — you\'re good to go!'
-                        '</div>',
-                        unsafe_allow_html=True,
-                    )
-
             with st.expander("🧾 Ingredients & Instructions"):
                 col_ing, col_inst = st.columns([1, 2])
                 with col_ing:
                     st.markdown("**Ingredients**")
-                    # for_display=True → shows quantities like "2 cups flour"
-                    # instead of just "flour". This is only for the visual card,
-                    # NOT for the wishlist or ML (those use the default False).
-                    for ing in extract_ingredients(meal, for_display=True):
+                    for ing in extract_ingredients(meal):
                         st.markdown(f"- {ing}")
                 with col_inst:
                     st.markdown("**Instructions**")
@@ -1030,13 +906,12 @@ def render_meal_card(
                             (user_id, local_id),
                         )
 
-                    st.toast(f"✅ '{meal_title}' added to Meal Planner!", icon="🍽️")
+                    # Both messages are stored in session state and rendered
+                    # after the rerun — toasts fired just before st.rerun()
+                    # are swallowed before Streamlit can display them.
+                    st.session_state["planner_added_title"] = meal_title
                     if kcal is None:
-                        # Store the warning in session state so it survives
-                        # the rerun — a toast fired just before st.rerun()
-                        # is swallowed before Streamlit can render it.
                         st.session_state["kcal_missing_warning"] = meal_title
-               
                     st.rerun()
 
 
@@ -1113,23 +988,12 @@ with tab_search:
 
             user_pantry = get_pantry()
 
-            hide_unsafe = st.toggle(
-                "🛡️ Hide recipes that contain my allergies",
-                value=True,
-                key="hide_unsafe_search",
-                help="Turn off to see all recipes — unsafe ones will still show a warning badge.",
-            ) if user_allergies else False
-
             for idx, (meal, score) in enumerate(scored_results):
-                conflicts = check_allergy_conflicts(meal, user_allergies)
-                if hide_unsafe and conflicts:
-                    continue
                 render_meal_card(
                     meal,
                     ml_score=score,
                     pantry=pantry_pct(meal, user_pantry),
                     card_key=f"search_{idx}",
-                    user_allergies=user_allergies,
                 )
 
 
@@ -1232,23 +1096,11 @@ with tab_cuisine:
                 empty_state(f"No recipes found for {active_cuisine} — try another country.")
             else:
                 user_pantry = get_pantry()
-
-                hide_unsafe = st.toggle(
-                    "🛡️ Hide recipes that contain my allergies",
-                    value=True,
-                    key="hide_unsafe_cuisine",
-                    help="Turn off to see all recipes — unsafe ones will still show a warning badge.",
-                ) if user_allergies else False
-
                 for idx, meal in enumerate(cuisine_results[:10]):
-                    conflicts = check_allergy_conflicts(meal, user_allergies)
-                    if hide_unsafe and conflicts:
-                        continue
                     render_meal_card(
                         meal,
                         pantry=pantry_pct(meal, user_pantry),
                         card_key=f"cuisine_{idx}",
-                        user_allergies=user_allergies,
                     )
         else:
             st.info("👆 Click a country on the map to explore its recipes.")
