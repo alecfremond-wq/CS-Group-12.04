@@ -706,8 +706,15 @@ def render_meal_card(
                 elif pantry > 0.3:
                     st.warning("🟡 Partially available")
 
-            with st.expander("Instructions"):
-                st.write(meal.get("strInstructions", ""))
+            with st.expander("🧾 Ingredients & Instructions"):
+                col_ing, col_inst = st.columns([1, 2])
+                with col_ing:
+                    st.markdown("**Ingredients**")
+                    for ing in extract_ingredients(meal):
+                        st.markdown(f"- {ing}")
+                with col_inst:
+                    st.markdown("**Instructions**")
+                    st.write(meal.get("strInstructions", "No instructions available."))
 
             # ── Wishlist ──────────────────────────────────────────────────
             already_saved = any(
