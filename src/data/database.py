@@ -1,19 +1,7 @@
 # ============================================================================
 #  database.py  —  thin wrapper around SQLite
 # ----------------------------------------------------------------------------
-#  This file is the ONLY place in the project that talks to the database
-#  directly. Every other file calls `query_df(...)` or `execute(...)` from
-#  here. That way, if we ever switch to a different database (Postgres, etc.)
-#  we only have to change this one file.
-#
-#  We use SQLite because:
-#    * it's built into Python (no installation needed on anyone's laptop),
-#    * it stores the whole database in a single file (data/cooktogether.db),
-#    * it covers grading requirement #2 ("data provided via a database").
-# ============================================================================
-#  AI-ASSISTED AUTHORSHIP: scaffold drafted with Anthropic Claude (04/2026),
-#  reviewed by Group 12.04. See README.md.
-# ============================================================================
+
 
 import sqlite3                                 # built-in Python module for SQLite
 from contextlib import contextmanager          # lets us write a clean `with ...` helper
