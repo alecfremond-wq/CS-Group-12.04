@@ -55,12 +55,11 @@ from src.data.pantry_repo import (
 )
 from src.utils.session import init_session_state, require_profile
 
-#setup
+#1. Setup and constants ################
 init_session_state()
 require_profile()
 page_header("🥫 Pantry", "What's currently in your kitchen?")
 
-#constants
 USER_ID = st.session_state.get("user_id", 1)
 CUSTOM_OPTION = "✏️  Other (type a custom ingredient)"
 
