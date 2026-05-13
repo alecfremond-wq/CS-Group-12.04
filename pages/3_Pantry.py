@@ -1,16 +1,44 @@
 """
-Pantry page — add, view and remove ingredients from the user's pantry.
+Streamlit page that lets users manage their pantry.
+Users can add ingredients with quantity, unit and expiry date, view what they
+currently have, and remove individual items or clear everything at once.
 
 Dependencies:
-  - streamlit            : UI framework
-  - pandas               : handles query results as DataFrames
-  - datetime             : date arithmetic for expiry badges
-  - src.data.pantry_repo : CRUD operations for the pantry table
-  - src.data.api_client  : fetches ingredient list from TheMealDB
-  - src.components.ui    : page_header, empty_state
-  - src.utils.session    : init_session_state, require_profile
+
+  - streamlit            : UI framework; renders every widget, column, and button.
+  - pandas               : handles query results as DataFrames (iterrows).
+  - datetime (stdlib)    : date, datetime — used for expiry date arithmetic.
+
+  - src.data.pantry_repo
+      add_to_pantry(user_id, name, qty, unit, expires_on) -> inserts or updates a pantry row.
+      list_pantry(user_id)                                -> returns all pantry rows as a DataFrame.
+      remove_from_pantry(pantry_row_id, user_id)         -> deletes a single pantry row.
+      clear_pantry(user_id)                              -> deletes all pantry rows for this user.
+
+  - src.data.api_client
+      get_themealdb_ingredients() -> fetches ~500 ingredient names from TheMealDB API.
+                                     Names must match exactly for the recipe badge to work.
+
+  - src.components.ui
+      page_header(title, subtitle) -> renders a styled h1 + subtitle banner.
+      empty_state(message)         -> renders a placeholder when there is nothing to display.
+
+  - src.utils.session
+      init_session_state()  -> seeds st.session_state with default keys so
+                               the rest of the app never hits KeyError.
+      require_profile()     -> redirects to the Home page if the user has not
+                               created a profile yet. Acts as a guard.
+
+Database tables:
+
+  pantry      : one row per (user, ingredient). Stores quantity, unit, expiry date.
+                Primary key `id` is used for targeted deletes.
+  ingredients : master ingredient list; joined to get human-readable names.
 
 Author: Alec Frémond
+
+Sources: Claude Sonnet 4.6 (see comments below)
+
 """
 
 from datetime import date, datetime
@@ -182,6 +210,7 @@ else:
 
             if col_btn.button("🗑️", key=f"rm_{int(row['id'])}", help="Remove"):
                 remove_from_pantry(int(row["id"]), USER_ID)
+                # filter session_state to keep it in sync with the database after deletion
                 st.session_state["pantry"] = [
                     p for p in st.session_state["pantry"]
                     if p.get("name", "").lower() != row["name"]
