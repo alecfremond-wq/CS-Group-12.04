@@ -347,9 +347,9 @@ def build_data(user_id) -> tuple[dict, set, list[str]]:
     - a list called failed_titles, which contains the titles of recipes for which calorie data could not be fetched automatically.
     The function starts by creating an empty table with all days and meals set to 0. 
     It then fetches calories from the meal planner and fills in the table, keeping track of which 
-    slots are planned-controlled. Any recipes that couldn't be fetches are stored in a separate list so 
+    slots are planner-controlled. Any recipes whose calories could not be fetched are stored in a separate list so 
     the user can enter them manually. 
-    Next, it loads any manual ovverrides saved by the user. 
+    Next, it loads any manual overrides saved by the user. 
     For planned-controlled slots it removes any stale manual values to avoid conflicts; 
     for empty slots it applies the manual value instead. 
     Finally it returns the completed calorie table, the set of planner-controlled slots, and the list of failed recipes. 
@@ -367,11 +367,9 @@ def build_data(user_id) -> tuple[dict, set, list[str]]:
 
 
     overrides = load_overrides()
-    
     #Loads any calorie values manually entered by the user. There are two cases:
     #- If a slot is already controlled by the planner → delete the manual override if it exists to avoid stale conflicts
     #- If a slot is empty (0) → apply the manual override if it exists, allowing the user to fill in missing values or add non-planned meals. 
-    
     stale_cleaned = False
     for day in DAYS:
         for meal in MEALS:
@@ -393,7 +391,7 @@ def build_data(user_id) -> tuple[dict, set, list[str]]:
 
 
 # ── Session state ──────────────────────────────────────────────────────────────
-#Retrive the logge-in user's ID from the session state (none if not set)
+#Retrieve the logged-in user's ID from the session state (None if not set)
 user_id = st.session_state.get("user_id")
 
 #Call build_data and unpack the returned tuple into three named variables:
@@ -401,7 +399,7 @@ user_id = st.session_state.get("user_id")
 #- planned_slots: a set of (day, meal) tuples that are controlled by the meal planner 
 #(used to determine which slots can be manually overridden)
 #- failed_titles: a list of recipe titles for which calorie data could not be
-#Then it stores the clalories in session state so other parts of the app can access it. 
+#Then it stores the calories in session state so other parts of the app can access it. 
 data, planned_slots, failed_titles = build_data(user_id)
 st.session_state.cal_data = data
 
@@ -447,7 +445,7 @@ with col_left:
     st.caption("Current week") #display a small "current week" label above the main number 
     st.markdown(
         #it displays: 
-        #- the averge calories as a large vold hedline (2em font size, weight 700)
+        #- the average calories as a large bold hedline (2em font size, weight 700)
         #- a smaller description text next to it (1em font size, weight 400 - average daily calorie intake across the past 7 days)
         f"<span style='font-size:2em;font-weight:700'>{avg:,.0f} kcal avg/day</span>" 
         f"<span style='font-size:1em;font-weight:400'>"
@@ -466,16 +464,16 @@ with col_right:
 
 # ── Bar chart ──────────────────────────────────────────────────────────────────
 
-bar_colors = ["#72BF6A" if day == selected else "#CCE7C9" for day in DAYS] #build a clour list: the selected day gets bright green, all others get light green
+bar_colors = ["#72BF6A" if day == selected else "#CCE7C9" for day in DAYS] #build a color list: the selected day gets bright green, all others get light green
 
 #Create an empty Plotly figure
-#Add the Goal bars - wide (0.55) and beige, one per day at the same height (GOAL)
-#These acts as the background layer showing where the target is for each day.
+#Add the Goal bars - wide (0.55) and beige, one per day at the same height (GOAL).
+#These act as the background layer showing where the target is for each day.
 fig = go.Figure()  
 fig.add_trace(go.Bar(
     x=DAYS, y=[GOAL] * 7, name="Goal", marker_color="#F5F5DC", width=0.55,
 ))
-#Add the actual bars - narrower (0.3) and coloured, overlaid on top of the goal barss.
+#Add the actual bars - narrower (0.3) and coloured, overlaid on top of the goal bars.
 #Each bar's height is the real daily calories total. 
 fig.add_trace(go.Bar(
     x=DAYS, y=totals, name="Actual", marker_color=bar_colors, width=0.3,
@@ -499,27 +497,27 @@ st.plotly_chart(fig, use_container_width=True) #Render the chart in Streamlit, a
 pill_cols = st.columns(7) #create seven equal columns for each day of the week. 
 
 #Loop over each day and its total calories simultaneously.
-#enmurate() is used to get both the index (i) and the values (day, total) for each iteration.
+#enumerate() is used to get both the index (i) and the values (day, total) for each iteration.
 for i, (day, total) in enumerate(zip(DAYS, totals)):
 
     label      = f"{total/1000:.1f}k" if total >= 1000 else str(total) #format the calorie label: show "1.8k" for value >= 1000, otherwise show the raw number.
     line_color = "#72BF6A" if day == selected else "#CCE7C9" #the small line at the bottom of the pill is bright green for the selected day. 
-    border = "2px solid #72BF6A" if day == selected else "1px solid #CCE7C9" #the pill border is light green fot the non-selected days. 
+    border = "2px solid #72BF6A" if day == selected else "1px solid #CCE7C9" #the pill border is light green for the non-selected days. 
     
     with pill_cols[i]:
-        #render a styled HTLM card showing the day name, calorie total, 
-        #and a small line at the bottom as a visual indicator of selection.
+        #render a styled HTML card showing the day name, calorie total, 
+        #and a small line at the botton as a visual indicator of selection.
         st.markdown(
             f'<div style="border:{border};border-radius:8px;padding:8px 4px 0;'
             f'text-align:center;background:white;margin-bottom:2px">'
             f'<div style="font-size:13px;font-weight:600">{day}</div>' #day name 
             f'<div style="font-size:14px;font-weight:700">{label}</div>' #calorie total 
-            f'<div style="height:3px;background:{line_color};border-radius:0 0 4px 4px;margin-top:6px"></div>' #coloured bottom bar 
+            f'<div style="height:3px;background:{line_color};border-radius:0 0 4px 4px;margin-top:6px"></div>' #coloured button bar 
             f"</div>",
             unsafe_allow_html=True,
         ) #Raw HTML is needed here because Streamlit doesn't support multi-style text in a single st.markdown call
 
-        #Invisible buttom overlaid on the card. 
+        #Invisible button overlaid on the card. 
         #When clicked, it sets the selected day in session state and reruns the app to update all displays.
         if st.button(day, key=f"pill_{day}", use_container_width=True):
             st.session_state.cal_selected = day
@@ -527,7 +525,7 @@ for i, (day, total) in enumerate(zip(DAYS, totals)):
 
 # ── Detail panel ───────────────────────────────────────────────────────────────
 
-day_data  = data[selected] #bsegin code generated by Claude Sonnet 4.6 
+day_data  = data[selected] #begin code generated by Claude Sonnet 4.6 
 total_day = day_total(selected)
 max_kcal  = max(max(day_data.values(), default=1), 1)
 
