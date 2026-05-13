@@ -873,7 +873,12 @@ tab_search, tab_cuisine = st.tabs(["🔎 Search", "🌍 Browse by cuisine"])
 # wishlist button, and meal planner button.
 
 def render_meal_card(
-   """Render one recipe card inside a Streamlit bordered container.
+    meal: dict,
+    ml_score: float | None = None,
+    pantry: float | None = None,
+    card_key: str = "",
+) -> None:
+    """Render one recipe card inside a Streamlit bordered container.
 
     Each card contains:
       - Thumbnail image (left column)
@@ -884,20 +889,13 @@ def render_meal_card(
       - ❤️ Save to Wishlist button (or "already saved" caption)
       - ➕ Add to Meal Planner button (or ❌ Remove if already saved)
 
-   Note
+    card_key must be unique for every card rendered in a single Streamlit
+    run (e.g. "search_0", "cuisine_3").
+
+    Note:
       - Reads/writes st.session_state["wishlist"]
       - Reads/writes DB tables: recipes, planner_pool, meal_plan
       - Calls st.rerun() after wishlist/planner changes
-    """
-    meal: dict,
-    ml_score: float | None = None,
-    pantry: float | None = None,
-    card_key: str = "",
-) -> None:
-    """Draw a single recipe card.
-
-    card_key must be unique for every card rendered in a single Streamlit
-    run (e.g. "search_0", "cuisine_3").
     """
     meal_title = meal["strMeal"]
 
