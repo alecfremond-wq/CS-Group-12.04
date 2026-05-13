@@ -390,8 +390,8 @@ st.session_state.cal_data = data
 if failed_titles:
     names = ", ".join(f"**{t}**" for t in failed_titles)
     st.info(
-        f"🥄 Calorie data for {names} could not be fetched automatically. "
-        "This can happen when the Spoonacular free-tier quota (150 points/day) "
+        f"Calorie data for {names} could not be fetched automatically. "
+        "This can happen when the Spoonacular free-tier quota (50 points/day) "
         "is exhausted, or when the dish name isn't recognised by Spoonacular. "
         "You can enter the missing calories manually in the edit panel below.",
         icon="ℹ️",
