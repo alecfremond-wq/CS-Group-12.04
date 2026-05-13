@@ -423,7 +423,7 @@ with col_left:
 with col_right:
     st.markdown(
         '<div style="text-align:right;padding-top:16px">'
-        '<span style="color:#ED7D3A">■</span> Actual &nbsp;'
+        '<span style="color:#8BCA84">■</span> Actual &nbsp;'
         '<span style="color:#F5F5DC">■</span> Goal'
         "</div>",
         unsafe_allow_html=True,
