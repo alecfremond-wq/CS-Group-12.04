@@ -1,32 +1,20 @@
-"""
-Home page — landing page, login, sign-up, and profile management.
-
-This file was extracted from app.py when we added Material-icon navigation.
-TO REVERT: delete this file and restore app.py with `git checkout app.py`.
-"""
-
 import streamlit as st
 
 from src.data.user_repo import check_login, create_account, delete_profile, load_profile, save_profile
 from src.utils.session import init_session_state
 
-# init_session_state is already called by app.py on every page load,
-# but we call it here too as a safety net in case this page runs standalone.
 init_session_state()
 
 
-# ── Constants ─────────────────────────────────────────────────────────────────
-
-DIETS          = ["Omnivore", "Vegetarian", "Vegan", "Pescatarian", "Low-Carb", "High-Protein"]
+#1. Constants ################
+DIETS           = ["Omnivore", "Vegetarian", "Vegan", "Pescatarian", "Low-Carb", "High-Protein"]
 ALLERGY_OPTIONS = ["Gluten", "Lactose", "Nuts", "Peanut", "Eggs", "Soy", "Shellfish", "Celiac"]
-SKILLS         = ["beginner", "intermediate", "advanced"]
+SKILLS          = ["beginner", "intermediate", "advanced"]
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+#2. Helper functions ##########
 
 def _logout() -> None:
-    # Reset every user-related key in session_state back to its default.
-    # This ensures the next person who opens the app starts completely fresh.
     st.session_state["user_id"]            = None
     st.session_state["user_profile"]       = None
     st.session_state["pantry"]             = []
@@ -39,7 +27,6 @@ def _logout() -> None:
 
 
 def _render_auth() -> None:
-    # Login / Sign-up screen — shown when no user is currently logged in.
     st.markdown("## Ready to get started?")
     tab_login, tab_signup = st.tabs(["Log in", "Sign up"])
 
@@ -168,8 +155,7 @@ def _render_summary(profile: dict) -> None:
             st.rerun()
 
 
-# ── Page content ──────────────────────────────────────────────────────────────
-
+#3. Page content ####
 st.title("🍳 CookTogether")
 st.subheader("Cook, plan, and eat well — together.")
 
@@ -190,14 +176,14 @@ st.markdown(
 
 st.divider()
 
-# ── Onboarding / profile section ──────────────────────────────────────────────
-
+#4. Onboarding / profile section ########
 if "show_onboarding" not in st.session_state:
     st.session_state["show_onboarding"] = False
 
 profile = st.session_state.get("user_profile") or {}
 editing = st.session_state.get("onboarding_editing", False)
 
+### \begin[Code generation by Claude Sonnet 4.6]
 if not profile:
     if not st.session_state["show_onboarding"]:
         st.markdown("""
@@ -229,6 +215,7 @@ if not profile:
             st.rerun()
     else:
         _render_auth()
+### \end[Code generation by Claude Sonnet 4.6]
 
 elif editing:
     _render_edit_form(existing=profile)
