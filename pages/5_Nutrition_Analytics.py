@@ -38,7 +38,6 @@ from src.components.ui import page_header
 from src.data.api_client import (
     fetch_nutrition_by_title,
     fetch_nutrition_from_ingredients,
-    fetch_nutrition_for_meal,
     search_recipes_by_name,
 )
 from src.data.database import execute, query_df
@@ -155,21 +154,32 @@ def _backfill_nutrition(recipe_id: int, title: str) -> int | None:
     kcal: int | None = None
 
     try:
-        # Fetch the full MealDB meal dict so fetch_nutrition_for_meal()
-        # can use the ingredient list for the fallback strategy.
-        matches = search_recipes_by_name(title)
-        if matches:
-            meal = next(
-                (m for m in matches
-                 if m.get("strMeal", "").lower() == title.lower()),
-                matches[0],
-            )
-            nutrition = fetch_nutrition_for_meal(meal)
-            kcal = nutrition.get("kcal")
-        else:
-            # No MealDB match — try title-only lookup as last resort
-            nutrition = fetch_nutrition_by_title(title)
-            kcal = nutrition.get("kcal")
+        # Strategy 1: title-based Spoonacular lookup (fast, works for
+        # well-known dishes). fetch_nutrition_by_title is already cached.
+        nutrition = fetch_nutrition_by_title(title)
+        kcal = nutrition.get("kcal")
+
+        # Strategy 2: ingredient-parser fallback.
+        # Search MealDB for the dish to get its ingredient list, then send
+        # those to Spoonacular's parseIngredients endpoint.
+        # We do NOT require an exact title match — any MealDB result for
+        # the query gives us a real ingredient list to parse, which is
+        # more reliable than matching on dish name (e.g. "Lamb & Apricot
+        # Meatballs" vs "Lamb and Apricot Meatballs").
+        if kcal is None:
+            matches = search_recipes_by_name(title)
+            if matches:
+                # Use the closest title match if available, else first result
+                meal = next(
+                    (m for m in matches
+                     if m.get("strMeal", "").lower() == title.lower()),
+                    None,
+                ) or matches[0]
+                ingredients = tuple(_extract_ingredients_from_mealdb(meal))
+                if ingredients:
+                    raw = fetch_nutrition_from_ingredients(ingredients)
+                    if raw.get("kcal") is not None:
+                        kcal = int(round(raw["kcal"] / 4))
     except Exception as e:
         print(f"[nutrition backfill] '{title}' failed — {e}")
 
