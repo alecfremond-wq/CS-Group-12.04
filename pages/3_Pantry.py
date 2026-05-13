@@ -56,6 +56,8 @@ from src.data.pantry_repo import (
 from src.utils.session import init_session_state, require_profile
 
 #1. Setup and constants ################
+# Initialises session state, checks the user has a profile, then sets the
+# page header and the constants used throughout the page.
 init_session_state()
 require_profile()
 page_header("🥫 Pantry", "What's currently in your kitchen?")
@@ -83,6 +85,8 @@ st.info(
 )
 
 #2. Add ingredient form ######
+# Renders a form with a dropdown of ~500 TheMealDB ingredients, plus quantity,
+# unit and expiry date fields. The user can also type a custom ingredient name.
 with st.form("add_item", clear_on_submit=True):
     cols = st.columns([3, 1, 1, 2])
     with cols[0]:
@@ -107,6 +111,8 @@ with st.form("add_item", clear_on_submit=True):
     submitted = st.form_submit_button("➕ Add to pantry", type="primary")
 
 #3. Handle form submission ####
+# Reads the submitted values, adds the ingredient to session_state immediately
+# for an instant UI update, then persists it to the database.
 if submitted:
     if choice == CUSTOM_OPTION:
         ingredient_name = custom_name.strip().lower()
@@ -136,6 +142,8 @@ if submitted:
             )
 
 #4. Load and display pantry ########
+# Loads all pantry rows from the database and displays them as a list with
+# expiry badges. Shows summary metrics (total, expiring soon, expired) at the top.
 db_pantry = list_pantry(USER_ID)
 
 if db_pantry.empty and not st.session_state["pantry"]:

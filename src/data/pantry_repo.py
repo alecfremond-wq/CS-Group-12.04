@@ -42,6 +42,8 @@ from src.data.database import execute, query_df
 
 
 #1. Ingredient lookup ################
+# Functions to fetch ingredient names from the database and ensure every
+# ingredient added to the pantry has a matching row in the ingredients table.
 
 def get_canonical_ingredients() -> list[str]:
     """
@@ -79,6 +81,7 @@ def _ensure_ingredient_id(name: str) -> int:
 
 
 #2. Pantry CRUD ##########
+# The four basic operations on the pantry table: add, list, remove one row, clear all.
 
 def add_to_pantry(
     user_id: int,
@@ -187,6 +190,7 @@ def is_canonical(name: str) -> bool:
 
 
 #3. Smart matching ######
+# Used by the Recipes page to compute the Pantry-friendly badge.
 # Naive exact-match gives ~30% hit rate against API recipe names.
 # These rules lift it to ~75-85% by handling plurals and multi-word names.
 
