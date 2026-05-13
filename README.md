@@ -47,7 +47,9 @@ CS-Groupe-Project/
 ├── src/
 │   ├── data/
 │   │   ├── api_client.py       # TheMealDB API wrapper
-│   │   └── database.py         # SQLite helpers (init_db, query_df, execute)
+│   │   ├── database.py         # SQLite helpers (init_db, query_df, execute)
+│   │   ├── pantry_repo.py
+│       └── user_repo.py
 │   ├── models/
 │   │   └── recommender.py      # ML recommender (scikit-learn)
 │   ├── components/
@@ -56,7 +58,7 @@ CS-Groupe-Project/
 │       └── session.py          # session_state init + require_profile()
 ├── data/
 │   ├── schema.sql              # DB schema — edit here, not in database.py
-│   └── cooktogether.db         # generated at runtime (gitignored)
+│  
 ├── assets/                     # images, logos
 ├── tests/                      # (optional) pytest tests
 ├── docs/
