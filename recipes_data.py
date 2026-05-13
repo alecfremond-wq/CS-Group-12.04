@@ -1,6 +1,76 @@
 """
-recipes_data.py — All recipe data for CookMate.
-To add more recipes, just copy the format below and add to the list!
+This file is the LOCAL recipe database for the CookTogeher app.
+It contains a hand-curated list of 20 student-friendly recipes from around
+the world, stored as a plain Python list of dictionaries (no database, no API calls needed).
+
+This file was used at the start of the project as a "false API", when we didn't have
+the API key with all the recipes. 
+Now it's still useful as keeping recipe data here, rather than inline in the Streamlit page , makes it
+easy to:
+  - Add or edit recipes without touching any application logic.
+  - Unit-test the data schema independently of the UI.
+
+This file is linked to a single file in the project 2_Recipes.py
+2_Recipes.py imports this file at the very top:
+
+    from recipes_data import RECIPES as LOCAL_RECIPES
+
+It uses LOCAL_RECIPES for exactly ONE purpose:
+Title to database ID lookup
+
+At startup, 2_Recipes.py builds a dict from this data:
+
+      local_title_to_id = {r["name"].lower(): r["id"] for r in LOCAL_RECIPES}
+
+When a user clicks "Add to Meal Planner" on a search result from TheMealDB or Spoonacular, 
+the app checks whether the recipe title   matches one of our 20 local names (case-insensitive). 
+If it does,   it reuses the existing database row instead of inserting a duplicate.
+
+  Example: a TheMealDB search for "pasta" returns "Pasta Carbonara".
+  The lookup finds local id=1, so the Meal Planner links to the existing
+  row (which already has calories, protein, carbs, fat filled in) rather
+  than creating a second "Pasta Carbonara" row with no nutrition data.
+
+  If no match is found, 2_Recipes.py falls back to a live DB query, and
+  if that also finds nothing, it inserts a brand new row. 
+
+Data schema was built with Claude Sonnet 4.6
+I asked the AI to create 20 recipes from all around the with the following keys:
+Every recipe in RECIPES must have ALL of the following keys — missing keys
+will cause silent errors or crashes in 2_Recipes.py and the Meal Planner.
+
+  id          (int)   Unique integer, 1-based, never reused. Used as the
+                      primary key when inserting into the `recipes` DB table.
+  name        (str)   Display name shown in the UI.
+  country     (str)   Country of origin — shown in tooltips and cards.
+  category    (str)   ONE string only: "Meal" | "Breakfast" | "Snack" etc.
+                      IMPORTANT: must be a single string, NOT a list. Earlier
+                      versions of some recipes (Crêpes, Avocado Toast,
+                      Overnight Oats) had lists here — that broke filters and
+                      has been fixed.
+  ingredients (list)  Plain-English ingredient names (no quantities).
+  time_minutes(int)   Estimated prep + cook time in minutes.
+  cost_chf    (float) Approximate cost per serving in Swiss Francs (CHF).
+  calories    (int)   Calories per serving (kcal).
+  protein     (int)   Protein per serving in grams.
+  carbs       (int)   Carbohydrates per serving in grams.
+  fat         (int)   Fat per serving in grams.
+  vegetarian  (bool)  True if the recipe contains no meat or fish.
+  vegan       (bool)  True if the recipe contains no animal products at all.
+  gluten_free (bool)  True if the recipe contains no gluten-containing grains.
+  dairy_free  (bool)  True if the recipe contains no dairy products.
+  difficulty  (str)   "Easy" | "Medium" | "Hard"
+  description (str)   One-line tagline shown on recipe cards.
+  lat         (float) Latitude of the recipe's country of origin.
+                      Used to place a dot on the world map in 2_Recipes.py.
+  lon         (float) Longitude of the recipe's country of origin.
+  steps       (list)  Ordered list of cooking instruction strings, shown
+                      step-by-step in the recipe detail view.
+
+Authors: Giulia De Angelis and Claude Sonnet 4.6
+
+Sources: Claude Sonnet 4.6
+
 """
 
 RECIPES = [
@@ -8,7 +78,7 @@ RECIPES = [
         "id": 1,
         "name": "Pasta Carbonara",
         "country": "Italy",
-        "category": "Meal",
+        "category": "Meal",            # Single string — never a list
         "ingredients": ["pasta", "eggs", "guanciale", "parmesan", "black pepper"],
         "time_minutes": 20,
         "cost_chf": 4.5,
