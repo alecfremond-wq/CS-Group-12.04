@@ -33,7 +33,7 @@ show empty list / None and don't crash.
    - TheMealDB API  (free, no auth)  https://www.themealdb.com/api/json/v1/1
     - Spoonacular API (needs key)     https://api.spoonacular.com
 
-Authors: Ines
+Authors: Ines, Alec, Giulia
 
 Sources: Claude Sonnet 4.6 (see comments below)
 """
