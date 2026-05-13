@@ -43,7 +43,7 @@ init_session_state()  # fills in default session_state keys
 # Full icon list: https://fonts.google.com/icons
 
 pg = st.navigation([
-    st.Page("Home.py",                        title="Home",            icon=":material/home:"),
+    st.Page("pages/Home.py",                   title="Home",            icon=":material/home:"),
     st.Page("pages/3_Pantry.py",              title="Pantry",          icon=":material/kitchen:"),
     st.Page("pages/2_Recipes.py",             title="Recipes",         icon=":material/menu_book:"),
     st.Page("pages/4_Meal_Planner.py",        title="Meal Planner",    icon=":material/calendar_month:"),

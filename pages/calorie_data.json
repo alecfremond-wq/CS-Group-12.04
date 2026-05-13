@@ -3,9 +3,7 @@
   "manual_overrides": {
     "Mon": {
       "Breakfast": 2000,
-      "Lunch": 0,
-      "Dinner": 0,
-      "Snacks": 0
+      "Lunch": 2000
     }
   }
 }
