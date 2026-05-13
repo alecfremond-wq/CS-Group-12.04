@@ -1,3 +1,35 @@
+"""
+Data access layer for the pantry feature.
+Handles all reads and writes to the pantry and ingredients tables,
+and exposes the smart-matching logic used by the Recipes page to compute
+the Pantry-friendly badge.
+
+Dependencies:
+
+  - pandas               : handles query results as DataFrames.
+  - datetime (stdlib)    : date — used for expiry date formatting.
+  - re (stdlib)          : regular expressions — used for tokenizing ingredient names.
+  - typing (stdlib)      : Iterable, Optional — type hints.
+
+  - src.data.database
+      query_df(sql, params) -> executes a SELECT and returns a DataFrame
+                               (or None if no rows / table missing).
+      execute(sql, params)  -> executes INSERT / DELETE / UPDATE statements.
+
+Database tables:
+
+  pantry      : one row per (user, ingredient). Stores quantity, unit, expiry date.
+                UNIQUE constraint on (user_id, ingredient_id) — adding the same
+                ingredient twice updates the existing row instead of duplicating it.
+  ingredients : master ingredient list. Every ingredient added to any pantry
+                gets an entry here. Names are lowercased and deduplicated.
+
+Author: Alec Frémond
+
+Sources: Claude Sonnet 4.6 (see comments below)
+
+"""
+
 from __future__ import annotations
 
 import re
@@ -9,10 +41,19 @@ import pandas as pd
 from src.data.database import execute, query_df
 
 
-#1. Ingredient lookup ################
+## INGREDIENT LOOKUP
 
 def get_canonical_ingredients() -> list[str]:
-    """All ingredient names from the database, lowercased and sorted."""
+    """
+    Returns every ingredient name stored in the database, lowercased,
+    deduplicated and alphabetically sorted.
+
+    Used by the Pantry page to populate the ingredient dropdown — this
+    guarantees that whatever the user picks matches an ingredient string
+    used in a recipe (same lowercased exact-match rule Recipes page applies).
+
+    Returns a list of strings, or an empty list if the table is empty.
+    """
     df = query_df("SELECT DISTINCT name FROM ingredients ORDER BY name")
     if df is None or df.empty:
         return []
@@ -20,7 +61,14 @@ def get_canonical_ingredients() -> list[str]:
 
 
 def _ensure_ingredient_id(name: str) -> int:
-    """Return the id for `name` in the ingredients table, inserting if missing."""
+    """
+    Returns the id of the ingredients row for `name`, inserting a new row if missing.
+
+    Parameters:
+        name : str — the ingredient name, already lowercased and stripped.
+
+    Returns the integer id of the matching row.
+    """
     name = name.lower().strip()
     df = query_df("SELECT id FROM ingredients WHERE name = ? LIMIT 1", (name,))
     if not df.empty:
@@ -30,7 +78,7 @@ def _ensure_ingredient_id(name: str) -> int:
     return int(df.iloc[0]["id"])
 
 
-#2. Pantry CRUD ##########
+## PANTRY CRUD
 
 def add_to_pantry(
     user_id: int,
@@ -39,12 +87,26 @@ def add_to_pantry(
     unit: str,
     expires_on: Optional[date],
 ) -> None:
-    """Insert or update a pantry row for this user + ingredient."""
+    """
+    Inserts or updates a pantry row for this user + ingredient.
+
+    The schema declares UNIQUE (user_id, ingredient_id), so adding the
+    same ingredient twice updates the existing row rather than creating
+    a duplicate.
+
+    Parameters:
+        user_id    : int           — the logged-in user's database ID.
+        name       : str           — ingredient name (will be lowercased).
+        quantity   : float         — amount to store.
+        unit       : str           — unit of measurement (g, kg, ml, etc.).
+        expires_on : date or None  — expiry date, or None if not set.
+    """
     name = name.lower().strip()
     if not name:
         return
 
     ingredient_id = _ensure_ingredient_id(name)
+    # dates are stored as ISO strings in SQLite ("YYYY-MM-DD")
     expires_str = expires_on.isoformat() if expires_on else None
 
     execute(
@@ -61,7 +123,17 @@ def add_to_pantry(
 
 
 def list_pantry(user_id: int) -> pd.DataFrame:
-    """Return all pantry rows for this user joined with ingredient names."""
+    """
+    Returns all pantry rows for this user, joined with ingredient names.
+    Sorted alphabetically by ingredient name for stable display.
+
+    Parameters:
+        user_id : int — the logged-in user's database ID.
+
+    Returns a DataFrame with columns: id, name, quantity, unit, expires_on.
+    If the database returns no results, returns an empty DataFrame with the
+    same columns — so the rest of the code never crashes trying to read it.
+    """
     df = query_df(
         """
         SELECT p.id, i.name, p.quantity, p.unit, p.expires_on
@@ -78,7 +150,13 @@ def list_pantry(user_id: int) -> pd.DataFrame:
 
 
 def remove_from_pantry(pantry_row_id: int, user_id: int) -> None:
-    """Delete a single pantry row, scoped to this user."""
+    """
+    Deletes a single pantry row selected by its id, scoped to this user.
+
+    Parameters:
+        pantry_row_id : int — the primary key of the row to delete.
+        user_id       : int — used as a safety check so users can only delete their own rows.
+    """
     execute(
         "DELETE FROM pantry WHERE id = ? AND user_id = ?",
         (pantry_row_id, user_id),
@@ -86,19 +164,33 @@ def remove_from_pantry(pantry_row_id: int, user_id: int) -> None:
 
 
 def clear_pantry(user_id: int) -> None:
-    """Delete all pantry rows for this user."""
+    """
+    Deletes all pantry rows belonging to this user.
+
+    Parameters:
+        user_id : int — the logged-in user's database ID.
+    """
     execute("DELETE FROM pantry WHERE user_id = ?", (user_id,))
 
 
 def is_canonical(name: str) -> bool:
-    """Return True if `name` matches an ingredient already in the database."""
+    """
+    Returns True if `name` matches an ingredient already in the database.
+
+    Used by the Pantry page to warn the user when they type something that
+    won't help recipe matching.
+
+    Parameters:
+        name : str — the ingredient name to check.
+    """
     return name.lower().strip() in set(get_canonical_ingredients())
 
 
-#3. Smart matching ######
+## SMART MATCHING
 # Naive exact-match gives ~30% hit rate against API recipe names.
 # These rules lift it to ~75-85% by handling plurals and multi-word names.
-### \begin[Code generation by Claude Sonnet 4.6]
+
+# \ Begin code generated by Claude Sonnet 4.6
 
 def _singularize(word: str) -> str:
     # "berries" → "berry", "tomatoes" → "tomato", "eggs" → "egg"
@@ -122,7 +214,14 @@ def _tokenize(name: str) -> set[str]:
 
 
 def matches(recipe_ingredient: str, pantry: Iterable[str]) -> bool:
-    """Check if a recipe ingredient can be found in the pantry."""
+    """
+    Returns True if a recipe ingredient can be matched against something in the pantry.
+    Applies three rules in order — the first match wins.
+
+    Parameters:
+        recipe_ingredient : str           — one ingredient name from a recipe.
+        pantry            : Iterable[str] — all ingredient names in the user's pantry.
+    """
     if not pantry:
         return False
 
@@ -152,7 +251,14 @@ def matches(recipe_ingredient: str, pantry: Iterable[str]) -> bool:
 
 
 def coverage(ingredient_list: Iterable[str], pantry: Iterable[str]) -> Optional[float]:
-    """Fraction of recipe ingredients the user has (0.0–1.0). None if either list is empty."""
+    """
+    Returns the fraction of a recipe's ingredients the user already has (0.0–1.0).
+    Returns None if either the recipe or the pantry is empty — the badge won't be shown.
+
+    Parameters:
+        ingredient_list : Iterable[str] — all ingredient names from a recipe.
+        pantry          : Iterable[str] — all ingredient names in the user's pantry.
+    """
     ingredients = [i for i in ingredient_list if i and i.strip()]
     pantry_set = {p.lower().strip() for p in pantry if p and p.strip()}
 
@@ -161,4 +267,5 @@ def coverage(ingredient_list: Iterable[str], pantry: Iterable[str]) -> Optional[
 
     matched = sum(1 for ing in ingredients if matches(ing, pantry_set))
     return matched / len(ingredients)
-### \end[Code generation by Claude Sonnet 4.6]
+
+# \ End code generated by Claude Sonnet 4.6
