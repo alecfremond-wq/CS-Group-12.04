@@ -34,7 +34,8 @@ The first start creates `data/cooktogether.db` automatically from
 
 ```
 CS-Groupe-Project/
-├── app.py                      # Streamlit entrypoint (home page)
+├── app.py
+├── Home.py                    # Streamlit entrypoint (home page)
 ├── pages/                      # one file per feature — edit freely without conflicts
 │   ├── 1_Pantry.py
 │   ├── 2_Recipes.py
@@ -68,6 +69,7 @@ CS-Groupe-Project/
 │   ├── config.toml
 │   └── secrets.toml.example    # copy to secrets.toml for API keys
 ├── requirements.txt
+├── recipe_data.py
 └── .gitignore
 ```
 
