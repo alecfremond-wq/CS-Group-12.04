@@ -12,7 +12,7 @@ from src.data.pantry_repo import (
 )
 from src.utils.session import init_session_state, require_profile
 
-#1. Setup ################
+#1. Setup ##############
 init_session_state()
 require_profile()
 page_header("🥫 Pantry", "What's currently in your kitchen?")
@@ -63,7 +63,7 @@ with st.form("add_item", clear_on_submit=True):
         expires = st.date_input("Expires on", value=date.today())
     submitted = st.form_submit_button("➕ Add to pantry", type="primary")
 
-#3. Handle form submission ####
+#3. Handle form submission ########
 if submitted:
     if choice == CUSTOM_OPTION:
         ingredient_name = custom_name.strip().lower()
@@ -92,7 +92,7 @@ if submitted:
                 "The Recipes page may not see it until next reload."
             )
 
-#4. Load and display pantry ########
+#4. Load and display pantry ##########
 db_pantry = list_pantry(USER_ID)
 
 if db_pantry.empty and not st.session_state["pantry"]:
