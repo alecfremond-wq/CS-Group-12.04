@@ -367,11 +367,11 @@ def build_data(user_id) -> tuple[dict, set, list[str]]:
 
 
     overrides = load_overrides()
-    """
-    Loads any calorie values manually entered by the user. There are two cases:
-    - If a slot is already controlled by the planner → delete the manual override if it exists to avoid stale conflicts
-    - If a slot is empty (0) → apply the manual override if it exists, allowing the user to fill in missing values or add non-planned meals. 
-    """
+    
+    #Loads any calorie values manually entered by the user. There are two cases:
+    #- If a slot is already controlled by the planner → delete the manual override if it exists to avoid stale conflicts
+    #- If a slot is empty (0) → apply the manual override if it exists, allowing the user to fill in missing values or add non-planned meals. 
+    
     stale_cleaned = False
     for day in DAYS:
         for meal in MEALS:
