@@ -290,6 +290,45 @@ st.info(
 local_title_to_id = {r["name"].lower(): r["id"] for r in LOCAL_RECIPES}
 
 
+## Section 4b: Allergy filter toggle
+# ── Allergy filter toggle ─────────────────────────────────────────────────────
+user_allergies: list[str] = profile.get("allergies") or []
+if user_allergies:
+    _labels = ", ".join(user_allergies)
+    hide_unsafe = st.toggle(
+        f"🛡️ Hide recipes that contain my allergens ({_labels})",
+        value=True,
+        key="hide_unsafe_recipes",
+        help="Turn off to see all recipes — unsafe ones will still show a warning badge.",
+    )
+else:
+    hide_unsafe = False
+
+
+## Section 4c: Allergy conflict checker
+
+def check_allergy_conflicts(meal: dict, allergies: list[str]) -> list[str]:
+    """Return a list of allergens found in the meal's ingredients.
+
+    Checks each user allergen string (case-insensitive) against the full
+    ingredient list of the recipe. Returns only those allergens that appear
+    in at least one ingredient string.
+
+    Args:
+        meal:      A recipe dict from TheMealDB or Spoonacular.
+        allergies: List of allergen strings from the user profile
+                   (e.g. ["gluten", "lactose", "nuts"]).
+
+    Returns:
+        A (possibly empty) list of conflicting allergen strings.
+    """
+    if not allergies:
+        return []
+    ingredients = extract_ingredients(meal)
+    ingredient_text = " ".join(ingredients).lower()
+    return [allergen for allergen in allergies if allergen.lower() in ingredient_text]
+
+
 ## Section 5: World map data structure
 #Author: Camilla Piano 
 #The world map on the Recipes page is colored by continent, with each country colored if we have at least one recipe from that country in TheMealDB. 
@@ -1099,8 +1138,23 @@ with tab_search:
             # Load pantry once for all cards (avoids N separate DB calls)
             user_pantry = get_pantry()
 
+            # Per-tab allergy toggle for the search results
+            hide_unsafe = (
+                st.toggle(
+                    "🛡️ Hide recipes that contain my allergies",
+                    value=True,
+                    key="hide_unsafe_search",
+                    help="Turn off to see all recipes — unsafe ones will still show a warning badge.",
+                )
+                if user_allergies
+                else False
+            )
+
             # Render one card per result
             for idx, (meal, score) in enumerate(scored_results):
+                conflicts = check_allergy_conflicts(meal, user_allergies)
+                if hide_unsafe and conflicts:
+                    continue  # Skip unsafe recipes when the filter is on
                 render_meal_card(
                     meal,
                     ml_score=score,
@@ -1208,7 +1262,23 @@ with tab_cuisine:
                 empty_state(f"No recipes found for {active_cuisine} — try another country.")
             else:
                 user_pantry = get_pantry()
+
+                # Per-tab allergy toggle for the cuisine results
+                hide_unsafe = (
+                    st.toggle(
+                        "🛡️ Hide recipes that contain my allergies",
+                        value=True,
+                        key="hide_unsafe_cuisine",
+                        help="Turn off to see all recipes — unsafe ones will still show a warning badge.",
+                    )
+                    if user_allergies
+                    else False
+                )
+
                 for idx, meal in enumerate(cuisine_results[:10]):
+                    conflicts = check_allergy_conflicts(meal, user_allergies)
+                    if hide_unsafe and conflicts:
+                        continue  # Skip unsafe recipes when the filter is on
                     render_meal_card(
                         meal,
                         pantry=pantry_pct(meal, user_pantry),
