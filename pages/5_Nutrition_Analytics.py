@@ -38,6 +38,7 @@ from src.components.ui import page_header
 from src.data.api_client import (
     fetch_nutrition_by_title,
     fetch_nutrition_from_ingredients,
+    fetch_nutrition_for_meal,
     search_recipes_by_name,
 )
 from src.data.database import execute, query_df
@@ -141,91 +142,39 @@ def save_goal(goal: int) -> None:
 def _backfill_nutrition(recipe_id: int, title: str) -> int | None:
     """Fetch kcal from Spoonacular and persist it to the DB.
 
-    Called lazily the first time a recipe slot has NULL kcal_per_serv.
-    After this runs once, all future page loads read straight from SQLite —
-    zero additional Spoonacular API calls for that recipe.
+    Delegates entirely to fetch_nutrition_for_meal() in api_client.py which
+    already implements both strategies correctly:
+      1. complexSearch by title (fast, works for well-known dishes)
+      2. parseIngredients fallback (works for any MealDB recipe, passes
+         ingredients as a tuple as required by @st.cache_data)
 
-    Two strategies — mirrors exactly what 2_Recipes.py does at save time:
-
-    Strategy 1 — complexSearch by title (fast).
-      Works for Spoonacular recipes and well-known MealDB dishes
-      (e.g. "Spaghetti Bolognese", "Chicken Tikka Masala").
-      Returns accurate per-serving macros directly from Spoonacular.
-
-    Strategy 2 — MealDB ingredient-parser fallback (slower).
-      Used when Strategy 1 returns nothing (e.g. "Beef Mechado",
-      "Beef Mandi"). Searches MealDB for the dish name, extracts its
-      ingredients, sends them to Spoonacular's parseIngredients endpoint,
-      and divides whole-recipe totals by 4 servings.
-
-    Both api_client functions are @st.cache_data(ttl=24h), so each unique
-    dish is only fetched once per day regardless of how many times this
-    function is called.
-
-    Returns kcal as int, or None if every strategy fails.
+    Both sub-calls are @st.cache_data(ttl=24h) in api_client.py so results
+    are reused across reruns. Once a value is found it is written back to
+    the DB so future loads cost zero API calls for that recipe.
     """
     kcal: int | None = None
-    strategy1_error: str | None = None
-    strategy2_error: str | None = None
 
     try:
-        # ── Strategy 1: title-based Spoonacular complexSearch ──────────
-        nutrition = fetch_nutrition_by_title(title)
-        kcal = nutrition.get("kcal")
+        # Fetch the full MealDB meal dict so fetch_nutrition_for_meal()
+        # can use the ingredient list for the fallback strategy.
+        matches = search_recipes_by_name(title)
+        if matches:
+            meal = next(
+                (m for m in matches
+                 if m.get("strMeal", "").lower() == title.lower()),
+                matches[0],
+            )
+            nutrition = fetch_nutrition_for_meal(meal)
+            kcal = nutrition.get("kcal")
+        else:
+            # No MealDB match — try title-only lookup as last resort
+            nutrition = fetch_nutrition_by_title(title)
+            kcal = nutrition.get("kcal")
     except Exception as e:
-        strategy1_error = str(e)
+        print(f"[nutrition backfill] '{title}' failed — {e}")
 
-    if kcal is None:
-        try:
-            # ── Strategy 2: MealDB ingredient-parser fallback ──────────
-            matches = search_recipes_by_name(title)
-            if matches:
-                meal = next(
-                    (m for m in matches
-                     if m.get("strMeal", "").lower() == title.lower()),
-                    matches[0],
-                )
-                ingredients = _extract_ingredients_from_mealdb(meal)
-                if ingredients:
-                    raw = fetch_nutrition_from_ingredients(ingredients)
-                    if raw.get("kcal") is not None:
-                        kcal = int(raw["kcal"] / 4)
-        except Exception as e:
-            strategy2_error = str(e)
-
-    # ── Strategy 3: ingredient count estimate (last resort) ──────────
-    # If both Spoonacular strategies failed, estimate kcal from the
-    # number of ingredients (rough but better than showing 0).
-    # Average meal ~500 kcal; we don't persist this so it retries next load.
-    if kcal is None:
-        try:
-            matches = search_recipes_by_name(title)
-            if matches:
-                meal_obj = next(
-                    (m for m in matches
-                     if m.get("strMeal", "").lower() == title.lower()),
-                    matches[0],
-                )
-                n_ingredients = len(_extract_ingredients_from_mealdb(meal_obj))
-                if n_ingredients > 0:
-                    # Very rough: ~50 kcal per ingredient, capped at 800
-                    kcal = min(n_ingredients * 50, 800)
-        except Exception:
-            pass
-
-    # ── Log if everything failed ───────────────────────────────────────
-    if kcal is None:
-        reasons = []
-        if strategy1_error:
-            reasons.append(f"title lookup: {strategy1_error}")
-        if strategy2_error:
-            reasons.append(f"ingredient parser: {strategy2_error}")
-        print(f"[nutrition backfill] '{title}' failed — {'; '.join(reasons) if reasons else 'unknown'}")
-
-    # ── Persist to DB so this is only fetched once per recipe ever ─────
-    # Strategy 3 estimates are NOT persisted so Spoonacular is retried
-    # on next load in case the quota has reset.
-    if kcal is not None and not strategy1_error and not strategy2_error:
+    # Persist to DB so this is only fetched once per recipe ever
+    if kcal is not None:
         try:
             execute(
                 "UPDATE recipes SET kcal_per_serv = ? WHERE id = ?",
@@ -233,15 +182,6 @@ def _backfill_nutrition(recipe_id: int, title: str) -> int | None:
             )
         except Exception as e:
             print(f"[nutrition backfill] could not persist '{title}': {e}")
-    elif kcal is not None:
-        # Got a real value despite one strategy erroring — still persist it
-        try:
-            execute(
-                "UPDATE recipes SET kcal_per_serv = ? WHERE id = ?",
-                (kcal, recipe_id),
-            )
-        except Exception:
-            pass
 
     return kcal
 
