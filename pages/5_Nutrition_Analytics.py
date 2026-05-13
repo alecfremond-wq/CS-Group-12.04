@@ -165,47 +165,37 @@ def _backfill_nutrition(recipe_id: int, title: str) -> int | None:
     Returns kcal as int, or None if every strategy fails.
     """
     kcal: int | None = None
-    strategy1_error: str | None = None
-    strategy2_error: str | None = None
 
     try:
         # ── Strategy 1: title-based Spoonacular complexSearch ──────────
         nutrition = fetch_nutrition_by_title(title)
         kcal = nutrition.get("kcal")
-    except Exception as e:
-        strategy1_error = str(e)
+    except Exception:
+        pass
 
     if kcal is None:
         try:
             # ── Strategy 2: MealDB ingredient-parser fallback ──────────
+            # search_recipes_by_name hits the MealDB /search endpoint,
+            # which is already @st.cache_data in api_client.py.
             matches = search_recipes_by_name(title)
             if matches:
+                # Prefer exact title match; fall back to the first result
                 meal = next(
                     (m for m in matches
                      if m.get("strMeal", "").lower() == title.lower()),
                     matches[0],
                 )
+                # _extract_ingredients_from_mealdb returns a plain list —
+                # fetch_nutrition_from_ingredients expects a list, not a tuple.
                 ingredients = _extract_ingredients_from_mealdb(meal)
                 if ingredients:
                     raw = fetch_nutrition_from_ingredients(ingredients)
                     if raw.get("kcal") is not None:
+                        # parseIngredients returns whole-recipe totals → ÷ 4 servings
                         kcal = int(raw["kcal"] / 4)
-        except Exception as e:
-            strategy2_error = str(e)
-
-    # ── If both strategies failed, log the real reason ─────────────────
-    # This surfaces actual errors (parsing bugs, network issues) separately
-    # from quota exhaustion, so the banner message is accurate.
-    if kcal is None:
-        reasons = []
-        if strategy1_error:
-            reasons.append(f"title lookup: {strategy1_error}")
-        if strategy2_error:
-            reasons.append(f"ingredient parser: {strategy2_error}")
-        if reasons:
-            # Real error — not a quota issue. Log to console (visible in
-            # terminal / Streamlit Cloud logs) without showing a banner.
-            print(f"[nutrition backfill] '{title}' failed — {'; '.join(reasons)}")
+        except Exception:
+            pass
 
     # ── Persist to DB so this is only fetched once per recipe ever ─────
     if kcal is not None:
@@ -215,7 +205,7 @@ def _backfill_nutrition(recipe_id: int, title: str) -> int | None:
                 (kcal, recipe_id),
             )
         except Exception as e:
-            print(f"[nutrition backfill] could not persist '{title}': {e}")
+            st.warning(f"Could not persist nutrition for '{title}': {e}")
 
     return kcal
 
@@ -404,9 +394,8 @@ st.session_state.cal_data = data
 if failed_titles:
     names = ", ".join(f"**{t}**" for t in failed_titles)
     st.info(
-        f"🥄 Calorie data for {names} could not be fetched automatically. "
-        "This can happen when the Spoonacular free-tier quota (150 points/day) "
-        "is exhausted, or when the dish name isn't recognised by Spoonacular. "
+        f"Calorie data for {names} could not be fetched — "
+        "the Spoonacular API free-tier quota (50 points/day) may be exhausted. "
         "You can enter the missing calories manually in the edit panel below.",
         icon="ℹ️",
     )
@@ -437,7 +426,7 @@ with col_left:
 with col_right:
     st.markdown(
         '<div style="text-align:right;padding-top:16px">'
-        '<span style="color:#ED7D3A">■</span> Actual &nbsp;'
+        '<span style="color:#6B9448">■</span> Actual &nbsp;'
         '<span style="color:#F5F5DC">■</span> Goal'
         "</div>",
         unsafe_allow_html=True,
@@ -445,7 +434,7 @@ with col_right:
 
 # ── Bar chart ──────────────────────────────────────────────────────────────────
 
-bar_colors = ["#ED7D3A" if day == selected else "#FFCC99" for day in DAYS]
+bar_colors = ["#6B9448" if day == selected else "#B8D4A0" for day in DAYS]
 
 fig = go.Figure()
 fig.add_trace(go.Bar(
@@ -469,8 +458,8 @@ st.plotly_chart(fig, use_container_width=True)
 pill_cols = st.columns(7)
 for i, (day, total) in enumerate(zip(DAYS, totals)):
     label      = f"{total/1000:.1f}k" if total >= 1000 else str(total)
-    line_color = "#FF6B35" if day == selected else "#C8C8C8"
-    border     = "2px solid #FF6B35" if day == selected else "1px solid #e0e0e0"
+    line_color = "#6B9448" if day == selected else "#C8C8C8"
+    border     = "2px solid #6B9448" if day == selected else "1px solid #e0e0e0"
     with pill_cols[i]:
         st.markdown(
             f'<div style="border:{border};border-radius:8px;padding:8px 4px 0;'
