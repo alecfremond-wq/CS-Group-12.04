@@ -456,7 +456,7 @@ pill_cols = st.columns(7)
 for i, (day, total) in enumerate(zip(DAYS, totals)):
     label      = f"{total/1000:.1f}k" if total >= 1000 else str(total)
     line_color = "#72BF6A" if day == selected else "#CCE7C9"
-    border     = "2px solid #FF6B35" if day == selected else "1px solid #e0e0e0"
+    border     = "2px solid #72BF6A" if day == selected else "1px solid #CCE7C9"
     with pill_cols[i]:
         st.markdown(
             f'<div style="border:{border};border-radius:8px;padding:8px 4px 0;'
