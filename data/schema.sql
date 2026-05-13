@@ -2,6 +2,33 @@
 -- CookTogether database schema.
 -- Edit this file to add tables/columns. `init_db()` runs it on app start.
 -- All statements are idempotent (IF NOT EXISTS) so reloading is safe.
+--
+-- Tables overview:
+--   recipes            : catalogue of recipes (from TheMealDB API or user-created).
+--   ingredients        : master list of ingredient names (used for pantry matching).
+--   recipe_ingredients : junction table linking recipes to their ingredients.
+--   users              : one row per registered user (name, diet, login credentials).
+--   cooking_history    : log of which recipe each user cooked and when.
+--   pantry             : ingredients the user currently has at home, with expiry dates.
+--   meal_plan          : which recipe is planned for which meal slot on which day.
+--   planner_pool       : recipes added to the meal planner staging area.
+--   wishlist           : recipes the user saved with the heart button.
+--   user_recipes       : recipes created by users themselves (not from an API).
+--   follows            : social graph — who follows whom.
+--
+-- Authors: Alec Frémond (recipes, ingredients, recipe_ingredients, users, cooking_history),
+--          Julsroma (pantry, meal_plan, planner_pool),
+--          inesbuzel (wishlist, user_recipes, follows),
+--          millaas
+
+
+-- ============================================================
+-- 1. Recipe catalogue ########################################
+-- ============================================================
+-- Stores every recipe the app knows about, whether fetched from
+-- TheMealDB, Spoonacular, or added manually by a user.
+-- mealdb_id links back to the external API so we can fetch fresh
+-- data without storing everything locally.
 
 CREATE TABLE IF NOT EXISTS recipes (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -23,6 +50,15 @@ CREATE TABLE IF NOT EXISTS recipes (
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- ============================================================
+-- 2. Ingredients and recipe–ingredient links #################
+-- ============================================================
+-- ingredients holds the master list of ingredient names.
+-- UNIQUE on name prevents duplicates — every pantry entry and
+-- recipe ingredient points back to a row in this table.
+-- recipe_ingredients is the junction table that records which
+-- ingredients appear in which recipe, with quantity and unit.
+
 CREATE TABLE IF NOT EXISTS ingredients (
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
     name    TEXT UNIQUE NOT NULL,
@@ -37,9 +73,15 @@ CREATE TABLE IF NOT EXISTS recipe_ingredients (
     PRIMARY KEY (recipe_id, ingredient_id)
 );
 
--- Very light user model. The course is single-user in practice (each student
--- runs their own instance), but we keep a users table so multi-profile demos
--- are easy.
+-- ============================================================
+-- 3. Users ###################################################
+-- ============================================================
+-- One row per registered user. username and password_hash were
+-- added later to support multi-user login (originally the app
+-- only stored a name and dietary preferences).
+-- allergies is stored as a comma-separated string because SQLite
+-- has no array type — the Python layer splits and joins it.
+
 CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     name          TEXT NOT NULL,
@@ -51,6 +93,14 @@ CREATE TABLE IF NOT EXISTS users (
     skill_level   TEXT CHECK(skill_level IN ('beginner','intermediate','advanced')),
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ============================================================
+-- 4. Cooking history #########################################
+-- ============================================================
+-- Records every time a user marks a recipe as cooked.
+-- rating (1–5) is optional — NULL means the user didn't rate it.
+-- The index on user_id speeds up loading the history page for
+-- a given user without scanning the whole table.
 
 CREATE TABLE IF NOT EXISTS cooking_history (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,13 +115,14 @@ CREATE INDEX IF NOT EXISTS idx_history_user   ON cooking_history(user_id);
 
 
 -- ============================================================
--- These two tables are required by the Meal Planner page.
--- Both use IF NOT EXISTS so it's safe to run multiple times.
+-- 5. Pantry ##################################################
 -- ============================================================
+-- Stores ingredients the user currently has at home.
+-- Used by 3_Pantry.py (manage stock) and the Recipes page
+-- (compute the Pantry-friendly badge).
+-- UNIQUE (user_id, ingredient_id) means adding the same ingredient
+-- twice updates the existing row instead of creating a duplicate.
 
--- pantry: ingredients the user currently has at home
--- Used by the Meal Planner to tick off items from the shopping list
--- and by the Pantry page (3_Pantry.py) to manage stock.
 CREATE TABLE IF NOT EXISTS pantry (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id       INTEGER NOT NULL REFERENCES users(id)       ON DELETE CASCADE,
@@ -84,10 +135,16 @@ CREATE TABLE IF NOT EXISTS pantry (
 
 CREATE INDEX IF NOT EXISTS idx_pantry_user
     ON pantry (user_id);
--- meal_plan: which recipe is planned for which slot
--- One row = one meal (e.g. user 1, Monday 2026-05-05, Lunch, recipe 42)
--- UNIQUE constraint means each slot can only hold one recipe at a time;
--- INSERT OR REPLACE in the Python code swaps it out cleanly.
+
+-- ============================================================
+-- 6. Meal plan ###############################################
+-- ============================================================
+-- One row = one planned meal (e.g. user 1, Monday 2026-05-05, Lunch, recipe 42).
+-- meal_date is stored as a text string "YYYY-MM-DD" because SQLite
+-- has no native DATE type — the Python layer parses it back to a date object.
+-- UNIQUE (user_id, meal_date, meal_type) means each slot can only hold
+-- one recipe at a time; INSERT OR REPLACE swaps it out cleanly.
+
 CREATE TABLE IF NOT EXISTS meal_plan (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id     INTEGER NOT NULL REFERENCES users(id)    ON DELETE CASCADE,
@@ -102,8 +159,11 @@ CREATE INDEX IF NOT EXISTS idx_meal_plan_user_date
     ON meal_plan (user_id, meal_date);
 
 -- ============================================================
--- trying to link meal planner and recipes page
+-- 7. Planner pool ############################################
 -- ============================================================
+-- Staging area for recipes the user wants to consider for the
+-- meal plan. Recipes are added here from the Recipes page before
+-- being assigned to a specific day and meal slot.
 
 CREATE TABLE IF NOT EXISTS planner_pool (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -114,15 +174,15 @@ CREATE TABLE IF NOT EXISTS planner_pool (
 );
 
 -- ============================================================
--- wishlist: recipes the user has saved with the heart button
--- We store everything we need to rebuild the wishlist entry:
--- the title, the thumbnail image, where it's from (area),
--- the local recipe ID if it exists in our catalogue (or NULL
--- for API-only results), and the ingredient list as JSON so
--- the ML model can use it even after a page reload.
--- UNIQUE (user_id, title) means you can't save the same recipe
--- twice — the INSERT OR IGNORE in the Python code handles that.
+-- 8. Wishlist ################################################
 -- ============================================================
+-- Recipes the user saved with the heart button on the Recipes page.
+-- We store title, image, area and the ingredient list as a JSON
+-- string so the page can rebuild each card without another API call.
+-- local_id links to recipes.id when we have the recipe in our own
+-- catalogue; NULL for results that only exist in the external API.
+-- UNIQUE (user_id, title) prevents saving the same recipe twice.
+
 CREATE TABLE IF NOT EXISTS wishlist (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -134,9 +194,15 @@ CREATE TABLE IF NOT EXISTS wishlist (
     UNIQUE (user_id, title)         -- one entry per recipe per user
 );
 
--- user_recipes: recipes that users created themselves (not from an API).
--- image_data stores the photo as a base64-encoded string so we don't need
--- a separate file system or external service — everything lives in the DB.
+-- ============================================================
+-- 9. User-created recipes ####################################
+-- ============================================================
+-- Recipes written by users themselves (not pulled from any API).
+-- image_data is stored as a base64-encoded string so the app
+-- doesn't need a separate file system — the image lives in the DB.
+-- ingredients and instructions are plain text; the page formats
+-- them for display.
+
 CREATE TABLE IF NOT EXISTS user_recipes (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -149,11 +215,15 @@ CREATE TABLE IF NOT EXISTS user_recipes (
 
 CREATE INDEX IF NOT EXISTS idx_user_recipes_user ON user_recipes (user_id);
 
--- follows: stores who follows whom.
+-- ============================================================
+-- 10. Social graph (follows) #################################
+-- ============================================================
+-- Records who follows whom.
 -- follower_id = the user who clicked "Follow"
 -- followed_id = the user they are following
 -- status      = 'pending' (request sent, not yet accepted) or 'accepted'
--- UNIQUE prevents following the same person twice.
+-- UNIQUE (follower_id, followed_id) prevents following the same person twice.
+
 CREATE TABLE IF NOT EXISTS follows (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     follower_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
