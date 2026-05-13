@@ -828,6 +828,12 @@ def render_meal_card(
     """
     meal_title = meal["strMeal"]
 
+    # ── Allergy check ─────────────────────────────────────────────────────────
+    safe, triggered = is_safe_for_user(meal, user_allergies or [])
+
+# ── Diet check ────────────────────────────────────────────────────────────
+    diet_ok, diet_warning = is_suitable_for_diet(meal, user_diet or "Omnivore")
+  
     with st.container(border=True):
         col_img, col_meta = st.columns([1, 3])
 
@@ -839,7 +845,23 @@ def render_meal_card(
             st.caption(
                 f"{meal.get('strArea', '—')} · {meal.get('strCategory', '—')}"
             )
+            # ── Allergy badge ─────────────────────────────────────────────────
+            if user_allergies:
+                if not safe:
+                    st.error(
+                        f"⚠️ Contains allergens: **{', '.join(triggered)}** "
+                        f"— not suitable for your allergy profile."
+                    )
+                else:
+                    st.success("✅ Safe for your allergy profile")
 
+            # ── Diet badge ────────────────────────────────────────────────────
+            if user_diet and user_diet != "Omnivore":
+                if not diet_ok:
+                    st.warning(f"⚠️ {diet_warning}")
+                else:
+                    st.success(f"✅ Suitable for {user_diet} diet")
+                  
             if ml_score is not None and not pd.isna(ml_score):
                 st.progress(float(ml_score), text=f"Match score: {ml_score:.0%}")
 
