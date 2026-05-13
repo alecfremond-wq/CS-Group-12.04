@@ -431,7 +431,7 @@ with col_right:
 
 # ── Bar chart ──────────────────────────────────────────────────────────────────
 
-bar_colors = ["#ED7D3A" if day == selected else "#FFCC99" for day in DAYS]
+bar_colors = ["#72BF6A" if day == selected else "#ACD8A7" for day in DAYS]
 
 fig = go.Figure()
 fig.add_trace(go.Bar(
