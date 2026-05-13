@@ -198,26 +198,43 @@ def _backfill_nutrition(recipe_id: int, title: str) -> int | None:
 
 # ── Calorie goal banner ────────────────────────────────────────────────────────
 
+#If no calorie goal has been set yet in this session, load the saved one from disk. 
 if "calorie_goal" not in st.session_state:
     st.session_state.calorie_goal = load_saved_goal()
 
+#Render the goal-setting panel inside a visible bordered card 
 with st.container(border=True):
+
+    #Split the card into three columns:
+    #- label (3), 
+    #- input (2),
+    #- button (1). 
     b1, b2, b3 = st.columns([3, 2, 1])
+    
+    #Display the section title and short caption of it 
     with b1:
         st.markdown("🎯 **Your daily calorie goal**")
         st.caption("Set a personal target to track against the chart and stats.")
+    
+    #Numberic input pre-filled with the current saved goal. 
+    #Clamped between 500 and 10000 kcal, with a step of 50.
+    #label_visibility = "collapsed" hides the "kcal/day" label to save space. 
     with b2:
         goal_input = st.number_input(
             "kcal/day", min_value=500, max_value=10000,
             value=st.session_state.calorie_goal, step=50,
             label_visibility="collapsed", key="goal_input_widget",
         )
+    
     with b3:
+        #when the button is clicked, save the new goal session states and to disk, 
+        #the rerun the app so the chart and stats update immediately with the new goal line and reference values.
         if st.button("✅ Set goal", use_container_width=True):
             st.session_state.calorie_goal = goal_input
             save_goal(goal_input)
             st.rerun()
 
+#Store the current goal in a plain variable for essay use thoughout the rest of the page. 
 GOAL = st.session_state.calorie_goal
 
 
