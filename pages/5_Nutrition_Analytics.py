@@ -346,12 +346,13 @@ def build_data(user_id) -> tuple[dict, set, list[str]]:
     - a set called planned_slots, which keeps track of the meal slots that have planned meals
     - a list called failed_titles, which contains the titles of recipes for which calorie data could not be fetched automatically.
     The function starts by creating an empty table with all days and meals set to 0. 
-    it then fetches calories from the meal planner and fills in the table, keeping track of which 
-    slots are planned-controlled. Any recipes that couldn't be fectches are stored in a seprate list so 
-    the user can enter them manually. Next, it loads any manual ovverrides saved by the user. 
+    It then fetches calories from the meal planner and fills in the table, keeping track of which 
+    slots are planned-controlled. Any recipes that couldn't be fetches are stored in a separate list so 
+    the user can enter them manually. 
+    Next, it loads any manual ovverrides saved by the user. 
     For planned-controlled slots it removes any stale manual values to avoid conflicts; 
-    for empty slots it applies the manual value instead. Finally it returns the completed 
-    calorie table, the set of planner-controlled slots, and the list of failed recipes. 
+    for empty slots it applies the manual value instead. 
+    Finally it returns the completed calorie table, the set of planner-controlled slots, and the list of failed recipes. 
     """
     data = {day: {meal: 0 for meal in MEALS} for day in DAYS}
 
@@ -364,15 +365,17 @@ def build_data(user_id) -> tuple[dict, set, list[str]]:
                 data[day][meal] = kcal
                 planned_slots.add((day, meal))
 
-    # Manual overrides — only for slots with no planned recipe.
-    # Also clean up any stale overrides for planned slots (e.g. the
-    # Monday Breakfast 2000 bug caused by an accidental save).
+
     overrides = load_overrides()
+    """
+    Loads any calorie values manually entered by the user. There are two cases:
+    - If a slot is already controlled by the planner → delete the manual override if it exists to avoid stale conflicts
+    - If a slot is empty (0) → apply the manual override if it exists, allowing the user to fill in missing values or add non-planned meals. 
+    """
     stale_cleaned = False
     for day in DAYS:
         for meal in MEALS:
             if (day, meal) in planned_slots:
-                # Slot is controlled by the planner — remove any stale override
                 if day in overrides and meal in overrides[day]:
                     del overrides[day][meal]
                     stale_cleaned = True
@@ -390,12 +393,19 @@ def build_data(user_id) -> tuple[dict, set, list[str]]:
 
 
 # ── Session state ──────────────────────────────────────────────────────────────
-
+#Retrive the logge-in user's ID from the session state (none if not set)
 user_id = st.session_state.get("user_id")
 
+#Call build_data and unpack the returned tuple into three named variables:
+#- data: the main calorie data structure used for display and calculations
+#- planned_slots: a set of (day, meal) tuples that are controlled by the meal planner 
+#(used to determine which slots can be manually overridden)
+#- failed_titles: a list of recipe titles for which calorie data could not be
+#Then it stores the clalories in session state so other parts of the app can access it. 
 data, planned_slots, failed_titles = build_data(user_id)
 st.session_state.cal_data = data
 
+#If any recipe titles could not fetched, show and info banner to the user. 
 if failed_titles:
     names = ", ".join(f"**{t}**" for t in failed_titles)
     st.info(
@@ -406,83 +416,118 @@ if failed_titles:
         icon="ℹ️",
     )
 
+#Initialise the selected day to the first day of the week, but if 
+#it hasn't already been set (preserves the user's current selection)
 if "cal_selected" not in st.session_state:
     st.session_state.cal_selected = DAYS[0]
 
+#Shorthand for the currently selected day 
 selected = st.session_state.cal_selected
 totals   = [sum(data[d].values()) for d in DAYS]
 avg      = sum(totals) / 7
+#totals is a list with the total calories for each day, 
+#avg is the weekly average, and day_total() is a small helper function that computes the total for a specific day.
 
 
 def day_total(d: str) -> int:
+    """ 
+    day_total(d) takes a day name as a string (e.g. "Mon") and returns the total colaries 
+    for that days as an integer. 
+    It does this by looking up data(d) which is the inner dictionary for that days
+    (e.g. {"Breakfast": 450, "Lunch": 600, ...}) 
+    Then calling .values() to get the numbers, and sum() to add them all up. 
+    """
     return sum(data[d].values())
 
 
 # ── Header ─────────────────────────────────────────────────────────────────────
 
-col_left, col_right = st.columns([3, 1])
+col_left, col_right = st.columns([3, 1]) #split the heaader into two columns with a 3:1 width ratio 
 with col_left:
-    st.caption("Current week")
+    st.caption("Current week") #display a small "current week" label above the main number 
     st.markdown(
-        f"<span style='font-size:2em;font-weight:700'>{avg:,.0f} kcal avg/day</span>"
+        #it displays: 
+        #- the averge calories as a large vold hedline (2em font size, weight 700)
+        #- a smaller description text next to it (1em font size, weight 400 - average daily calorie intake across the past 7 days)
+        f"<span style='font-size:2em;font-weight:700'>{avg:,.0f} kcal avg/day</span>" 
         f"<span style='font-size:1em;font-weight:400'>"
         f" — Average daily calorie intake across the past 7 days</span>",
         unsafe_allow_html=True,
     )
 with col_right:
     st.markdown(
-        '<div style="text-align:right;padding-top:16px">'
-        '<span style="color:#72BF6A">■</span> Actual &nbsp;'
-        '<span style="color:#F5F5DC">■</span> Goal'
+        '<div style="text-align:right;padding-top:16px">' #display a colour legend right-aligned 
+        '<span style="color:#72BF6A">■</span> Actual &nbsp;' #a green square for "Actual" 
+        '<span style="color:#F5F5DC">■</span> Goal' #a beige square for "Goal" 
         "</div>",
         unsafe_allow_html=True,
     )
+#Raw HTML is needed here because Streamlit doesn't support multi-style text in a single st.markdown call
 
 # ── Bar chart ──────────────────────────────────────────────────────────────────
 
-bar_colors = ["#72BF6A" if day == selected else "#CCE7C9" for day in DAYS]
+bar_colors = ["#72BF6A" if day == selected else "#CCE7C9" for day in DAYS] #build a clour list: the selected day gets bright green, all others get light green
 
-fig = go.Figure()
+#Create an empty Plotly figure
+#Add the Goal bars - wide (0.55) and beige, one per day at the same height (GOAL)
+#These acts as the background layer showing where the target is for each day.
+fig = go.Figure()  
 fig.add_trace(go.Bar(
     x=DAYS, y=[GOAL] * 7, name="Goal", marker_color="#F5F5DC", width=0.55,
 ))
+#Add the actual bars - narrower (0.3) and coloured, overlaid on top of the goal barss.
+#Each bar's height is the real daily calories total. 
 fig.add_trace(go.Bar(
     x=DAYS, y=totals, name="Actual", marker_color=bar_colors, width=0.3,
 ))
+#Add a dashed horizontal line at the goal value as an additional visual reference. 
 fig.add_hline(y=GOAL, line_dash="dash", line_color="#AAAAAA", line_width=1)
+
+#Configure the chart layout: 
 fig.update_layout(
-    barmode="overlay", showlegend=False,
-    yaxis_range=[0, max(max(totals, default=GOAL), GOAL) + 300],
-    plot_bgcolor="white", margin=dict(l=0, r=0, t=10, b=0), height=260,
-    yaxis=dict(showgrid=True, gridcolor="#EEEEEE", tickformat=","),
-    xaxis=dict(showgrid=False),
+    barmode="overlay", #Overlay mode: actual bars sit on top of goal bars. 
+    showlegend=False, #Hide the legend (the header has its own colour legend)
+    yaxis_range=[0, max(max(totals, default=GOAL), GOAL) + 300], #Y axis starts at 0 and leaves 300kcal of room above the tallest bar for visual clarity.
+    plot_bgcolor="white", margin=dict(l=0, r=0, t=10, b=0), height=260, #Compact size with a bit of top margin for room.
+    yaxis=dict(showgrid=True, gridcolor="#EEEEEE", tickformat=","), #Y axis has light grey grid lines and comma as thousand separator.
+    xaxis=dict(showgrid=False), #X axis has no grid lines. 
 )
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, use_container_width=True) #Render the chart in Streamlit, allowing it to take the full width of the container.
 
 # ── Day pills ──────────────────────────────────────────────────────────────────
 
-pill_cols = st.columns(7)
+pill_cols = st.columns(7) #create seven equal columns for each day of the week. 
+
+#Loop over each day and its total calories simultaneously.
+#enmurate() is used to get both the index (i) and the values (day, total) for each iteration.
 for i, (day, total) in enumerate(zip(DAYS, totals)):
-    label      = f"{total/1000:.1f}k" if total >= 1000 else str(total)
-    line_color = "#72BF6A" if day == selected else "#CCE7C9"
-    border     = "2px solid #72BF6A" if day == selected else "1px solid #CCE7C9"
+
+    label      = f"{total/1000:.1f}k" if total >= 1000 else str(total) #format the calorie label: show "1.8k" for value >= 1000, otherwise show the raw number.
+    line_color = "#72BF6A" if day == selected else "#CCE7C9" #the small line at the bottom of the pill is bright green for the selected day. 
+    border = "2px solid #72BF6A" if day == selected else "1px solid #CCE7C9" #the pill border is light green fot the non-selected days. 
+    
     with pill_cols[i]:
+        #render a styled HTLM card showing the day name, calorie total, 
+        #and a small line at the bottom as a visual indicator of selection.
         st.markdown(
             f'<div style="border:{border};border-radius:8px;padding:8px 4px 0;'
             f'text-align:center;background:white;margin-bottom:2px">'
-            f'<div style="font-size:13px;font-weight:600">{day}</div>'
-            f'<div style="font-size:14px;font-weight:700">{label}</div>'
-            f'<div style="height:3px;background:{line_color};border-radius:0 0 4px 4px;margin-top:6px"></div>'
+            f'<div style="font-size:13px;font-weight:600">{day}</div>' #day name 
+            f'<div style="font-size:14px;font-weight:700">{label}</div>' #calorie total 
+            f'<div style="height:3px;background:{line_color};border-radius:0 0 4px 4px;margin-top:6px"></div>' #coloured bottom bar 
             f"</div>",
             unsafe_allow_html=True,
-        )
+        ) #Raw HTML is needed here because Streamlit doesn't support multi-style text in a single st.markdown call
+
+        #Invisible buttom overlaid on the card. 
+        #When clicked, it sets the selected day in session state and reruns the app to update all displays.
         if st.button(day, key=f"pill_{day}", use_container_width=True):
             st.session_state.cal_selected = day
             st.rerun()
 
 # ── Detail panel ───────────────────────────────────────────────────────────────
 
-day_data  = data[selected]
+day_data  = data[selected] #bsegin code generated by Claude Sonnet 4.6 
 total_day = day_total(selected)
 max_kcal  = max(max(day_data.values(), default=1), 1)
 
@@ -534,13 +579,9 @@ with st.expander(f"✏️ Edit calories manually for {selected}"):
             overrides = load_overrides()
             overrides.setdefault(selected, {})
             for meal, val in new_vals.items():
-                # Only persist non-zero manual values for slots not already
-                # controlled by the Meal Planner — avoids accidentally writing
-                # a stale default (e.g. 2000) over a planned recipe's calories.
                 if (selected, meal) not in planned_slots and val > 0:
                     overrides[selected][meal] = val
                 elif (selected, meal) not in planned_slots and val == 0:
-                    # Explicitly set to 0 means the user wants to clear it
                     overrides[selected].pop(meal, None)
             save_overrides(overrides)
             st.success("Saved!")
@@ -552,7 +593,7 @@ with st.expander(f"✏️ Edit calories manually for {selected}"):
             overrides.pop(selected, None)
             save_overrides(overrides)
             st.success(f"Manual entries for {selected} cleared.")
-            st.rerun()
+            st.rerun() 
 
 # ── Stats ───────────────────────────────────────────────────────────────────────
 
@@ -568,4 +609,4 @@ st.divider()
 c1, c2, c3 = st.columns(3)
 c1.metric("Best day",     f"{best_day} · {totals_dict[best_day]:,}")
 c2.metric("Days on goal", f"{on_goal} / 7 days")
-c3.metric("Weekly total", f"{weekly:,} kcal")
+c3.metric("Weekly total", f"{weekly:,} kcal") #end code generate by Claude Sonnet 4.6 
