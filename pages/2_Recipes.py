@@ -921,11 +921,10 @@ def render_meal_card(
             if conflicts is not None and user_allergies:
                 if conflicts:
                     st.error(
-                        f"🔴 Contains your allergens: **{', '.join(conflicts)}**",
-                        icon="⚠️",
+                        f"Contains your allergens: **{', '.join(conflicts)}**",
                     )
                 else:
-                    st.success("🟢 Safe for your allergies", icon="✅")
+                    st.success("Safe for your allergies")
 
             # Ingredients & Instructions expandable section
             with st.expander("🧾 Ingredients & Instructions"):
