@@ -214,7 +214,7 @@ def _render_summary(profile: dict) -> None:
             st.rerun()
 
 
-#3. Page content ################
+#3. Page content #######################
 # Static welcome text shown at the top of the page regardless of login state.
 
 st.title("🍳 CookTogether")

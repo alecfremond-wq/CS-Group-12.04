@@ -18,7 +18,7 @@ Dependencies:
       query_df(sql, params) -> used to reload the wishlist from the database
                                on a fresh session.
 
-Authors: Alec Frémond, Julsroma, millaas, inesbuzel
+Authors: Alec Frémond, Giulia De Angelis, Camilla Piano, Ines Buzel
 
 Sources: Claude Sonnet 4.6 (see comments below)
 
