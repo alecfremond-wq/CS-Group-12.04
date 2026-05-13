@@ -290,19 +290,9 @@ st.info(
 local_title_to_id = {r["name"].lower(): r["id"] for r in LOCAL_RECIPES}
 
 
-## Section 4b: Allergy filter toggle
-# ── Allergy filter toggle ─────────────────────────────────────────────────────
+## Section 4b: Allergy setup
+# ── Resolve the user's allergen list once; toggles live inside each tab ───────
 user_allergies: list[str] = profile.get("allergies") or []
-if user_allergies:
-    _labels = ", ".join(user_allergies)
-    hide_unsafe = st.toggle(
-        f"🛡️ Hide recipes that contain my allergens ({_labels})",
-        value=True,
-        key="hide_unsafe_recipes",
-        help="Turn off to see all recipes — unsafe ones will still show a warning badge.",
-    )
-else:
-    hide_unsafe = False
 
 
 ## Section 4c: Allergy conflict checker
@@ -877,6 +867,7 @@ def render_meal_card(
     ml_score: float | None = None,
     pantry: float | None = None,
     card_key: str = "",
+    conflicts: list[str] | None = None,
 ) -> None:
     """Render one recipe card inside a Streamlit bordered container.
 
@@ -885,12 +876,17 @@ def render_meal_card(
       - Title, area/category caption (right column)
       - ML match score progress bar (if available)
       - Pantry-match badge (green/yellow, if available)
+      - Allergy safety banner (green = safe, red = contains allergens)
       - Expandable ingredients + instructions section
       - ❤️ Save to Wishlist button (or "already saved" caption)
       - ➕ Add to Meal Planner button (or ❌ Remove if already saved)
 
     card_key must be unique for every card rendered in a single Streamlit
     run (e.g. "search_0", "cuisine_3").
+
+    Args:
+      conflicts: list returned by check_allergy_conflicts(); pass [] or None
+                 when no allergen check was performed (banner is then hidden).
 
     Note:
       - Reads/writes st.session_state["wishlist"]
@@ -920,6 +916,17 @@ def render_meal_card(
                     st.success("🟢 Pantry-friendly")
                 elif pantry > 0.3:
                     st.warning("🟡 Partially available")
+
+            # Allergy safety banner: shown whenever conflicts were checked
+            if conflicts is not None and user_allergies:
+                if conflicts:
+                    st.error(
+                        f"🔴 Contains your allergens: **{', '.join(conflicts)}**",
+                        icon="⚠️",
+                    )
+                else:
+                    st.success("🟢 Safe for your allergies", icon="✅")
+
             # Ingredients & Instructions expandable section
             with st.expander("🧾 Ingredients & Instructions"):
                 col_ing, col_inst = st.columns([1, 2])
@@ -1158,6 +1165,7 @@ with tab_search:
                     ml_score=score,
                     pantry=pantry_pct(meal, user_pantry),
                     card_key=f"search_{idx}",
+                    conflicts=conflicts,
                 )
               # end code generated with the help of Claude Sonnet 4.6
 
@@ -1281,6 +1289,7 @@ with tab_cuisine:
                         meal,
                         pantry=pantry_pct(meal, user_pantry),
                         card_key=f"cuisine_{idx}",
+                        conflicts=conflicts,
                     )
         else:
             st.info("👆 Click a country on the map to explore its recipes.")
