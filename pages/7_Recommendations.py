@@ -7,6 +7,7 @@ Grading coverage:
 """
 import re
 import concurrent.futures
+from datetime import date
 
 import pandas as pd
 import streamlit as st
@@ -330,8 +331,8 @@ def record_feedback(recipe_row: pd.Series, rating: int) -> None:
         user_id = st.session_state.get("user_id")
         if user_id is not None:
             execute(
-                "INSERT INTO cooking_history (user_id, recipe_id, rating) VALUES (?, ?, ?)",
-                (user_id, int(recipe_row["id"]), rating),
+                "INSERT INTO cooking_history (user_id, recipe_id, cooked_on, rating) VALUES (?, ?, ?, ?)",
+                (user_id, int(recipe_row["id"]), date.today().isoformat(), rating),
             )
     except Exception:
         pass
