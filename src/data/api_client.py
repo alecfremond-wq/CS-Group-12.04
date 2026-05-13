@@ -1,23 +1,61 @@
+"""
+This module is the single point of contact between the Streamlit UI and the two external 
+recipe/nutrition APIs the app relies on:
 
-# ============================================================================
-#  api_client.py  —  wrapper around TheMealDB (a free public recipe API)
-# ----------------------------------------------------------------------------
-#  Docs: https://www.themealdb.com/api.php
-#
+ 1. TheMealDB  (https://www.themealdb.com/api.php)
+      A free, public recipe database.  No API key required.
+      Used for: recipe search, cuisine (area) listing, meal detail lookup,  ingredient catalogue, 
+      and cuisine-filtered browsing.
+
+ 2. Spoonacular  (https://spoonacular.com/food-api)
+     A freemium recipe + nutrition API.  Requires an API key stored in
+     Streamlit's secrets manager under the key "SPOONACULAR_API_KEY".
+     Used for: per-serving nutrition data and diet-filtered recipe search.
+     
+ Notes:
+-  Every public function is decorated with @st.cache_data so that repeated calls don't fire 
+    new HTTP requests.
+
+- All network calls use a 20-second timeout and are wrapped in try/except so that API failures 
+show empty list / None and don't crash.
+
+- The _area_name_variants() helper was written with AI assistance to handle
+   the linguistic mismatch between TheMealDB's /list endpoint (which uses
+   adjectival demonyms like "Indonesian") and its /filter endpoint (which
+   sometimes only accepts plain country names like "Indonesia").  The curated
+   mapping dictionary inside it was generated and reviewed with AI help.
+
+  Dependecies:
+    - requests      HTTP client used for all API calls
+    - streamlit     Web-app framework; also provides caching (@st.cache_data)
+                   and secrets management (st.secrets)
+
+   - TheMealDB API  (free, no auth)  https://www.themealdb.com/api/json/v1/1
+    - Spoonacular API (needs key)     https://api.spoonacular.com
+
+Authors: Ines
+
+Sources: Claude Sonnet 4.6 (see comments below)
+"""
+
 
 import requests
 import streamlit as st
 
+# Base URL for all TheMealDB v1 endpoints.
 THEMEALDB_BASE = "https://www.themealdb.com/api/json/v1/1"
 
 
-# ---------------------------------------------------------------------------
-# TheMealDB helpers
-# ---------------------------------------------------------------------------
+## TheMealDB helpers
 
 @st.cache_data(ttl=60 * 60)
 def search_recipes_by_name(query: str) -> list[dict]:
-    """Search TheMealDB for recipes whose name contains `query`."""
+    """Search TheMealDB for recipes whose name contains `query`.
+     Returns a list of full meal dicts (each containing name, ingredients,
+    instructions, thumbnail URL, etc.).  Returns an empty list if the
+    network call fails or no results are found.
+
+    """
     try:
         resp = requests.get(
             f"{THEMEALDB_BASE}/search.php", params={"s": query}, timeout=20
@@ -25,13 +63,20 @@ def search_recipes_by_name(query: str) -> list[dict]:
         resp.raise_for_status()
         return resp.json().get("meals") or []
     except requests.RequestException as exc:
+        # Shows q warning in the Streamlit sidebar; don't crash the app
         st.warning(f"Recipe search unavailable: {exc}")
         return []
 
 
-@st.cache_data(ttl=24 * 60 * 60)
+@st.cache_data(ttl=24 * 60 * 60)   # Cache for 24 hours; cuisine list rarely changes
 def list_cuisines() -> list[str]:
-    """Return the list of cuisines (TheMealDB calls them 'areas')."""
+    """Return the list of cuisines (TheMealDB calls them 'areas')
+
+    TheMealDB uses the word "area" internally for what most users call a
+    "cuisine" or "country".  This function returns all ~200 area names that
+    TheMealDB knows about, regardless of whether they actually have recipes.
+    See list_cuisines_with_recipes() for a filtered version."""
+
     try:
         resp = requests.get(
             f"{THEMEALDB_BASE}/list.php", params={"a": "list"}, timeout=20
@@ -42,7 +87,7 @@ def list_cuisines() -> list[str]:
         return []
 
 
-@st.cache_data(ttl=24 * 60 * 60)
+@st.cache_data(ttl=24 * 60 * 60)    # Expensive (makes many sub-requests); cache 24 h
 def list_cuisines_with_recipes() -> list[str]:
     """Return only the areas that actually have at least one recipe.
 
@@ -59,31 +104,23 @@ def list_cuisines_with_recipes() -> list[str]:
             valid.append(area)
     return valid
 
-
+# \ begin code generated with Claude Sonnet 4.6
 def _area_name_variants(area: str) -> list[str]:
     """
-    Generate candidate area names to try with TheMealDB's filter endpoint.
+    This function has no @st.cache_data because it is pure string
+    manipulation with no I/O.  It is called inside the cached filter_by_cuisine().
 
-    TheMealDB's /list endpoint returns adjective forms ("Indonesian",
-    "Argentine") but /filter sometimes only accepts the plain country name
-    ("Indonesia", "Argentina") — or vice versa.  Rather than maintaining a
-    hardcoded alias table that breaks every time TheMealDB adds a new area,
-    we generate plausible variants automatically and try them in order.
+    TheMealDB's /list endpoint returns adjectival demonyms ("Indonesian",
+    "Argentine") but its /filter endpoint sometimes only accepts the plain
+    country name ("Indonesia", "Argentina") — or vice versa.  Rather than
+    maintaining a static alias table that breaks whenever TheMealDB adds new
+    areas, this function generates plausible name variants automatically and
+    lets filter_by_cuisine() try each one in turn, stopping at the first hit.
+    The large _AREA_TO_COUNTRY mapping below was generated with AI assistance
+    and then manually reviewed for accuracy.
     """
     candidates: list[str] = [area]
-
-    # adjective → country name (strip common English suffixes)
-    suffixes = [
-        ("inian", "inia"),   # Argentinian → Argentina... actually wrong
-        ("nian",  "na"),     # Indonesian → Indonesia ... no
-        ("ian",   "ia"),     # Indonesian → Indonesía, Iranian → Irani
-        ("an",    "a"),      # Mexican → Mexica ... not ideal but harmless
-        ("ese",   ""),       # Vietnamese → Vietnam... nope
-        ("ish",   ""),       # British → Brit
-        ("i",     ""),       # Emirati → Emirat
-        ("er",    ""),       # New Zealander → New Zealand
-    ]
-    # Better: use the strCountry map from TheMealDB itself
+    
     # The /list endpoint with ?a=list also returns strCountry — but we only
     # get strArea here.  So we use a curated map for the known tricky cases.
     _AREA_TO_COUNTRY: dict[str, str] = {
@@ -240,7 +277,8 @@ def _area_name_variants(area: str) -> list[str]:
         "Venezuela":       "Venezuelan",
         "Indonesia":       "Indonesian",
     }
-
+    
+    # Forward lookup: adjective (e.g. "Indonesian") to country ("Indonesia")
     alt = _AREA_TO_COUNTRY.get(area)
     if alt and alt not in candidates:
         candidates.append(alt)
@@ -252,9 +290,11 @@ def _area_name_variants(area: str) -> list[str]:
         candidates.append(alt2)
 
     return candidates
+    
+# \ end code generated with the help of Claude Sonnet 4.6
 
 
-@st.cache_data(ttl=60 * 60)
+@st.cache_data(ttl=60 * 60)  # Cache 1 hour; recipe lists change occasionally
 def filter_by_cuisine(cuisine: str) -> list[dict]:
     """Return recipe stubs (id, name, thumbnail) for a cuisine.
 
@@ -272,11 +312,11 @@ def filter_by_cuisine(cuisine: str) -> list[dict]:
             if meals:
                 return meals
         except requests.RequestException:
+            # Network error: bail out immediately rather than retrying other variants
             return []
     return []
 
-
-@st.cache_data(ttl=60 * 60)
+@st.cache_data(ttl=60 * 60) # Cache 1 hour; individual meal data is stable
 def get_meal_by_id(meal_id: str) -> dict | None:
     """Fetch full details for a single meal by its TheMealDB ID."""
     try:
@@ -290,39 +330,52 @@ def get_meal_by_id(meal_id: str) -> dict | None:
         return None
 
 
-@st.cache_data(ttl=60 * 60)
+# \ begin code generated with the help of Claude Sonnet 4.6
+@st.cache_data(ttl=60 * 60) # Cache 1 hour — the combined fetch can be slow
 def fetch_cuisine_meals(cuisine: str, limit: int = 10) -> list[dict]:
     """Return full meal dicts for a cuisine in ONE cached batch.
 
-    Previously this was called uncached from 2_Recipes.py, firing up to
-    10 sequential HTTP requests on every render. Now it's cached for 1 hour
-    so subsequent renders cost zero network calls.
+    Previously this was called uncached from 2_Recipes.py, firing up to 10 sequential HTTP 
+    requests on every render. Now it's cached for 1 hour so subsequent renders cost zero network calls.
+
+    This function combines filter_by_cuisine() (which returns stubs) and
+    get_meal_by_id() (which hydrates each stub) so callers get full meal
+    dicts in a single cached operation.
     """
     stubs = filter_by_cuisine(cuisine)[:limit]
     return [m for stub in stubs if (m := get_meal_by_id(stub["idMeal"]))]
+# \ end code generated with the help of Claude Sonnet 4.6
 
 
-# ---------------------------------------------------------------------------
-# Ingredient extraction
-# ---------------------------------------------------------------------------
+## Ingredient extraction
 
 def extract_ingredients_from_meal(meal: dict) -> list[str]:
-    """Extract 'measure ingredient' strings from a TheMealDB meal dict."""
+    """Extract 'measure ingredient' strings from a TheMealDB meal dict.
+     TheMealDB stores ingredients in 20 parallel numbered fields:
+      strIngredient1 … strIngredient20
+      strMeasure1    … strMeasure20
+    Fields beyond the last ingredient are empty strings or None.
+    """
     ingredients = []
     for i in range(1, 21):
         name    = (meal.get(f"strIngredient{i}") or "").strip()
         measure = (meal.get(f"strMeasure{i}")    or "").strip()
         if name:
+            # Combine measure + name when a measure is present (e.g. "2 cups flour")
+            # or use just the name when it isn't (e.g. "salt")
             ingredients.append(f"{measure} {name}".strip() if measure else name)
     return ingredients
 
 
-@st.cache_data(ttl=24 * 60 * 60)
+@st.cache_data(ttl=24 * 60 * 60)  # Cache 24 h; ingredient catalogue rarely changes
 def get_themealdb_ingredients() -> list[str]:
-    # Fetch the full list of ingredients from TheMealDB and return them sorted
-    # We use TheMealDB (free, no quota) instead of Spoonacular (paid, limited)
-    # so that ingredient names in the pantry exactly match those used in recipes
-    # The result is cached for 24 hours — the list almost never changes
+    """ Fetch the full list of ingredients from TheMealDB and return them sorted
+        We use TheMealDB (free, no quota) instead of Spoonacular (paid, limited) so that ingredient
+        names in the pantry exactly match those used in recipes
+     The result is cached for 24 hours — the list almost never changes
+    
+    This returns alphabetically sorted list of lowercase ingredient name strings.
+    """
     try:
         resp = requests.get(
             f"{THEMEALDB_BASE}/list.php",
@@ -342,17 +395,22 @@ def get_themealdb_ingredients() -> list[str]:
         return []
 
 
-# ---------------------------------------------------------------------------
-# Nutrition — Spoonacular
-# ---------------------------------------------------------------------------
+
+## Nutrition — Spoonacular
 
 @st.cache_data(ttl=24 * 60 * 60)
 def fetch_nutrition_by_title(title: str) -> dict:
-    """Per-serving nutrition for a dish by name via Spoonacular complexSearch.
+    
+    """Look up per-serving nutrition for a dish by its name via Spoonacular.
 
-    Returns macros already normalised to one serving — no division needed.
-    Cached for 24 h so repeated lookups of the same dish cost nothing.
+    Uses Spoonacular's complexSearch endpoint with addRecipeNutrition=True.
+    Returns the first result's nutrition data already normalised per serving —callers 
+    don't need to divide by serving count.
+
+    This requires st.secrets["SPOONACULAR_API_KEY"] to work. 
     """
+    
+     # Define the "empty" return value used for early exits and error cases
     empty = {"kcal": None, "protein_g": None, "carbs_g": None, "fat_g": None}
     if not title:
         return empty
@@ -373,6 +431,7 @@ def fetch_nutrition_by_title(title: str) -> dict:
             return empty
         nutrients = results[0].get("nutrition", {}).get("nutrients", [])
 
+        # Helper to find a named nutrient's amount in the nested list
         def _get(name):
             return next((n["amount"] for n in nutrients if n.get("name") == name), None)
 
@@ -390,12 +449,20 @@ def fetch_nutrition_by_title(title: str) -> dict:
         return empty
 
 
-@st.cache_data(ttl=24 * 60 * 60)
+@st.cache_data(ttl=24 * 60 * 60) # Cache 24 h; ingredient nutrition is stable
 def fetch_nutrition_from_ingredients(ingredients: tuple[str, ...]) -> dict:
-    """Fallback: sum nutrition across raw ingredients via Spoonacular parser.
+    """Estimate whole-recipe nutrition by parsing raw ingredient strings.
 
-    Takes a tuple (not list) so it is hashable and cacheable.
-    Returns whole-recipe totals — caller must divide by serving count.
+    Uses Spoonacular's parseIngredients endpoint which understands human-language strings like 
+    "2 cups all-purpose flour, sifted" and returns per-ingredient nutrition that this function 
+    sums into recipe totals.
+
+    @st.cache_data requires all arguments to be hashable. Lists are not hashable; tuples are.  
+    Callers must pass the ingredients as a tuple.
+
+    This returns WHOLE-RECIPE totals, not per-serving values.
+    Callers must divide by the appropriate serving count (default assumed to be 4 in 
+    fetch_nutrition_for_meal()).
     """
     empty = {"kcal": None, "protein_g": None, "carbs_g": None, "fat_g": None}
     if not ingredients:
@@ -411,6 +478,7 @@ def fetch_nutrition_from_ingredients(ingredients: tuple[str, ...]) -> dict:
             timeout=20,
         )
         resp.raise_for_status()
+        # Accumulate totals across all parsed ingredient items
         kcal = protein = carbs = fat = 0.0
         for item in resp.json():
             for n in item.get("nutrition", {}).get("nutrients", []):
@@ -435,6 +503,9 @@ def fetch_nutrition_for_meal(meal: dict) -> dict:
     Strategy:
       1. Spoonacular complexSearch by dish name (accurate, cached 24 h).
       2. Fallback: ingredient parser ÷ 4 (rough, also cached 24 h).
+    
+    This function itself is NOT cached because its two sub-functions are already cached
+    Adding another cache layer here would be redundant.
     """
     result = fetch_nutrition_by_title(meal.get("strMeal", ""))
     if result["kcal"] is not None:
@@ -444,7 +515,7 @@ def fetch_nutrition_for_meal(meal: dict) -> dict:
     raw = fetch_nutrition_from_ingredients(
         tuple(extract_ingredients_from_meal(meal))
     )
-    srv = 4
+    srv = 4  # Assumed serving count when none is known. TheMealDB doesn't provide this
     return {
         "kcal":      int(round(raw["kcal"] / srv))      if raw["kcal"]      is not None else None,
         "protein_g": round(raw["protein_g"] / srv, 1)   if raw["protein_g"] is not None else None,
@@ -454,16 +525,51 @@ def fetch_nutrition_for_meal(meal: dict) -> dict:
 
 
 def fetch_kcal_for_title(title: str) -> int | None:
-    """Convenience wrapper — returns just kcal for a dish title."""
+    """Convenience wrapper. This returns just kcal for a dish title."""
     return fetch_nutrition_by_title(title)["kcal"]
 
-
-@st.cache_data(ttl=60 * 60)
+# \ begin code generated with the help of Claude Sonnet 4.6
+@st.cache_data(ttl=60 * 60)  # Cache 1 hour; search results can change but are stable
 def search_spoonacular(query="", vegetarian=False, vegan=False,
                        gluten_free=False, dairy_free=False) -> list[dict]:
-    """Search Spoonacular for recipes filtered by diet profile."""
+    """
+    Search Spoonacular for recipes, optionally filtered by dietary requirements.
+    Returns results normalised into a dict shape that is compatible with the
+    TheMealDB meal dicts used everywhere else in the app, so that UI components
+    can render both sources identically.
+    
+Two ingredient fields:
+    Spoonacular provides two useful strings per ingredient:
+      "name"     → plain ingredient name, e.g. "flour"
+      "original" → full cooking string, e.g. "2 cups all-purpose flour, sifted"
+
+    Both are stored under different keys for different consumers:
+      _ingredients         (plain names)   → used by the ML similarity model
+                                             and the wishlist feature.  The ML
+                                             model compares ingredient sets; if
+                                             it receives "2 cups all-purpose
+                                             flour, sifted" it cannot match that
+                                             against "flour" from a TheMealDB
+                                             recipe, so similarity scores drop
+                                             to zero.  Plain names match reliably.
+      _ingredients_display (full strings)  → used only for rendering the
+                                             ingredient list in recipe-card
+                                             expanders so the user sees useful
+                                             quantities, not just bare names
+
+        This returns a list of normalised meal dicts with the same keys as TheMealDB meals
+        (strMeal, strMealThumb, strArea, strCategory, strInstructions) plus
+        Spoonacular-specific keys (_ingredients, _ingredients_display,
+        source="spoonacular", kcal_per_serv).
+        Returns [] if the API is unreachable.
+    """ 
     try:
+        # Build the diet string: Spoonacular uses a single "diet" param
+        # and treats vegan as a superset of vegetarian
+
         diet = "vegan" if vegan else ("vegetarian" if vegetarian else None)
+
+        # Build the intolerances list for gluten/dairy exclusions
         intolerances = []
         if gluten_free: intolerances.append("gluten")
         if dairy_free:  intolerances.append("dairy")
@@ -471,8 +577,8 @@ def search_spoonacular(query="", vegetarian=False, vegan=False,
         params = {
             "apiKey": st.secrets["SPOONACULAR_API_KEY"],
             "query":  query, "number": 20,
-            "addRecipeInformation": True,
-            "fillIngredients": True,
+            "addRecipeInformation": True, # Include dish type, summary, etc.
+            "fillIngredients": True,     # Include extendedIngredients list
             "addRecipeNutrition": True,
         }
         if diet:         params["diet"] = diet
@@ -483,38 +589,25 @@ def search_spoonacular(query="", vegetarian=False, vegan=False,
             params=params, timeout=20,
         )
         resp.raise_for_status()
-
+        
+        # re is imported here (not at module top) because it's only needed in
+        # this function — avoids polluting the module namespace for the common
+        # case where search_spoonacular() is never called.
         import re
         results = []
         for r in resp.json().get("results", []):
             nutrients = r.get("nutrition", {}).get("nutrients", [])
+             # Extract just the calorie value from the nutrients list for the card summary
             kcal = next(
                 (int(n["amount"]) for n in nutrients if n.get("name") == "Calories"), None
             )
             results.append({
                 "strMeal":         r.get("title", ""),
                 "strMealThumb":    r.get("image", ""),
-                "strArea":         "International",
+                "strArea":         "International",         # Spoonacular doesn't provide a country/area
                 "strCategory":     r.get("dishTypes", [""])[0].title() if r.get("dishTypes") else "—",
                 "strInstructions": re.sub(r"<[^>]+>", "", r.get("summary", "")),
-                # WHY TWO INGREDIENT FIELDS?
-                # Spoonacular gives us two useful fields per ingredient:
-                #   "name"     → just the ingredient name,  e.g. "flour"
-                #   "original" → the full cooking string,   e.g. "2 cups all-purpose flour, sifted"
-                #
-                # We need BOTH for different purposes:
-                #
-                # _ingredients (plain names) → used by the ML model and the
-                #   wishlist. The ML model compares ingredient names across
-                #   recipes to find similarities. If we give it "2 cups
-                #   all-purpose flour, sifted" it can't match that against
-                #   "flour" in our TheMealDB catalogue — so scores drop to zero.
-                #   Plain names like "flour" match perfectly.
-                #
-                # _ingredients_display (full strings) → used only for showing
-                #   the ingredient list to the user in the recipe card expander.
-                #   Here we WANT the full string so the user sees "2 cups flour"
-                #   instead of just "flour".
+                # Plain ingredient names for ML model and wishlist matching
                 "_ingredients":         [i.get("name","").strip() for i in r.get("extendedIngredients",[]) if i.get("name","").strip()],
                 "_ingredients_display": [i.get("original","").strip() for i in r.get("extendedIngredients",[]) if i.get("original","").strip()],
                 "source":          "spoonacular",
@@ -524,3 +617,4 @@ def search_spoonacular(query="", vegetarian=False, vegan=False,
     except Exception as exc:
         st.warning(f"Spoonacular unavailable: {exc}")
         return []
+# \ end code generated with the help of Claude Sonnet 4.6
