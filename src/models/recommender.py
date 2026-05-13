@@ -72,6 +72,29 @@ def _clean(ingredients: list[str]) -> list[str]:
     return [i.lower().strip() for i in ingredients if i and i.strip()]
 
 
+# Short words that don't carry meaning for ingredient matching.
+# We skip these so "a pinch of salt" doesn't add "a", "of" to the word set.
+_STOP_WORDS = {"a", "an", "of", "the", "and", "or", "with", "to", "in", "for"}
+
+
+def _ingredient_words(ingredients: list[str]) -> set[str]:
+    """Break ingredient strings into individual meaningful words.
+
+    This makes Jaccard similarity much more useful: instead of comparing
+    full strings like "green curry paste" vs "massaman curry paste" (no match),
+    we compare word sets {"green","curry","paste"} vs {"massaman","curry","paste"}
+    and find the overlap {"curry","paste"} → real similarity is detected.
+
+    We skip very short words and common stop words that don't carry meaning.
+    """
+    words: set[str] = set()
+    for ing in _clean(ingredients):
+        for word in ing.split():
+            if len(word) > 2 and word not in _STOP_WORDS:
+                words.add(word)
+    return words
+
+
 @dataclass
 class Recommender:
     """Content-based recipe recommender built on top of scikit-learn's k-NN.
@@ -344,13 +367,13 @@ class Recommender:
         local_mask = self.recipes["id"].isin(liked)
         if local_mask.any():
             for ing_list in self.recipes[local_mask]["ingredients"]:
-                s = set(_clean(ing_list))
+                s = _ingredient_words(ing_list)
                 if s:
                     liked_sets.append(s)
 
         if liked_ingredients:
             for ing_list in liked_ingredients:
-                s = set(_clean(ing_list))
+                s = _ingredient_words(ing_list)
                 if s:
                     liked_sets.append(s)
 
@@ -359,7 +382,9 @@ class Recommender:
 
         scores = []
         for ing_list in ingredient_lists:
-            candidate_set = set(_clean(ing_list))
+            # Use word-level sets so "green curry paste" overlaps with
+            # "massaman curry paste" via the shared words "curry" and "paste".
+            candidate_set = _ingredient_words(ing_list)
             if not candidate_set:
                 scores.append(None)
             else:
