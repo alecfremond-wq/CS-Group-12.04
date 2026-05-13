@@ -41,7 +41,7 @@ import pandas as pd
 from src.data.database import execute, query_df
 
 
-## INGREDIENT LOOKUP
+#1. Ingredient lookup ################
 
 def get_canonical_ingredients() -> list[str]:
     """
@@ -78,7 +78,7 @@ def _ensure_ingredient_id(name: str) -> int:
     return int(df.iloc[0]["id"])
 
 
-## PANTRY CRUD
+#2. Pantry CRUD ##########
 
 def add_to_pantry(
     user_id: int,
@@ -186,7 +186,7 @@ def is_canonical(name: str) -> bool:
     return name.lower().strip() in set(get_canonical_ingredients())
 
 
-## SMART MATCHING
+#3. Smart matching ######
 # Naive exact-match gives ~30% hit rate against API recipe names.
 # These rules lift it to ~75-85% by handling plurals and multi-word names.
 

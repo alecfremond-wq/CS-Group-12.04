@@ -83,7 +83,7 @@ st.info(
     "The more ingredients you add here, the more accurate the badges will be."
 )
 
-## ADD INGREDIENT FORM
+#2. Add ingredient form ######
 with st.form("add_item", clear_on_submit=True):
     cols = st.columns([3, 1, 1, 2])
     with cols[0]:
@@ -107,7 +107,7 @@ with st.form("add_item", clear_on_submit=True):
         expires = st.date_input("Expires on", value=date.today())
     submitted = st.form_submit_button("➕ Add to pantry", type="primary")
 
-## HANDLE FORM SUBMISSION
+#3. Handle form submission ####
 if submitted:
     if choice == CUSTOM_OPTION:
         ingredient_name = custom_name.strip().lower()
@@ -136,7 +136,7 @@ if submitted:
                 "The Recipes page may not see it until next reload."
             )
 
-## LOAD AND DISPLAY PANTRY
+#4. Load and display pantry ########
 db_pantry = list_pantry(USER_ID)
 
 if db_pantry.empty and not st.session_state["pantry"]:
