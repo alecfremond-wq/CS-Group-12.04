@@ -1,3 +1,18 @@
+"""
+Pantry page — add, view and remove ingredients from the user's pantry.
+
+Dependencies:
+  - streamlit            : UI framework
+  - pandas               : handles query results as DataFrames
+  - datetime             : date arithmetic for expiry badges
+  - src.data.pantry_repo : CRUD operations for the pantry table
+  - src.data.api_client  : fetches ingredient list from TheMealDB
+  - src.components.ui    : page_header, empty_state
+  - src.utils.session    : init_session_state, require_profile
+
+Author: Alec Frémond
+"""
+
 from datetime import date, datetime
 
 import streamlit as st
@@ -12,11 +27,12 @@ from src.data.pantry_repo import (
 )
 from src.utils.session import init_session_state, require_profile
 
-#1. Setup ##############
+#setup
 init_session_state()
 require_profile()
 page_header("🥫 Pantry", "What's currently in your kitchen?")
 
+#constants
 USER_ID = st.session_state.get("user_id", 1)
 CUSTOM_OPTION = "✏️  Other (type a custom ingredient)"
 
@@ -39,7 +55,7 @@ st.info(
     "The more ingredients you add here, the more accurate the badges will be."
 )
 
-#2. Add ingredient form ######
+## ADD INGREDIENT FORM
 with st.form("add_item", clear_on_submit=True):
     cols = st.columns([3, 1, 1, 2])
     with cols[0]:
@@ -63,7 +79,7 @@ with st.form("add_item", clear_on_submit=True):
         expires = st.date_input("Expires on", value=date.today())
     submitted = st.form_submit_button("➕ Add to pantry", type="primary")
 
-#3. Handle form submission ########
+## HANDLE FORM SUBMISSION
 if submitted:
     if choice == CUSTOM_OPTION:
         ingredient_name = custom_name.strip().lower()
@@ -92,7 +108,7 @@ if submitted:
                 "The Recipes page may not see it until next reload."
             )
 
-#4. Load and display pantry ##########
+## LOAD AND DISPLAY PANTRY
 db_pantry = list_pantry(USER_ID)
 
 if db_pantry.empty and not st.session_state["pantry"]:
@@ -124,7 +140,7 @@ else:
     st.markdown("---")
 
     if not db_pantry.empty:
-        # 1. Summary metrics
+        # summary metrics
         total = len(db_pantry)
         expired = sum(1 for _, r in db_pantry.iterrows() if _expiry_badge(r["expires_on"])[0] == "🔴")
         expiring_soon = sum(1 for _, r in db_pantry.iterrows() if _expiry_badge(r["expires_on"])[0] == "🟡")
@@ -136,7 +152,7 @@ else:
 
         st.markdown("---")
 
-        # 2. Display each ingredient row
+        # display each ingredient row
         for _, row in db_pantry.iterrows():
             emoji, label = _expiry_badge(row["expires_on"])
             qty_str = f"{row['quantity']:g} {row['unit'] or ''}".strip()
@@ -156,7 +172,6 @@ else:
 
         st.markdown("---")
 
-        # 3. Clear all
         if st.button("🗑️ Clear pantry", type="secondary"):
             st.session_state["pantry"] = []
             try:
