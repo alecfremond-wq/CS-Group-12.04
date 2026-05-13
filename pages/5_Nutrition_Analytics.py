@@ -455,7 +455,7 @@ st.plotly_chart(fig, use_container_width=True)
 pill_cols = st.columns(7)
 for i, (day, total) in enumerate(zip(DAYS, totals)):
     label      = f"{total/1000:.1f}k" if total >= 1000 else str(total)
-    line_color = "#FF6B35" if day == selected else "#C8C8C8"
+    line_color = "#72BF6A" if day == selected else "#CCE7C9"
     border     = "2px solid #FF6B35" if day == selected else "1px solid #e0e0e0"
     with pill_cols[i]:
         st.markdown(
