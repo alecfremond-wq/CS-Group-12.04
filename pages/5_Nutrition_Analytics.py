@@ -340,9 +340,18 @@ def load_from_meal_plan(user_id) -> tuple[dict, list[str]]:
 # ── Build the working data dict ────────────────────────────────────────────────
 
 def build_data(user_id) -> tuple[dict, set, list[str]]:
-    """Merge meal-plan calories with manual overrides.
-
-    Returns (calorie_data, planned_slots, failed_titles).
+    """
+    The function build_data() takes a user_id and returns a tuple of three variables: 
+    - a dictionary called data, which contains the calorie information for each day and meal of the week, initialized to 0;
+    - a set called planned_slots, which keeps track of the meal slots that have planned meals
+    - a list called failed_titles, which contains the titles of recipes for which calorie data could not be fetched automatically.
+    The function starts by creating an empty table with all days and meals set to 0. 
+    it then fetches calories from the meal planner and fills in the table, keeping track of which 
+    slots are planned-controlled. Any recipes that couldn't be fectches are stored in a seprate list so 
+    the user can enter them manually. Next, it loads any manual ovverrides saved by the user. 
+    For planned-controlled slots it removes any stale manual values to avoid conflicts; 
+    for empty slots it applies the manual value instead. Finally it returns the completed 
+    calorie table, the set of planner-controlled slots, and the list of failed recipes. 
     """
     data = {day: {meal: 0 for meal in MEALS} for day in DAYS}
 
