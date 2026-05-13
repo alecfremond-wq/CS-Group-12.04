@@ -1,20 +1,3 @@
-"""
-pantry_repo.py  —  read / write pantry items in the SQLite database.
-
-Bridges st.session_state["pantry"] (in-memory list shown by 3_Pantry.py)
-with the `pantry` and `ingredients` tables on disk, which is what
-2_Recipes.py reads from to compute the "Pantry-friendly" badge.
-
-Also exposes get_canonical_ingredients(), the list of every ingredient
-name stored in the `ingredients` table of the database. Pantry.py shows
-this list as a dropdown so that whatever the user picks is guaranteed to
-match an ingredient string used in a recipe (lowercased, exact match
-on both sides — same rule Recipes.py applies).
-
-AI-ASSISTED AUTHORSHIP: scaffold drafted with Anthropic Claude (05/2026),
-reviewed by Group 12.04. See README.md.
-"""
-
 from __future__ import annotations
 
 import re
@@ -26,15 +9,10 @@ import pandas as pd
 from src.data.database import execute, query_df
 
 
-def get_canonical_ingredients() -> list[str]:
-    """Return every ingredient name stored in the database,
-    lowercased, deduplicated, alphabetically sorted.
+#1. Ingredient lookup ################
 
-    Pulled from the `ingredients` table, which is populated whenever
-    a user adds a recipe to the Meal Planner. This keeps the dropdown
-    in sync with what is actually in the database rather than a static
-    local list.
-    """
+def get_canonical_ingredients() -> list[str]:
+    """All ingredient names from the database, lowercased and sorted."""
     df = query_df("SELECT DISTINCT name FROM ingredients ORDER BY name")
     if df is None or df.empty:
         return []
@@ -42,7 +20,7 @@ def get_canonical_ingredients() -> list[str]:
 
 
 def _ensure_ingredient_id(name: str) -> int:
-    """Return the id of the `ingredients` row for `name`, inserting if missing."""
+    """Return the id for `name` in the ingredients table, inserting if missing."""
     name = name.lower().strip()
     df = query_df("SELECT id FROM ingredients WHERE name = ? LIMIT 1", (name,))
     if not df.empty:
@@ -52,6 +30,8 @@ def _ensure_ingredient_id(name: str) -> int:
     return int(df.iloc[0]["id"])
 
 
+#2. Pantry CRUD ##########
+
 def add_to_pantry(
     user_id: int,
     name: str,
@@ -59,12 +39,7 @@ def add_to_pantry(
     unit: str,
     expires_on: Optional[date],
 ) -> None:
-    """Insert (or update) a pantry row for this user + ingredient.
-
-    The schema declares UNIQUE (user_id, ingredient_id), so adding the
-    same ingredient twice updates the existing row rather than creating
-    a duplicate.
-    """
+    """Insert or update a pantry row for this user + ingredient."""
     name = name.lower().strip()
     if not name:
         return
@@ -86,11 +61,7 @@ def add_to_pantry(
 
 
 def list_pantry(user_id: int) -> pd.DataFrame:
-    """Return all pantry rows for this user, joined with ingredient names.
-
-    Columns: id (pantry row id), name, quantity, unit, expires_on.
-    Sorted alphabetically by ingredient name for stable display.
-    """
+    """Return all pantry rows for this user joined with ingredient names."""
     df = query_df(
         """
         SELECT p.id, i.name, p.quantity, p.unit, p.expires_on
@@ -107,7 +78,7 @@ def list_pantry(user_id: int) -> pd.DataFrame:
 
 
 def remove_from_pantry(pantry_row_id: int, user_id: int) -> None:
-    """Delete a single pantry row (selected by its id), scoped to this user."""
+    """Delete a single pantry row, scoped to this user."""
     execute(
         "DELETE FROM pantry WHERE id = ? AND user_id = ?",
         (pantry_row_id, user_id),
@@ -115,36 +86,22 @@ def remove_from_pantry(pantry_row_id: int, user_id: int) -> None:
 
 
 def clear_pantry(user_id: int) -> None:
-    """Wipe every pantry row belonging to this user."""
+    """Delete all pantry rows for this user."""
     execute("DELETE FROM pantry WHERE user_id = ?", (user_id,))
 
 
 def is_canonical(name: str) -> bool:
-    """Return True if `name` matches an ingredient already in the database.
-
-    Used by the Pantry page to warn the user when they type something that
-    won't help recipe matching.
-    """
+    """Return True if `name` matches an ingredient already in the database."""
     return name.lower().strip() in set(get_canonical_ingredients())
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Smart matching — used by 2_Recipes.py to score how much of a recipe the
-#  user already has. Lives in pantry_repo because the matching rules are a
-#  property of "what counts as the same ingredient", which is a pantry concern.
-#
-#  Why we need this:
-#     Local recipes use simple names ("pasta", "tomato") but TheMealDB and
-#     Spoonacular use specific names ("spaghetti", "cherry tomatoes",
-#     "extra virgin olive oil"). A naive exact-match comparison produces
-#     ~30% match rates against the API. The rules below lift that to ~75-85%.
-# ─────────────────────────────────────────────────────────────────────────────
+#3. Smart matching ######
+# Generated by Claude Sonnet 4.6 (Anthropic, 05/2026)
+# Naive exact-match gives ~30% hit rate against API recipe names.
+# These rules lift it to ~75-85% by handling plurals and multi-word names.
 
 def _singularize(word: str) -> str:
-    # Convert a plural word to its singular form
-    # This handles the 3 most common patterns in English food vocabulary:
-    #   "berries" → "berry", "tomatoes" → "tomato", "eggs" → "egg"
-    # Words shorter than 3 letters are left unchanged to avoid breaking short words
+    # "berries" → "berry", "tomatoes" → "tomato", "eggs" → "egg"
     w = word.lower().strip()
     if len(w) > 3 and w.endswith("ies"):
         return w[:-3] + "y"
@@ -156,10 +113,7 @@ def _singularize(word: str) -> str:
 
 
 def _tokenize(name: str) -> set[str]:
-    # Split a multi-word ingredient name into individual words, singularized
-    # Example: "Cherry Tomatoes" → {"cherry", "tomato"}
-    # Example: "Extra-Virgin Olive Oil" → {"extra", "virgin", "olive", "oil"}
-    # Single-letter words are dropped because they carry no useful meaning
+    # "Cherry Tomatoes" → {"cherry", "tomato"}, "Extra-Virgin Olive Oil" → {"extra", "virgin", "olive", "oil"}
     return {
         _singularize(tok)
         for tok in re.findall(r"[a-zA-Z]+", name.lower())
@@ -168,15 +122,14 @@ def _tokenize(name: str) -> set[str]:
 
 
 def matches(recipe_ingredient: str, pantry: Iterable[str]) -> bool:
-    # Check whether a recipe ingredient can be found in the user's pantry
-    # We apply 3 rules in order — the first match wins:
+    """Check if a recipe ingredient can be found in the pantry."""
     if not pantry:
         return False
 
     pantry_set = {p.lower().strip() for p in pantry}
     r_low = recipe_ingredient.lower().strip()
 
-    # Rule 1 — exact match (fastest): "chicken" == "chicken"
+    # Rule 1 — exact match: "chicken" == "chicken"
     if r_low in pantry_set:
         return True
 
@@ -186,7 +139,6 @@ def matches(recipe_ingredient: str, pantry: Iterable[str]) -> bool:
         return True
 
     # Rule 3 — subset match: pantry has "olive oil", recipe says "extra virgin olive oil"
-    # We check that every word in the pantry item appears in the recipe ingredient's words
     r_words = _tokenize(recipe_ingredient)
     if not r_words:
         return False
@@ -200,15 +152,12 @@ def matches(recipe_ingredient: str, pantry: Iterable[str]) -> bool:
 
 
 def coverage(ingredient_list: Iterable[str], pantry: Iterable[str]) -> Optional[float]:
-    # Calculate what fraction of a recipe's ingredients the user already has
-    # Returns a value between 0.0 and 1.0 (e.g. 0.75 means 75% of ingredients available)
-    # Returns None if either the recipe or the pantry is empty — the badge won't be shown
+    """Fraction of recipe ingredients the user has (0.0–1.0). None if either list is empty."""
     ingredients = [i for i in ingredient_list if i and i.strip()]
     pantry_set = {p.lower().strip() for p in pantry if p and p.strip()}
 
     if not pantry_set or not ingredients:
         return None
 
-    # Count how many recipe ingredients have a match in the pantry
     matched = sum(1 for ing in ingredients if matches(ing, pantry_set))
     return matched / len(ingredients)
