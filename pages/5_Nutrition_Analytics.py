@@ -178,7 +178,7 @@ def load_saved_goal() -> int:
 
 
 def save_overrides(overrides: dict) -> None:
-   """
+    """
     Persist the given overrides dict to calorie_data.json, preserving the currently active calorie_goal 
     from session state
 
@@ -196,7 +196,7 @@ def save_overrides(overrides: dict) -> None:
 
 
 def save_goal(goal: int) -> None:
-   """
+    """
     Persist a new calorie goal to calorie_data.json, preserving any
     existing manual overrides so they are not lost on a goal update.
     """
