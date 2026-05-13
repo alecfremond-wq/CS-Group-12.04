@@ -134,6 +134,21 @@ CREATE TABLE IF NOT EXISTS wishlist (
     UNIQUE (user_id, title)         -- one entry per recipe per user
 );
 
+-- user_recipes: recipes that users created themselves (not from an API).
+-- image_data stores the photo as a base64-encoded string so we don't need
+-- a separate file system or external service — everything lives in the DB.
+CREATE TABLE IF NOT EXISTS user_recipes (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title        TEXT    NOT NULL,
+    ingredients  TEXT,               -- plain text, one ingredient per line
+    instructions TEXT,               -- step-by-step cooking instructions
+    image_data   TEXT,               -- base64-encoded image bytes (can be NULL)
+    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_recipes_user ON user_recipes (user_id);
+
 -- follows: stores who follows whom.
 -- follower_id = the user who clicked "Follow"
 -- followed_id = the user they are following

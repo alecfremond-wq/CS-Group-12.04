@@ -50,6 +50,7 @@ pg = st.navigation([
     st.Page("pages/5_Nutrition_Analytics.py", title="Nutrition",       icon=":material/bar_chart:"),
     st.Page("pages/7_Recommendations.py",     title="Recommendations", icon=":material/auto_awesome:"),
     st.Page("pages/8_Wishlist.py",            title="Wishlist",        icon=":material/favorite:"),
+    st.Page("pages/9_My_Recipes.py",          title="My Recipes",      icon=":material/edit_note:"),
     st.Page("pages/6_Friends.py",             title="Friends",         icon=":material/group:"),
 ])
 
