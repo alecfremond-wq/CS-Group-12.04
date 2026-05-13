@@ -1,13 +1,15 @@
 """
-Recipes — search and browse recipes (API + DB).
-Owner: <assign on Apr 22>
-Grading coverage:
-    * Req. 2 (API — TheMealDB + Spoonacular)
-    * Req. 4 (user interaction — search, filter, add-to-wishlist)
-    * Req. 5 (ML — search results ranked by taste profile when available)
-TODOs for the owner:
-    - when a user clicks "Save recipe", persist to the `recipes` table
-      so the Recommender has data to learn from.
+Recipes: Search and browse recipes (API + DB)
+
+This is the main recipe-browsing page of the CookMate application.
+It gives users two ways to discover recipes:
+  1. Free-text search (tab "🔎 Search") : queries both TheMealDB and Spoonacular,
+  optionally ranks results with an ML Recommender, and shows pantry-match indicators.
+  2. World-map browser (tab "🌍 Browse by cuisine"): An interactive
+     Plotly choropleth coloured by continent; clicking a country loads its traditional recipes 
+     ONLY from TheMealDB.
+
+
 """
 
 import pandas as pd
