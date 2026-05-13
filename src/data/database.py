@@ -1,6 +1,33 @@
-# ============================================================================
-#  database.py  —  thin wrapper around SQLite
-# ----------------------------------------------------------------------------
+"""
+SQLite database interface for the CookTogether application
+
+This module is the single point of contact between the application and its SQLite database. 
+It handles three responsibilities:
+ 
+1. INITIALISATION  — creates the database file and all tables on first run,
+                         by executing the SQL defined in data/schema.sql.
+
+2. MIGRATION       — safely upgrades older databases that are missing columns
+                         or have outdated table definitions (e.g. a meal_plan table
+                        that pre-dates the "Snacks" meal-type option). Migrations
+                        run automatically every time the app starts.
+
+3. QUERYING        — provides two thin helpers used everywhere else in the app:
+                           • query_df()  → runs a SELECT and returns a DataFrame
+                           • execute()   → runs INSERT / UPDATE / DELETE
+
+Dependencies: 
+ — sqlite3        (built-in, no install needed)
+ — contextlib     (built-in, provides @contextmanager)
+ — pathlib        (built-in, cross-platform file paths)
+ — pandas         (pip install pandas)
+
+Authors: Ines, Alec, Giulia
+
+Source: Claude Sonnet 4.6 (see comments below)
+
+
+"""
 
 
 import sqlite3                                 # built-in Python module for SQLite
@@ -17,8 +44,17 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DB_PATH     = _PROJECT_ROOT / "data" / "cooktogether.db"   # the SQLite database file
 SCHEMA_PATH = _PROJECT_ROOT / "data" / "schema.sql"        # the SQL script that creates the tables
 
-
+# \ begin code generated with Claude Sonnet 4.6
 def _migrate(conn) -> None:
+    """When a new column or table constraint is added to schema.sql, existing
+    databases (e.g. on a teammate's machine, or on a cloud deployment) will
+    not automatically gain that change. This function bridges the gap.
+
+    Every operation here is safe to run multiple times. Either we use
+    try/except to catch "column already exists" errors, or we use
+    'CREATE ... IF NOT EXISTS'. This means _migrate() is called on every
+    app startup with no side effects on an already-up-to-date database.
+    """
     # Add columns that were introduced after the initial schema was created
     # try/except is needed because SQLite raises an error if the column already exists
     # This means the function is safe to call every time the app starts
@@ -27,14 +63,14 @@ def _migrate(conn) -> None:
             conn.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
             conn.commit()
         except sqlite3.OperationalError:
-            pass    # column already exists — nothing to do
+            pass    # column already exists. Nothing to do
 
     # Add mealdb_id to recipes if it was added after a teammate's initial schema
     try:
         conn.execute("ALTER TABLE recipes ADD COLUMN mealdb_id TEXT")
         conn.commit()
     except sqlite3.OperationalError:
-        pass    # column already exists
+        pass    # catches ALL OperationalErrors, not just column already exists
 
     # SQLite does not support UNIQUE constraints in ALTER TABLE
     # so we create a unique index separately to prevent duplicate usernames
@@ -45,6 +81,15 @@ def _migrate(conn) -> None:
 
     # Older databases created meal_plan without the "Snacks" option.
     # SQLite cannot edit CHECK constraints in place, so we rebuild the table.
+    # The only way to change a constraint is to:
+    #    1. Rename the old table to a temporary name.
+    #    2. Create the new table with the correct definition.
+    #    3. Copy all data from the old table into the new one.
+    #    4. Drop the old table.
+
+    # First, read the current table definition to check whether it already
+    # includes 'Snacks'. sqlite_master is SQLite's internal catalogue of all
+    # objects (tables, indexes, views) in the database
     meal_plan_sql_row = conn.execute(
         """
         SELECT sql
@@ -55,6 +100,9 @@ def _migrate(conn) -> None:
     meal_plan_sql = meal_plan_sql_row["sql"] if meal_plan_sql_row else ""
 
     if meal_plan_sql and "Snacks" not in meal_plan_sql:
+        # The table exists but predates the Snacks option and rebuild it.
+        # executescript() runs multiple SQL statements separated by semicolons
+        # as a single atomic operation (all succeed or all are rolled back)
         conn.executescript(
             """
             ALTER TABLE meal_plan RENAME TO meal_plan_old;
@@ -80,7 +128,7 @@ def _migrate(conn) -> None:
             """
         )
         conn.commit()
-
+#\ end code generated with the help of Claude Sonnet 4.6
 
 def init_db():
     """Create the database file and its tables if they don't exist yet.
@@ -122,14 +170,19 @@ def get_connection():
 
 
 def query_df(sql, params=None):
-    # Run a SELECT query and return the results as a pandas DataFrame
-    # The '?' placeholders are safely replaced by params — prevents SQL injection
+    """ Run a SELECT query and return the results as a pandas DataFrame
+    The '?' placeholders are safely replaced by params, to prevents SQL injection
+    """
     with get_connection() as conn:
         return pd.read_sql_query(sql, conn, params=params or ())
 
 
 def execute(sql, params=None):
-    # Run an INSERT, UPDATE or DELETE statement
-    # The context manager commits and closes the connection automatically
+    """ Run an INSERT, UPDATE or DELETE statement
+    
+    The context manager commits and closes the connection automatically after this function returns
+    """
     with get_connection() as conn:
+        #'?' placeholders are replaced safely by sqlite3
+        #Don't ever use string formatting here, because that would open the door to SQL injection.
         conn.execute(sql, params or ())
