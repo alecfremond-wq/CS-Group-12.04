@@ -309,12 +309,39 @@ user_allergies: list[str] = profile.get("allergies") or []
 
 ## Section 4c: Allergy conflict checker
 
+# Maps each allergen category name to the ingredient keywords that indicate it.
+# We need this because recipes never list "gluten" as an ingredient — they list
+# "bread", "flour", "pasta" etc. Without this mapping, gluten-containing recipes
+# would always appear safe to gluten-allergic users.
+_ALLERGEN_KEYWORDS: dict[str, list[str]] = {
+    "gluten":    ["flour", "bread", "wheat", "pasta", "spaghetti", "penne", "noodle",
+                  "barley", "rye", "couscous", "cracker", "biscuit", "tortilla",
+                  "wrap", "bun", "roll", "bagel", "breadcrumb", "panko", "pita",
+                  "ciabatta", "focaccia", "dumpling", "gnocchi", "filo", "pastry"],
+    "lactose":   ["milk", "cheese", "cream", "butter", "yogurt", "yoghurt",
+                  "mozzarella", "parmesan", "cheddar", "brie", "ricotta",
+                  "ghee", "whey", "lactose", "dairy"],
+    "nuts":      ["peanut", "almond", "walnut", "cashew", "pecan", "pistachio",
+                  "hazelnut", "macadamia", "pine nut", "chestnut", "nut butter"],
+    "eggs":      ["egg"],
+    "soy":       ["soy", "tofu", "edamame", "miso", "tempeh"],
+    "fish":      ["fish", "salmon", "tuna", "cod", "tilapia", "bass", "halibut",
+                  "anchovy", "sardine", "mackerel", "trout", "haddock", "snapper"],
+    "shellfish": ["shrimp", "prawn", "lobster", "crab", "scallop", "clam",
+                  "oyster", "mussel", "squid", "octopus"],
+}
+
+
 def check_allergy_conflicts(meal: dict, allergies: list[str]) -> list[str]:
     """Return a list of allergens found in the meal's ingredients.
 
-    Checks each user allergen string (case-insensitive) against the full
-    ingredient list of the recipe. Returns only those allergens that appear
-    in at least one ingredient string.
+    Uses _ALLERGEN_KEYWORDS to expand each allergen category into the actual
+    ingredient words that indicate it. For example, "gluten" expands to
+    ["bread", "flour", "pasta", ...] because recipes never literally list
+    "gluten" as an ingredient.
+
+    Falls back to a direct string match for any allergen not in the mapping
+    (e.g. a custom allergen the user typed themselves).
 
     Args:
         meal:      A recipe dict from TheMealDB or Spoonacular.
@@ -328,7 +355,19 @@ def check_allergy_conflicts(meal: dict, allergies: list[str]) -> list[str]:
         return []
     ingredients = extract_ingredients(meal)
     ingredient_text = " ".join(ingredients).lower()
-    return [allergen for allergen in allergies if allergen.lower() in ingredient_text]
+
+    conflicts = []
+    for allergen in allergies:
+        keywords = _ALLERGEN_KEYWORDS.get(allergen.lower())
+        if keywords:
+            # Check if any of the mapped ingredient keywords appear in the recipe
+            if any(kw in ingredient_text for kw in keywords):
+                conflicts.append(allergen)
+        else:
+            # Unknown allergen — fall back to direct substring match
+            if allergen.lower() in ingredient_text:
+                conflicts.append(allergen)
+    return conflicts
 
 
 ## Section 5: World map data structure
