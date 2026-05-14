@@ -79,13 +79,13 @@ CS-Groupe-Project/
 ├── recipe_data.py
 └── .gitignore
 ```
-## Features overview 
+## Feature overview 
 ```
 # 1. Home: This is the first page you land on. It introduces you to the app and makes you sign-up or log-in your profile.
 
-# 2. Pantry: Here you can insert what you currently have in your kitchen. Afterwards the recipe page will tell you if the ingrediants are "Pantry-friendly", "Pantry available" or not.
+# 2. Pantry: Here you can insert what you currently have in your kitchen. Afterwards the recipe page will tell you if the ingredients are "Pantry-friendly", "Pantry available" or not.
 
-# 3. Recipes: You can search for new recipes using the search bar or the "Browse by cuisine" function and add them to your whishlist.
+# 3. Recipes: You can search for new recipes using the search bar or the "Browse by cuisine" function and add them to your wishlist.
 
 # 4. Meal Planner: It helps organize meals for the next week, you can add the recipes from your wishlist.
 
