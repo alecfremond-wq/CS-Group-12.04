@@ -52,10 +52,10 @@ Database table used:
 - ingredients : Ingredient master list (id, name)
  
 Authors: 
-Alec, 
-Camilla Piano,        -> World map section
-Giulia De Angelis,    -> Section 3, 
-Ines
+Alec Fremond, 
+Camilla Piano,        -
+Giulia De Angelis,    
+Ines Buzel.
 
 Sources: Claude Sonnet 4.6 (see comments below)
 
@@ -303,7 +303,7 @@ local_title_to_id = {r["name"].lower(): r["id"] for r in LOCAL_RECIPES}
 
 
 ## Section 4b: Allergy setup
-# ── Resolve the user's allergen list once; toggles live inside each tab ───────
+#  Resolve the user's allergen list once; toggles live inside each tab 
 user_allergies: list[str] = profile.get("allergies") or []
 
 
@@ -341,15 +341,6 @@ def check_allergy_conflicts(meal: dict, allergies: list[str]) -> list[str]:
     "gluten" as an ingredient.
 
     Falls back to a direct string match for any allergen not in the mapping
-    (e.g. a custom allergen the user typed themselves).
-
-    Args:
-        meal:      A recipe dict from TheMealDB or Spoonacular.
-        allergies: List of allergen strings from the user profile
-                   (e.g. ["gluten", "lactose", "nuts"]).
-
-    Returns:
-        A (possibly empty) list of conflicting allergen strings.
     """
     if not allergies:
         return []
