@@ -27,8 +27,10 @@ pip install -r requirements.txt
 
 # 4. run the app
 streamlit run app.py
-```
+
 The app will open automatically in your browser at "http://localhost:8051". 
+
+```
 
 The first start creates `data/cooktogether.db` automatically from
 `data/schema.sql` — nothing else to set up.
