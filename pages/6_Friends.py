@@ -1,73 +1,93 @@
 """
-Friends — find other users and see their wishlists.
+Friends: Find other users, follow them, and see their saved recipes.
 
-!!! fertig kommentieren!!!
+This page lets users build a social layer on top of CookMate.
+You can search for other users by username, send them a follow request,
+and once they accept, you can browse their wishlist and their own homemade recipes.
 
-How this page works:
-    1. The user types a username into the search box.
-    2. We look that username up in the 'users' table in our database.
-    3. If found, we show a Follow / Unfollow button next to the result.
-    4. At the bottom of the page we show the wishlists of everyone
-       the current user is already following.
-    5. Each recipe in a friend's wishlist can be expanded to see the
-       full ingredient list and cooking instructions, loaded live from
-       TheMealDB or Spoonacular so we don't have to store that data ourselves.
+How the follow system works:
+  1. You type a username in the search box.
+  2. We look it up in the 'users' table, if someone matches, a Follow button appears.
+  3. Clicking Follow inserts a row into the 'follows' table with status = 'pending'.
+     The other person sees the request in their "My Followers" panel.
+  4. They click Accept → the status changes to 'accepted'.
+     Only then does their wishlist and their recipes become visible to you.
+  5. Declining deletes the row entirely, as if the request never happened.
 
-Owner: <assign on Apr 22>
-Grading coverage:
-    * Req. 4 (user interaction — follow users, browse their wishlists)
+Why we use 'pending' / 'accepted' instead of just a boolean:
+  We wanted to give users control over who can see their saved recipes.
+  A simple "follow = true" system would expose your wishlist the moment
+  someone clicks a button — that felt too open. The request-approval flow
+  mirrors how Instagram/Twitter private accounts work.
+
+Dependencies:
+
+  base64 (stdlib)      — decodes recipe images we stored as base64 strings in the DB.
+                         We stored images this way so we don't need a separate file server.
+
+  json   (stdlib)      — decodes the ingredient list stored as a JSON string.
+                         e.g. '["egg","flour"]' → ["egg", "flour"]
+
+  src.components.ui    — Shared UI helpers:
+                           page_header(title, subtitle) → renders the styled title banner.
+
+  src.data.api_client  — All outbound API calls, each decorated with @st.cache_data:
+                           search_recipes_by_name(title) → TheMealDB: search by name.
+                                                           Used to load the full image +
+                                                           instructions for wishlist recipes
+                                                           (we only store the title in the DB).
+                           search_spoonacular(query)     → Spoonacular: fallback search when
+                                                           TheMealDB doesn't know a recipe
+                                                           (e.g. it came from Spoonacular originally).
+
+  src.data.database    — SQLite helpers:
+                           query_df()  → SELECT → pandas DataFrame
+                           execute()   → INSERT / UPDATE / DELETE
+
+  src.utils.session    — Session management:
+                           init_session_state() → seeds st.session_state with all default keys
+                           require_profile()    → redirects to Home if not logged in yet
+
+Database tables used:
+- follows      : one row per (follower, followed) pair.
+                 'status' is 'pending' (waiting for approval) or 'accepted' (approved).
+                 We CREATE this table here if it doesn't exist yet.
+- users        : joined to get display names and usernames for search results.
+- wishlist     : recipes each user has saved from the Recipes or Recommendations page.
+- user_recipes : recipes users created themselves on the My Recipes page.
+
+Author: Ines Buzel
+
+Sources: Claude Sonnet 4.6 (see comments below)
+
 """
 
-# ── Imports ───────────────────────────────────────────────────────────────────
-# json      → decodes the ingredient list we stored as a JSON string in the DB.
-#             e.g. '["egg","flour"]' → ["egg", "flour"]
-# streamlit → the framework that draws the whole web app.
 import base64
 import json
 import streamlit as st
 
-# page_header → draws the consistent title banner at the top of every page.
 from src.components.ui import page_header
 
-# search_recipes_by_name → searches TheMealDB by title and returns matching meals.
-#   Used as the first attempt to load full recipe details (image + instructions).
-#   Cached by Streamlit for 1 hour so the same title is only fetched once.
-#
-# search_spoonacular → searches Spoonacular by title.
-#   Used as a fallback when TheMealDB doesn't know the recipe (e.g. recipes
-#   that were originally found via Spoonacular search on the Recipes page).
-#   Also cached for 1 hour in api_client.py.
 from src.data.api_client import search_recipes_by_name, search_spoonacular
 
-# query_df → runs a SELECT and returns a pandas DataFrame.
-# execute  → runs INSERT / UPDATE / DELETE (no return value).
 from src.data.database import execute, query_df
 
-# init_session_state → fills in all default session keys before we read them.
-# require_profile    → stops the page and shows a warning if not logged in.
 from src.utils.session import init_session_state, require_profile
 
 
-# ── Page setup ────────────────────────────────────────────────────────────────
+## Section 1: Page setup
+# Initialise session, check login, draw the page header.
+# my_id is the database ID of the person currently logged in
+# we use it in every query so we only touch data for this user.
 
 init_session_state()
 require_profile()
 page_header("👥 Friends", "Follow other users and see their saved recipes.")
 
-# my_id is the database ID of the person currently logged in.
-# We use it in every query so we only touch data that belongs to this user.
 my_id = st.session_state.get("user_id")
 
-# ── Make sure the follows table exists ────────────────────────────────────────
-# We create the table here with a 'status' column that tracks whether a follow
-# request is waiting for approval ('pending') or has been accepted ('accepted').
-#
-#   When user A clicks "Follow" on user B, we don't want B's wishlist to be
-#   visible immediately. Instead, B gets a follow request they can accept or
-#   decline. Only after accepting does A see B's wishlist.
-#
-# The DEFAULT 'accepted' means that if we ever insert a row without specifying
-# the status, it defaults to accepted — useful for the migration below.
+# Created here instead of schema.sql because we added this feature after the app launched.
+# 'status' is 'pending' (waiting for approval) or 'accepted'.
 execute(
     """
     CREATE TABLE IF NOT EXISTS follows (
@@ -80,108 +100,71 @@ execute(
     """
 )
 
-# ── Migration: add 'status' column to existing follows table ──────────────────
-# If the app was already running before we added this feature, the follows table
-# exists but has no 'status' column. SQLite lets us add a column with
-# ALTER TABLE ... ADD COLUMN. We wrap it in try/except because SQLite throws
-# an error if the column already exists — and that's fine, we just ignore it.
+# Add 'status' to any older follows table that didn't have it yet.
+# SQLite throws if the column already exists, so we just ignore that error.
+#/ Begin code generated with Claude Sonnet 4.6
 try:
     execute("ALTER TABLE follows ADD COLUMN status TEXT NOT NULL DEFAULT 'accepted'")
 except Exception:
-    # Column already exists — nothing to do.
-    pass
+    pass  # Column already exists → nothing to do.
+#/ End code generated with Claude Sonnet 4.6
 
 
-# ── Helper: load full recipe details from TheMealDB (same as in recipes page)───────────────────────────
+## Section 2: Helper functions
+# These two functions are used when displaying recipe details inside
+# a friend's wishlist. We only store the title in the DB, so we fetch
+# the full image + instructions from the API on demand.
 
 def fetch_full_recipe(title: str) -> dict | None:
-    """Try to load the complete recipe data for a given title from TheMealDB.
-
-    Our wishlist only stores the title and ingredients — not the image or
-    the cooking instructions. This function asks TheMealDB for the full
-    recipe by searching for the exact title.
-
-        We never stored the TheMealDB ID in the wishlist table, so we
-        have to search by name. TheMealDB's search endpoint returns all
-        meals whose name CONTAINS the query, so we then check whether
-        any result matches the title exactly (case-insensitive).
-
-    Returns the meal dict if found, or None if TheMealDB doesn't know
-    this recipe (e.g. it came from Spoonacular instead).
+    """Search TheMealDB by title and return the first exact match.
+    Returns None if not found (e.g. the recipe originally came from Spoonacular).
     """
-    # Ask TheMealDB for meals matching this title.
-    # search_recipes_by_name is cached, so repeat calls are free.
     results = search_recipes_by_name(title)
 
     if not results:
-        # TheMealDB returned nothing — probably a Spoonacular recipe.
-        return None
+        return None  # TheMealDB returned nothing → probably a Spoonacular recipe.
 
-    # The search can return partial matches (e.g. searching "pasta" returns
-    # many dishes). We want the one whose name matches our title exactly.
+    # The search can return partial matches (searching "pasta" returns many dishes).
+    # We want the one whose name matches our title exactly.
     for meal in results:
         if meal.get("strMeal", "").lower() == title.lower():
             return meal
 
-    # No exact match found.
-    return None
+    return None  # No exact match found.
 
-
-# ── Helper: extract ingredients + measures from a TheMealDB meal dict ─────────
 
 def extract_full_ingredients(meal: dict) -> list[str]:
-    """Build a list of 'measure + ingredient' strings from a TheMealDB meal.
-
-    TheMealDB stores ingredients and their amounts in separate numbered fields:
-        strIngredient1 = "Chicken"   strMeasure1 = "500g"
-        strIngredient2 = "Garlic"    strMeasure2 = "2 cloves"
-        ...up to strIngredient20 / strMeasure20
-
-    We combine them into readable strings like "500g Chicken", "2 cloves Garlic".
-    Empty slots (TheMealDB fills unused ones with "" or None) are skipped.
+    """Build 'measure + name' strings from TheMealDB's numbered fields (strIngredient1..20).
+    Skips empty slots and returns a readable list like ["500g Chicken", "2 cloves Garlic"].
     """
     ingredients = []
     for i in range(1, 21):
         name    = (meal.get(f"strIngredient{i}") or "").strip()
         measure = (meal.get(f"strMeasure{i}")    or "").strip()
-
-        # Skip the slot if the ingredient name is empty.
         if not name:
             continue
-
-        # Combine measure and name, or just use name if there's no measure.
-        if measure:
-            ingredients.append(f"{measure} {name}")
-        else:
-            ingredients.append(name)
-
+        ingredients.append(f"{measure} {name}" if measure else name)
     return ingredients
 
 
-# ── Section 1: Search + Followers side by side ────────────────────────────────
-#
-# We use st.columns([3, 2]) to split the top of the page into two panels:
-#   col_search    (left, wider)  → search box and results
-#   col_followers (right)        → list of people who follow YOU
-#
-# This way the user can search for someone AND see their own followers
-# at the same time without scrolling.
+## Section 3: Search and Followers
+# Two columns: search box on the left, follower list on the right.
 
 col_search, col_followers = st.columns([3, 2])
 
-# ── Left panel: Search ────────────────────────────────────────────────────────
+
+# ── Left column: Search ───────────────────────────────────────────────────────
+
 with col_search:
     st.subheader("🔎 Find a user")
     st.caption("Type the exact username of the person you want to follow.")
 
-    # A text box where the user types the username they're looking for.
     search_query = st.text_input("Username", placeholder="e.g. alex123")
 
-    # Only run the search if something was typed.
     if search_query:
-
-        # Query the users table for a matching username.
-        # LOWER() makes it case-insensitive, AND id != my_id stops self-following.
+        # Look up the typed username in the users table.
+        # LOWER() on both sides makes it case-insensitive.
+        # AND id != my_id prevents you from following yourself.
         results = query_df(
             """
             SELECT id, name, username
@@ -197,17 +180,13 @@ with col_search:
         else:
             for _, user in results.iterrows():
                 with st.container(border=True):
-
-                    # Two columns: user info on the left, button on the right.
                     col_info, col_btn = st.columns([3, 1])
 
                     with col_info:
                         st.markdown(f"**{user['name']}** (@{user['username']})")
 
                     with col_btn:
-                        # Check the current follow status between us and this user.
-                        # We select the 'status' column so we know whether a request
-                        # is still pending or has already been accepted.
+                        # Check the current follow status so we know which button to show.
                         follow_row = query_df(
                             """
                             SELECT status FROM follows
@@ -217,14 +196,11 @@ with col_search:
                         )
 
                         # Three possible states:
-                        #   1. No row exists          → we don't follow them yet
-                        #   2. Row exists, pending    → request sent, waiting
-                        #   3. Row exists, accepted   → we follow them
+                        #   1. No row → we don't follow them yet        → show Follow button
+                        #   2. Row, status = 'pending' → request sent   → show Cancel button
+                        #   3. Row, status = 'accepted' → following      → show Unfollow button
 
                         if follow_row is None or follow_row.empty:
-                            # State 1: not following yet → show Follow button.
-                            # Clicking sends a follow REQUEST (status = 'pending').
-                            # The other user must accept before we can see their wishlist.
                             if st.button("Follow ＋", key=f"follow_{user['id']}",
                                          use_container_width=True):
                                 execute(
@@ -238,8 +214,7 @@ with col_search:
                                 st.rerun()
 
                         elif follow_row.iloc[0]["status"] == "pending":
-                            # State 2: request sent but not yet accepted.
-                            # Show a greyed-out label and a cancel button.
+                            # Request sent but not accepted yet — show a grey label.
                             st.caption("⏳ Pending")
                             if st.button("Cancel", key=f"cancel_{user['id']}",
                                          use_container_width=True):
@@ -250,7 +225,7 @@ with col_search:
                                 st.rerun()
 
                         else:
-                            # State 3: accepted → we follow them, show Unfollow button.
+                            # Already following → show Unfollow button.
                             if st.button("Unfollow", key=f"unfollow_{user['id']}",
                                          use_container_width=True):
                                 execute(
@@ -259,13 +234,16 @@ with col_search:
                                 )
                                 st.rerun()
 
-# ── Right panel: My Followers ─────────────────────────────────────────────────
+
+# ── Right column: My Followers ────────────────────────────────────────────────
+#/ Begin code generated with Claude Sonnet 4.6
+
 with col_followers:
     st.subheader("👤 My Followers")
 
-    # Load ALL follow rows where the current user is the one being followed.
-    # We also fetch the follower's id so we can use it in Accept/Decline buttons.
-    # The 'status' column tells us whether each request is pending or accepted.
+    # Load all users who follow the current user, with their status.
+    # ORDER BY puts pending requests first (so you notice them at the top),
+    # then the rest sorted by newest first.
     all_followers = query_df(
         """
         SELECT u.id, u.name, u.username, f.status
@@ -277,17 +255,11 @@ with col_followers:
         (my_id,),
     )
 
-    # st.container(height=...) creates a fixed-height box with its own scrollbar.
-    # Everything inside stays contained — the Wishlists section below won't move
-    # no matter how many followers there are.
-    # ~320px shows roughly 2-3 follower cards before you need to scroll.
+    # Fixed-height scrollable box so this panel doesn't push the page down
+    # when there are many followers, the Wishlists section stays in place.
     with st.container(height=240):
 
-        # ── Part A: Pending follow requests ──────────────────────────────────
-        # Filter to only the rows where status = 'pending'.
-        # These are people who clicked Follow on your profile but you haven't
-        # decided yet — you can Accept or Decline each one.
-
+        # Part A: Pending follow requests,people waiting for your approval.
         if all_followers is not None and not all_followers.empty:
             pending = all_followers[all_followers["status"] == "pending"]
         else:
@@ -298,12 +270,11 @@ with col_followers:
             for _, req in pending.iterrows():
                 with st.container(border=True):
                     st.markdown(f"**{req['name']}** (@{req['username']})")
-
                     btn_accept, btn_decline = st.columns(2)
 
                     with btn_accept:
-                        # Accept → update the status from 'pending' to 'accepted'.
-                        # After this, the follower can see your wishlist.
+                        # Accept → update the row from 'pending' to 'accepted'.
+                        # After this the follower can see your wishlist.
                         if st.button("✅ Accept", key=f"accept_{req['id']}",
                                      use_container_width=True):
                             execute(
@@ -317,7 +288,7 @@ with col_followers:
 
                     with btn_decline:
                         # Decline → delete the row entirely.
-                        # The person can try to follow again later if they want.
+                        # The person can send a new request later if they want.
                         if st.button("❌ Decline", key=f"decline_{req['id']}",
                                      use_container_width=True):
                             execute(
@@ -329,15 +300,11 @@ with col_followers:
                             )
                             st.rerun()
 
-        # ── Part B: Accepted followers ────────────────────────────────────────
-        # Filter to only the rows where status = 'accepted'.
-        # These are people whose follow request you already approved.
-
+        # Part B: Accepted followers → people whose request you already approved.
         if all_followers is not None and not all_followers.empty:
             accepted = all_followers[all_followers["status"] == "accepted"]
         else:
             accepted = None
-
 
         if accepted is None or accepted.empty:
             st.caption("Nobody is following you yet.")
@@ -348,7 +315,6 @@ with col_followers:
                     st.caption(f"@{follower['username']}")
 
                     # Check whether WE already follow this person back.
-                    # We look for a row where we are the follower and they are followed.
                     back_row = query_df(
                         """
                         SELECT status FROM follows
@@ -358,9 +324,7 @@ with col_followers:
                     )
 
                     if back_row is None or back_row.empty:
-                        # We don't follow them yet → show a "Follow back" button.
-                        # Clicking sends a pending follow request to them, just like
-                        # the normal Follow button in the search panel.
+                        # We don't follow them yet → offer a "Follow back" button.
                         if st.button("Follow back ＋", key=f"followback_{follower['id']}",
                                      use_container_width=True):
                             execute(
@@ -374,20 +338,19 @@ with col_followers:
                             st.rerun()
 
                     elif back_row.iloc[0]["status"] == "pending":
-                        # We sent a request but they haven't accepted it yet.
-                        # Just show a small grey label — no button needed.
+                        # We sent a request but they haven't accepted yet.
                         st.caption("⏳ Request sent")
 
 st.divider()
+#/ End code generated with Claude Sonnet 4.6
 
-
-# ── Section 2: Wishlists of people you follow ─────────────────────────────────
+## Section 4: Friends' Wishlists
+# Show saved recipes of everyone we follow (only 'accepted' follows).
+# Each friend gets a collapsible section, details loaded from TheMealDB or Spoonacular.
 
 st.subheader("❤️ Friends' Wishlists")
 
-# Load only the people the current user follows AND whose request was accepted.
-# We add AND f.status = 'accepted' so that pending requests don't show up here
-# yet — you can only see someone's wishlist after they approved your request.
+# Load only friends whose follow request we sent AND who already accepted it.
 following = query_df(
     """
     SELECT u.id, u.name, u.username
@@ -403,10 +366,9 @@ following = query_df(
 if following is None or following.empty:
     st.info("You're not following anyone yet (or your requests are still pending).")
 else:
-    # One collapsible section per followed user.
     for _, friend in following.iterrows():
 
-        # Load this friend's wishlist from the database.
+        # Load this friend's saved recipes from the wishlist table.
         wishlist = query_df(
             """
             SELECT title, image, area, ingredients
@@ -419,8 +381,8 @@ else:
 
         recipe_count = len(wishlist) if (wishlist is not None and not wishlist.empty) else 0
 
-        # st.expander creates a collapsible section.
-        # The header shows the friend's name and how many recipes they saved.
+        # One collapsible section per friend.
+        # The header shows their name and how many recipes they've saved.
         with st.expander(
             f"**{friend['name']}** (@{friend['username']}) "
             f"— {recipe_count} saved recipe(s)"
@@ -428,36 +390,22 @@ else:
             if recipe_count == 0:
                 st.caption("This user hasn't saved any recipes yet.")
             else:
-                # Show each recipe as a collapsible expander.
-                # The header shows just the title + area — small and compact.
-                # Everything else (image, ingredients, instructions) is hidden
-                # inside and only loads when the user clicks to open it.
                 for _, recipe in wishlist.iterrows():
                     title = recipe["title"]
 
-                    # Build a compact one-line header for the expander.
-                    # Shows the title and the cuisine area (if we have it).
-                    area_label = f"  ·  🌍 {recipe['area']}" if recipe.get("area") else ""
+                    area_label     = f"  ·  🌍 {recipe['area']}" if recipe.get("area") else ""
                     expander_label = f"🍽️ {title}{area_label}"
 
-                    # st.expander collapses the content by default (expanded=False).
-                    # The user clicks the arrow to open it and load the full details.
                     with st.expander(expander_label, expanded=False):
 
-                        # Only get the full recipe data when the expander is open.
-                        # In Streamlit, code inside an expander still runs on every
-                        # page reload — but because search_recipes_by_name is cached,
-                        # repeat calls cost nothing after the first fetch.
+                        # Fetch the full recipe details from TheMealDB.
+                        # search_recipes_by_name is cached so repeat clicks are free.
                         with st.spinner("Loading recipe details…"):
                             full_meal = fetch_full_recipe(title)
 
                         if full_meal:
-                            # ── Full recipe found on TheMealDB ────────────────
-
-                            # Three columns: small image on the left, then
-                            # ingredients, then instructions.
-                            # [1, 1, 2] means: image gets 1 part, ingredients
-                            # get 1 part, instructions get 2 parts of the width.
+                            # Full recipe found on TheMealDB, show image, ingredients, instructions.
+                            # [1, 1, 2] means: image 1 part, ingredients 1 part, instructions 2 parts.
                             col_img, col_ing, col_inst = st.columns([1, 1, 2])
 
                             with col_img:
@@ -467,45 +415,33 @@ else:
 
                             with col_ing:
                                 st.markdown("**Ingredients**")
-                                # extract_full_ingredients builds the list of
-                                # "measure + name" strings from the meal dict.
                                 for ing in extract_full_ingredients(full_meal):
                                     st.caption(f"• {ing}")
 
                             with col_inst:
                                 st.markdown("**Instructions**")
                                 instructions = full_meal.get("strInstructions", "")
-                                if instructions:
-                                    st.write(instructions)
-                                else:
-                                    st.caption("No instructions available.")
+                                st.write(instructions) if instructions else st.caption("No instructions available.")
 
                         else:
-                            # ── Not found on TheMealDB → try Spoonacular ──────
-                            # Some recipes in the wishlist originally came from
-                            # Spoonacular (searched on the Recipes page). TheMealDB
-                            # doesn't know them, so we try Spoonacular as a backup.
-                            # search_spoonacular returns the first result that
-                            # matches the title closely enough.
+                            # TheMealDB didn't find it, try Spoonacular as a fallback.
+                            # This happens for recipes that were originally found via Spoonacular search.
                             spoon_results = search_spoonacular(query=title)
 
-                            # Find the result whose title matches exactly.
+                            # First look for an exact title match among the results.
                             spoon_meal = None
                             for r in spoon_results:
                                 if r.get("strMeal", "").lower() == title.lower():
                                     spoon_meal = r
                                     break
 
-                            # If no exact match, just take the first result —
-                            # it's likely the same dish even if the name differs
-                            # slightly (e.g. "Spaghetti Bolognese" vs "Bolognese").
+                            # If no exact match, take the first result, it's likely the same dish
+                            # with a slightly different title (e.g. "Spaghetti Bolognese" vs "Bolognese").
                             if spoon_meal is None and spoon_results:
                                 spoon_meal = spoon_results[0]
 
                             if spoon_meal:
-                                # ── Spoonacular recipe found ──────────────────
-
-                                # Same three-column layout as TheMealDB above.
+                                # Spoonacular recipe found, same three-column layout.
                                 col_img, col_ing, col_inst = st.columns([1, 1, 2])
 
                                 with col_img:
@@ -515,27 +451,19 @@ else:
 
                                 with col_ing:
                                     st.markdown("**Ingredients**")
-                                    # Spoonacular stores ingredients in "_ingredients"
-                                    # as a list of strings — no extra parsing needed.
+                                    # Spoonacular stores ingredients in "_ingredients" as a plain list.
                                     for ing in spoon_meal.get("_ingredients", []):
                                         st.caption(f"• {ing}")
 
                                 with col_inst:
                                     st.markdown("**Instructions**")
                                     instructions = spoon_meal.get("strInstructions", "")
-                                    if instructions:
-                                        st.write(instructions)
-                                    else:
-                                        st.caption("No instructions available.")
+                                    st.write(instructions) if instructions else st.caption("No instructions available.")
 
                             else:
-                                # ── Neither API returned results ──────────────
-                                # Last resort: show whatever ingredients we saved
-                                # in the wishlist table (stored as a JSON string).
-                                st.caption(
-                                    "Could not load full details — "
-                                    "showing saved ingredients only."
-                                )
+                                # Neither API returned results, last resort: show whatever
+                                # ingredients we saved in the wishlist table (stored as JSON).
+                                st.caption("Could not load full details — showing saved ingredients only.")
                                 try:
                                     ingredients = json.loads(recipe["ingredients"] or "[]")
                                     if ingredients:
@@ -545,27 +473,21 @@ else:
                                 except Exception:
                                     pass
 
-                        # ── Save to my wishlist button ────────────────────────
-                        # Check if the current user already has this recipe saved.
-                        # We compare by title because that's the unique identifier
-                        # we use in the wishlist table (UNIQUE on user_id + title).
+                        # Save to wishlist button, lets you save a friend's recipe to your own wishlist.
+                        # We compare by title because that's the unique identifier we use.
                         already_saved = any(
                             isinstance(w, dict) and w.get("title") == title
                             for w in st.session_state.get("wishlist", [])
                         )
 
                         if already_saved:
-                            # Already saved — just show a small label.
                             st.caption("❤️ Already in your wishlist")
                         else:
-                            # The key must be unique per button on the page.
-                            # We combine friend ID + recipe title to achieve that.
                             if st.button(
                                 "+ Save to wishlist",
                                 key=f"save_{friend['id']}_{title}",
                             ):
-                                # Add to the in-memory session list so the rest
-                                # of the app (Recipes page, ML model) sees it right away.
+                                # 1. Add to session so the rest of the app sees it immediately.
                                 st.session_state.setdefault("wishlist", []).append({
                                     "title":       title,
                                     "image":       recipe.get("image"),
@@ -573,7 +495,7 @@ else:
                                     "local_id":    None,
                                     "ingredients": json.loads(recipe["ingredients"] or "[]"),
                                 })
-                                # Persist to the database so it survives a reload.
+                                # 2. Persist to DB so it survives a page reload.
                                 execute(
                                     """
                                     INSERT OR IGNORE INTO wishlist
@@ -594,21 +516,19 @@ else:
 st.divider()
 
 
-# ── Section 3: Friends' own recipes ───────────────────────────────────────────
-# This section shows recipes that your friends created themselves on the
-# "My Recipes" page — not recipes saved from an API like TheMealDB.
-# We load them directly from our own database, so no network call is needed.
+## Section 5: Friends' own recipes
+# Recipes friends wrote themselves on the My Recipes page (not from an API).
+# Images are stored as base64 in the DB and decoded here before displaying.
 
 st.subheader("📝 Friends' Recipes")
 st.caption("Recipes your friends created themselves.")
 
 if following is None or following.empty:
-    # We already showed a message in Section 2 — skip silently here.
-    pass
+    pass  
 else:
     for _, friend in following.iterrows():
 
-        # Load all recipes this friend has created, newest first.
+        # Load all recipes this friend has created themselves, newest first.
         friend_recipes = query_df(
             """
             SELECT id, title, ingredients, instructions, image_data, created_at
@@ -625,7 +545,6 @@ else:
             else 0
         )
 
-        # One collapsible section per friend, same style as the wishlist above.
         with st.expander(
             f"**{friend['name']}** (@{friend['username']}) "
             f"— {recipe_count} recipe(s)"
@@ -636,12 +555,13 @@ else:
                 for _, recipe in friend_recipes.iterrows():
                     with st.container(border=True):
 
-                        # ── Card header: image always visible ──────────────────
+                        # Card header: image on the left, title + date on the right.
                         col_img, col_info = st.columns([1, 4])
 
                         with col_img:
                             if recipe.get("image_data"):
-                                # Decode base64 back to bytes so st.image() can display it.
+                                # The image was stored as a base64 string, decode it back
+                                # to raw bytes so st.image() can display it.
                                 img_bytes = base64.b64decode(recipe["image_data"])
                                 st.image(img_bytes, use_container_width=True)
                             else:
@@ -651,7 +571,7 @@ else:
                             st.subheader(recipe["title"])
                             st.caption(f"Added on {str(recipe['created_at'])[:10]}")
 
-                        # ── Expandable ingredients + instructions ───────────────
+                        # Expandable details: ingredients on the left, instructions on the right.
                         with st.expander("📖 Show details", expanded=False):
                             col_ing, col_inst = st.columns([1, 2])
 
