@@ -102,13 +102,11 @@ CS-Groupe-Project/
 ```
 ## Data Sources and APIs
 
-```
+
 | API | Usage | Docs |
 |-----|-------|------|
 | [Spoonacular](https://spoonacular.com/food-api) | Recipe search, nutrition info | [Docs](https://spoonacular.com/food-api/docs) |
 | [TheMealDB](https://www.themealdb.com/api.php) | Recipe search, meal categories | [Docs](https://www.themealdb.com/api.php) |
-
-```
 
 
 
