@@ -85,13 +85,13 @@ CS-Groupe-Project/
 
 # 2. Pantry: Here you can insert what you currently have in your kitchen. Afterwards the recipe page will tell you if the ingredients are "Pantry-friendly", "Pantry available" or not.
 
-# 3. Recipes: You can search for new recipes using the search bar or the "Browse by cuisine" function and add them to your wishlist.
+# 3. Recipes: You can search for new recipes using the search bar or the "Browse by cuisine" (interactive world map visualization) function and add them to your wishlist.
 
 # 4. Meal Planner: It helps organize meals for the next week, you can add the recipes from your wishlist.
 
-# 5. Nutrition Analytics: You can set your calorie goal, the chart will show the calorie intake of the week based on the meal planner.
+# 5. Nutrition Analytics: You can set your calorie goal, the chart will show the calorie intake of the week based on the meal planner (graph visualization).
 
-# 6. Recommendations: Based on your wishlist this feature will recommend other recipes through a k-NN model.
+# 6. Recommendations: Based on your wishlist this feature will recommend other recipes through a k-NN model (machine learning).
 
 # 7. Wishlist: Here you will see the recipes that were saved on the recipes page or from the recommendations function.
 
