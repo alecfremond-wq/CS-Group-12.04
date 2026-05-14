@@ -100,6 +100,19 @@ CS-Groupe-Project/
 # 9. Friends: Here you can follow other users and see their own recipes and their wishlists (interactive).
 
 ```
+## Data Sources 
+
+```
+## Data Sources & APIs
+
+| API | Usage | Docs |
+|-----|-------|------|
+| [Spoonacular](https://spoonacular.com/food-api) | Recipe search, nutrition info | [Docs](https://spoonacular.com/food-api/docs) |
+| [TheMealDB](https://www.themealdb.com/api.php) | Recipe search map | [Docs](https://www.themealdb.com/api.php) |
+
+
+
+
 
 ## Mapping features → grading requirements
 
@@ -130,7 +143,7 @@ isolated, you can all push at the same time without stepping on each other.
 | TM4    | `pages/5_Nutrition_Analytics.py`, `pages/6_World_Map.py` | —  |
 | TM5    | `pages/7_Recommendations.py`         | `src/models/recommender.py`    |
 
-Fill in the real names at tomorrow's meeting and update `CONTRIBUTION_MATRIX.md`.
+`CONTRIBUTION_MATRIX.md`.
 
 ## Next steps (MVP → final)
 
