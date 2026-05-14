@@ -14,20 +14,22 @@ and ML-powered recommendations. Furthermore there is also a social aspect to the
 ## Quick start
 
 ```bash
-# 1. clone (you already have the repo)
-git clone <repo-url>
-cd CS-Group-Project
-
-# 2. create & activate a virtual environment
+# 1. Create and enter in project folder
+     cd -copy and paste path to folder-
+# 2. Clone GitHub Repository
+     git clone CS-Group-12.04
+# 3. Enter the cloned folder
+     cd -copy and paste path to cloned folder-
+# 4. create & activate a virtual environment
 python -m venv .venv
 
 source .venv/bin/activate         # macOS / Linux
   .venv\Scripts\activate          # Windows PowerShell
 
-# 3. install dependencies
+# 5. install dependencies
 pip install -r requirements.txt
 
-# 4. run the app
+# 6. run the app
 streamlit run app.py
 
 The app will open automatically in your browser at "http://localhost:8051". 
