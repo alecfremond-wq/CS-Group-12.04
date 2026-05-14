@@ -51,7 +51,7 @@ Database tables used:
 - cooking_history : read for rated recipes; written when the user clicks 👍 or 👎.
 
 Author: Ines Buzel (ML model + wishlist integration + feedback system)
-        Julsroma  (recipe loading, UI layout, filtering)
+        Giulia De Angelis (recipe loading, UI layout, filtering)
 
 Sources: Claude Sonnet 4.6 (see comments below)
 
