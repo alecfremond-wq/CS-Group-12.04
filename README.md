@@ -14,12 +14,13 @@ and ML-powered recommendations. Furthermore there is also a social aspect to the
 ```bash
 # 1. clone (you already have the repo)
 git clone <repo-url>
-cd CS-Groupe-Project
+cd CS-Group-Project
 
 # 2. create & activate a virtual environment
 python -m venv .venv
+
 source .venv/bin/activate         # macOS / Linux
-# .venv\Scripts\activate          # Windows PowerShell
+  .venv\Scripts\activate          # Windows PowerShell
 
 # 3. install dependencies
 pip install -r requirements.txt
@@ -27,6 +28,7 @@ pip install -r requirements.txt
 # 4. run the app
 streamlit run app.py
 ```
+The app will open automatically in your browser at "http://localhost:8051". 
 
 The first start creates `data/cooktogether.db` automatically from
 `data/schema.sql` — nothing else to set up.
