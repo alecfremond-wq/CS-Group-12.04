@@ -1,6 +1,7 @@
 # CookTogether 🍳
 
 **Group 12.04 — FCS/BWL · Grundlagen und Methoden der Informatik (HSG, FS26)**
+
 **Business problem:** 
 Many students perceive cooking as a time-consuming chore. They can't think about what to eat, how to eat healthy or how to meal prep efficiently while balancing busy schedules. Cooking is often not considered an enjoyable activity.
 
