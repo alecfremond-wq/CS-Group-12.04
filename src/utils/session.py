@@ -1,64 +1,71 @@
-# ============================================================================
-#  session.py  —  helpers for Streamlit's "memory" (st.session_state)
-# ----------------------------------------------------------------------------
-#  WHY DOES THIS FILE EXIST?
-#  Streamlit re-runs your whole Python script every time the user clicks a
-#  button or types in a text box. Anything stored in a normal variable is
-#  forgotten on the next click. To keep data around (like the user's profile
-#  or their pantry list) we put it into `st.session_state`, which is a
-#  special dictionary Streamlit keeps alive between reruns.
-#
-#  This file centralises the default values so that every page can assume
-#  the keys already exist, instead of checking "if 'pantry' not in ..." over
-#  and over.
-# ============================================================================
-#  AI-ASSISTED AUTHORSHIP: scaffold drafted with Anthropic Claude (04/2026),
-#  reviewed by Group 12.04. See README.md.
-# ============================================================================
+"""
+Helpers for Streamlit's session memory (st.session_state).
+Defines every key used across the app in one place, initialises them on
+page load, and restores the user session after a browser refresh.
 
-import json                                 # we need json to decode the ingredient list
+Dependencies:
 
-import streamlit as st                     # we need st.session_state from Streamlit
+  - streamlit : st.session_state, st.query_params — Streamlit's in-memory store
+                and URL parameter access.
+  - json      : decodes the wishlist ingredients list stored as a JSON string
+                in the database.
+
+  - src.data.user_repo
+      load_profile(user_id) -> reloads the user profile from the database
+                               when the session is restored after a refresh.
+
+  - src.data.database
+      query_df(sql, params) -> used to reload the wishlist from the database
+                               on a fresh session.
+
+Authors: Alec Frémond, Giulia De Angelis, Camilla Piano, Ines Buzel
+
+Sources: Claude Sonnet 4.6 (see comments below)
+
+"""
+
+import json
+
+import streamlit as st
 
 
-# DEFAULTS is a dictionary that describes every key we want in session_state
-# and what its initial value should be.
-# Add new keys here instead of scattering `if "..." not in ...` checks everywhere.
+#1. Session defaults ################
+# DEFAULTS defines every key we want in session_state and its starting value.
+# Adding new keys here is safer than scattering checks across every page.
+
 DEFAULTS = {
-    # Integer primary key from the `users` table. None means "no user selected
-    # yet". The Onboarding page sets this to the real id once a profile is
-    # chosen or created; every other page (Pantry, Meal Planner, …) reads it
-    # from session_state when querying user-scoped tables.
-    "user_id": None,
-    "user_profile": None,       # will become a dict like {"name": ..., "diet": ...} after onboarding
-    "pantry": [],               # list of ingredient dicts: {"name":..., "quantity":..., "unit":..., "expires_on":...}
-    "meal_plan": {},            # dict mapping a date string ("2026-04-21") to a list of meal names
-    "cooking_history": [],      # list of dicts: {"recipe_id":..., "cooked_on":..., "rating":...}
-    "wishlist": [],             # list of recipe IDs the user wants to try
+    "user_id":        None,   # integer primary key from the users table — None means not logged in
+    "user_profile":   None,   # dict like {"name": ..., "diet": ...} — filled after login
+    "pantry":         [],     # list of dicts: {"name":..., "quantity":..., "unit":..., "expires_on":...}
+    "meal_plan":      {},     # dict mapping date string ("2026-04-21") to a list of meal names
+    "cooking_history":[],     # list of dicts: {"recipe_id":..., "cooked_on":..., "rating":...}
+    "wishlist":       [],     # list of recipe dicts the user saved
 }
 
 
+#2. Session initialisation ##########
+# Fills in missing keys, then restores the user session from the URL if the browser was refreshed.
+
 def init_session_state():
-    """Fill in the DEFAULTS above for any keys that are missing.
-
-    Safe to call from every page — it only adds keys that don't exist yet,
-    so we never overwrite data the user has already entered.
-
-    After the defaults are set, this also tries to LOAD the saved profile
-    from the SQLite `users` table. That way the user only has to fill in
-    Onboarding once: on every subsequent reload of the app the profile is
-    pulled out of the database back into session_state.
     """
-    # Loop over every (key, default_value) pair in the DEFAULTS dictionary.
+    Fills in the DEFAULTS for any keys that are missing from st.session_state.
+    Safe to call from every page — only adds keys that don't exist yet,
+    so it never overwrites data the user has already entered.
+
+    Also restores the user session after a browser refresh by reading the
+    uid query parameter from the URL and reloading the profile and wishlist
+    from the database.
+    """
+    # set all missing keys to their default values
     for key, default in DEFAULTS.items():
-        # If this key isn't already in session_state, add it.
         if key not in st.session_state:
-            # We copy the default so each user session gets its own list/dict
-            # (otherwise different pages could share the same list object).
+            # copy lists/dicts so each session gets its own independent object
             st.session_state[key] = _copy_default(default)
 
-    # Auto-login on refresh: if session_state lost user_id (page reload)
-    # but the URL still has ?uid=..., reload the profile from the DB.
+    # \ Begin code generated by Claude Sonnet 4.6
+    # When the user refreshes the browser, Streamlit wipes session_state
+    # but the URL still contains ?uid=... which we added at login.
+    # We read that uid back and restore the session automatically.
     if st.session_state.get("user_id") is None:
         try:
             uid_str = st.query_params.get("uid")
@@ -67,7 +74,7 @@ def init_session_state():
         except Exception:
             pass
 
-    # If user_id is known but profile not yet loaded, hydrate from the DB.
+    # if we recovered a user_id but the profile isn't loaded yet, fetch it from the database
     if st.session_state.get("user_profile") is None and st.session_state.get("user_id") is not None:
         try:
             from src.data.user_repo import load_profile
@@ -77,8 +84,8 @@ def init_session_state():
         except Exception:
             pass
 
-    # Re-set uid in the URL on every page so it's always there on reload.
-    # Streamlit drops query params when navigating between pages.
+    # Streamlit drops query params when the user navigates to a different page.
+    # We re-set uid here so it is always present in the URL, enabling persistence on refresh.
     user_id = st.session_state.get("user_id")
     try:
         if user_id is not None:
@@ -90,9 +97,8 @@ def init_session_state():
     except Exception:
         pass
 
-    # Load the wishlist from the database if it's empty in session_state.
-    # This runs every time a fresh browser session starts so the user's
-    # saved recipes are always there, even after closing and reopening the app.
+    # If the user opens a new browser tab, session_state is empty.
+    # We reload the wishlist from the database so saved recipes are always there.
     if not st.session_state.get("wishlist"):
         try:
             from src.data.database import query_df
@@ -106,6 +112,7 @@ def init_session_state():
                     loaded = []
                     for _, row in df.iterrows():
                         try:
+                            # ingredients are stored as a JSON string in the database
                             ingredients = json.loads(row["ingredients"] or "[]")
                         except Exception:
                             ingredients = []
@@ -119,46 +126,46 @@ def init_session_state():
                     st.session_state["wishlist"] = loaded
         except Exception:
             pass
+    # \ End code generated by Claude Sonnet 4.6
 
+
+#3. Profile guard ####
+# Stops the page from rendering if the user has not completed onboarding yet.
 
 def require_profile():
-    """Stop the page and show a warning if the user hasn't completed Onboarding.
-
+    """
+    Stops the page and shows a warning if the user hasn't logged in yet.
     Call this at the top of any page that needs a user profile.
+
     Returns the profile dictionary if it exists.
     """
-    # Make sure all session keys exist before we try to read them — also
-    # gives us the chance to hydrate user_profile from the DB on the very
-    # first call from any page.
     init_session_state()
 
-    # Try to read the profile from session_state. `.get()` returns None if missing.
     profile = st.session_state.get("user_profile")
 
-    # `not profile` is True if profile is None or an empty dict.
     if not profile:
-        # Show a yellow warning banner.
         st.warning(
             "Please complete **Onboarding** first so we can personalise this page."
         )
-        # st.stop() halts this page's script here — the rest of the page
-        # won't run, which prevents crashes from missing data.
+        # st.stop() prevents the rest of the page from running — avoids crashes
         st.stop()
 
-    # If we got here, the profile exists — return it for the calling page to use.
     return profile
 
 
-def _copy_default(value):
-    """Return a copy of a list or dict, or the value itself if it's simple.
+#4. Helpers ##
+# Utility functions used internally by init_session_state.
 
-    The underscore prefix (_copy_default) is a Python convention that means
-    "this is a private helper — don't import it from outside this file".
+def _copy_default(value):
     """
-    # isinstance(x, dict) checks whether x is a dictionary.
+    Returns a shallow copy of lists and dicts so each session gets its own object.
+    For simple values (None, strings, numbers) returns the value directly.
+
+    Parameters:
+        value : any — the default value to copy.
+    """
     if isinstance(value, dict):
-        return dict(value)          # make a shallow copy of the dictionary
+        return dict(value)
     if isinstance(value, list):
-        return list(value)          # make a shallow copy of the list
-    # For simple types (None, strings, numbers), returning the value itself is safe.
+        return list(value)
     return value

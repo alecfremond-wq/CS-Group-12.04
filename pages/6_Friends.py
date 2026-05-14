@@ -22,6 +22,7 @@ Grading coverage:
 # json      → decodes the ingredient list we stored as a JSON string in the DB.
 #             e.g. '["egg","flour"]' → ["egg", "flour"]
 # streamlit → the framework that draws the whole web app.
+import base64
 import json
 import streamlit as st
 
@@ -443,7 +444,7 @@ else:
                     # The user clicks the arrow to open it and load the full details.
                     with st.expander(expander_label, expanded=False):
 
-                        # Only fetch the full recipe data when the expander is open.
+                        # Only get the full recipe data when the expander is open.
                         # In Streamlit, code inside an expander still runs on every
                         # page reload — but because search_recipes_by_name is cached,
                         # repeat calls cost nothing after the first fetch.
@@ -589,3 +590,85 @@ else:
                                     ),
                                 )
                                 st.rerun()
+
+st.divider()
+
+
+# ── Section 3: Friends' own recipes ───────────────────────────────────────────
+# This section shows recipes that your friends created themselves on the
+# "My Recipes" page — not recipes saved from an API like TheMealDB.
+# We load them directly from our own database, so no network call is needed.
+
+st.subheader("📝 Friends' Recipes")
+st.caption("Recipes your friends created themselves.")
+
+if following is None or following.empty:
+    # We already showed a message in Section 2 — skip silently here.
+    pass
+else:
+    for _, friend in following.iterrows():
+
+        # Load all recipes this friend has created, newest first.
+        friend_recipes = query_df(
+            """
+            SELECT id, title, ingredients, instructions, image_data, created_at
+            FROM user_recipes
+            WHERE user_id = ?
+            ORDER BY created_at DESC
+            """,
+            (int(friend["id"]),),
+        )
+
+        recipe_count = (
+            len(friend_recipes)
+            if (friend_recipes is not None and not friend_recipes.empty)
+            else 0
+        )
+
+        # One collapsible section per friend, same style as the wishlist above.
+        with st.expander(
+            f"**{friend['name']}** (@{friend['username']}) "
+            f"— {recipe_count} recipe(s)"
+        ):
+            if recipe_count == 0:
+                st.caption("This user hasn't created any recipes yet.")
+            else:
+                for _, recipe in friend_recipes.iterrows():
+                    with st.container(border=True):
+
+                        # ── Card header: image always visible ──────────────────
+                        col_img, col_info = st.columns([1, 4])
+
+                        with col_img:
+                            if recipe.get("image_data"):
+                                # Decode base64 back to bytes so st.image() can display it.
+                                img_bytes = base64.b64decode(recipe["image_data"])
+                                st.image(img_bytes, use_container_width=True)
+                            else:
+                                st.markdown("📷")
+
+                        with col_info:
+                            st.subheader(recipe["title"])
+                            st.caption(f"Added on {str(recipe['created_at'])[:10]}")
+
+                        # ── Expandable ingredients + instructions ───────────────
+                        with st.expander("📖 Show details", expanded=False):
+                            col_ing, col_inst = st.columns([1, 2])
+
+                            with col_ing:
+                                st.markdown("**Ingredients**")
+                                ingredients_text = recipe.get("ingredients") or ""
+                                if ingredients_text:
+                                    for line in ingredients_text.splitlines():
+                                        if line.strip():
+                                            st.caption(f"• {line.strip()}")
+                                else:
+                                    st.caption("No ingredients listed.")
+
+                            with col_inst:
+                                st.markdown("**Instructions**")
+                                instructions_text = recipe.get("instructions") or ""
+                                if instructions_text:
+                                    st.write(instructions_text)
+                                else:
+                                    st.caption("No instructions provided.")
