@@ -105,8 +105,8 @@ CS-Groupe-Project/
 
 | API | Usage | Docs |
 |-----|-------|------|
-| [Spoonacular](https://spoonacular.com/food-api) | Recipe search, nutrition info | [Docs](https://spoonacular.com/food-api/docs) |
-| [TheMealDB](https://www.themealdb.com/api.php) | Recipe search map | [Docs](https://www.themealdb.com/api.php) |
+| [Spoonacular](https://spoonacular.com/food-api) | Recipe search, meal planner, and nutrition info  | [Docs](https://spoonacular.com/food-api/docs) |
+| [TheMealDB](https://www.themealdb.com/api.php) | Recipe search map, meal planner | [Docs](https://www.themealdb.com/api.php) |
 
 
 
@@ -141,17 +141,6 @@ isolated, you can all push at the same time without stepping on each other.
 | TM5    | `pages/7_Recommendations.py`         | `src/models/recommender.py`    |
 
 `CONTRIBUTION_MATRIX.md`.
-
-## Next steps (MVP → final)
-
-The MVP scaffolded here runs end-to-end with placeholder data. Before the
-final submission on **14.05.2026**, each owner should:
-
-1. replace the demo data in their page with real DB queries (`query_df(...)`);
-2. wire user actions (form submits, button clicks) to `execute(...)` calls;
-3. add at least one Plotly/Streamlit chart per page where it adds value;
-4. keep docstrings and inline comments up to date for Req. 6;
-5. update `docs/CONTRIBUTION_MATRIX.md` at the end of each work session.
 
 ## Useful commands
 
