@@ -103,8 +103,6 @@ CS-Groupe-Project/
 ## Data Sources and APIs
 
 ```
-## Data Sources & APIs
-
 | API | Usage | Docs |
 |-----|-------|------|
 | [Spoonacular](https://spoonacular.com/food-api) | Recipe search, nutrition info | [Docs](https://spoonacular.com/food-api/docs) |
