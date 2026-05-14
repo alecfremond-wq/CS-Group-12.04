@@ -31,7 +31,7 @@ Dependecies:
   src.data.database        
   src.utils.session   
 
-Authors: Camilla Piano e Giulia De Angelis
+Authors: Camilla Piano and Giulia De Angelis
 
 Sources: Claude Sonnet 4.6 (see comments below)
 """

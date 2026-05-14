@@ -988,9 +988,8 @@ def render_meal_card(
     """
     meal_title = meal["strMeal"]
 
-    # Check upfront whether this recipe is already saved — we need it early
     # to decide whether to show the ML score (saved recipes always score 100%
-    # against themselves, which is misleading, so we hide it for them).
+    # against themselve, so we remove the score)
     already_saved = any(
         isinstance(w, dict) and w.get("title") == meal_title
         for w in st.session_state.get("wishlist", [])
@@ -1007,9 +1006,7 @@ def render_meal_card(
             st.caption(
                 f"{meal.get('strArea', '—')} · {meal.get('strCategory', '—')}"
             )
-            # ML Recommender score: only shown for recipes NOT already in the wishlist.
-            # A saved recipe always scores 100% against itself — that's misleading,
-            # so we hide the bar and let the "❤️ Saved to wishlist" caption speak for itself.
+
             if ml_score is not None and not pd.isna(ml_score) and not already_saved:
                 st.progress(float(ml_score), text=f"Match score: {ml_score:.0%}")
               
@@ -1040,7 +1037,7 @@ def render_meal_card(
                     st.markdown("**Instructions**")
                     st.write(meal.get("strInstructions", "No instructions available."))
 
-            # Wishlist button — already_saved was computed at the top of this function
+            # Wishlist button: already_saved was computed at the top of this function
 
             if already_saved:
                 st.caption("❤️ Saved to wishlist")
@@ -1225,8 +1222,8 @@ with tab_search:
             top_results = results[:10]
 
             # Extract ingredient lists for all top results (needed by the Recommender).
-            # We strip measures from both sides so "500g chicken" and "chicken" match —
-            # without this, Jaccard similarity is almost always 0% because the exact
+            # We strip measures from both sides so "500g chicken" and "chicken" match 
+            # without this, the Jaccard similarity is almost always 0% because the exact
             # "measure + name" strings rarely match between two different recipes.
             ingredient_lists = [
                 [_strip_measures(i) for i in extract_ingredients(m) if i.strip()]
@@ -1245,7 +1242,8 @@ with tab_search:
                 else [None] * len(top_results)
             )
 
-            # Apply a square-root transform so small Jaccard values are visible.
+            #/ Begin code generated with Claude Sonnet 4.6
+            #  Apply a square-root transform so small Jaccard values are visible.
             # Raw Jaccard is typically 0.03–0.20, which rounds to "0–20%" — hard to read.
             # sqrt is monotone (ranking order stays the same) and spreads values better:
             #   0.04 → 20%,  0.09 → 30%,  0.16 → 40%,  0.25 → 50%
@@ -1256,6 +1254,7 @@ with tab_search:
                 float(s ** 0.5) if s is not None else None
                 for s in raw_scores
             ]
+            # #/ End code generated with Claude Sonnet 4.6
 
             # begin code generated with the help of Claude Sonnet 4.6
             # Sort results: scored recipes first (highest score → top), then unscored

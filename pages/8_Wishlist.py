@@ -1,66 +1,80 @@
 """
-Wishlist — all the recipes you've saved, in one place.
+Wishlist: All the recipes you've saved, in one place.
+
+This page gives users a personal collection of every recipe they've saved
+from the Recipes page or the Recommendations page.
 
 How this page works:
-    1. We load the wishlist from st.session_state (filled in by session.py
-       from the database when the app starts).
-    2. Each recipe is shown as a card with its thumbnail always visible.
-    3. Clicking "Show details" expands the card to show ingredients
-       and step-by-step instructions, loaded from TheMealDB.
-       If TheMealDB doesn't know the recipe we fall back to the
-       ingredient list we stored at save time.
-    4. Clicking "Remove" deletes the recipe from BOTH the session state
-       AND the database so it doesn't come back on the next reload.
+  1. We load the wishlist from st.session_state, session.py filled it in
+     from the database when the app started, so it already has everything.
+  2. Each saved recipe is shown as a card with its thumbnail always visible.
+  3. Clicking "Show details" expands the card to load the full ingredient list
+     and step-by-step instructions from TheMealDB on demand.
+     If TheMealDB doesn't know the recipe (e.g. it came from Spoonacular),
+     we fall back to the ingredient list we stored at save time.
+  4. Clicking "Remove" deletes the recipe from BOTH session_state AND the
+     database — without the database delete, it would come back on the next reload.
 
-Owner: <assign>
-Grading coverage:
-    * Req. 4 (user interaction — save, view, remove recipes)
+Dependencies:
+
+  json      (stdlib)      — decodes the ingredient list stored as a JSON string.
+                            e.g. '["egg","flour"]' → ["egg", "flour"]
+
+  src.components.ui       — Shared UI helpers:
+                              page_header(title, subtitle) → renders the title banner.
+
+  src.data.api_client     — API calls:
+                              search_recipes_by_name(title) → TheMealDB: search by name.
+                                Used to load the full ingredient list and instructions
+                                for each saved recipe. Cached for 1 hour so repeat
+                                visits cost no network requests.
+
+  src.data.database       — SQLite helpers:
+                              execute() → INSERT / UPDATE / DELETE.
+                              Used here to DELETE a recipe when the user clicks Remove.
+
+  src.utils.session       — Session management:
+                              init_session_state() → seeds all default session keys.
+                              require_profile()    → stops the page if not logged in.
+
+Database tables used:
+- wishlist : one row per saved recipe per user.
+             Read indirectly via st.session_state["wishlist"] (loaded by session.py).
+             Written to directly when the user removes a recipe (DELETE).
+
+Author: Ines Buzel
+
+Sources: Claude Sonnet 4.6 (see comments below)
+
 """
 
-# ── Imports ───────────────────────────────────────────────────────────────────
-# json      → we stored ingredients as a JSON string like '["egg","flour"]'
-#             and need to decode it back into a Python list.
-# streamlit → the framework that draws the whole web page.
 import json
 
 import streamlit as st
 
-# page_header      → draws the consistent title banner at the top of every page.
 from src.components.ui import page_header
 
-# search_recipes_by_name → searches TheMealDB by title.
-#   We use it to load the full ingredient list and cooking instructions
-#   when the user opens the "Show details" expander.
-#   Results are cached for 1 hour so repeat calls are free.
 from src.data.api_client import search_recipes_by_name
 
-# execute → runs INSERT / UPDATE / DELETE queries (no return value).
-#   We use it here to DELETE a recipe from the wishlist table when
-#   the user clicks "Remove", so the deletion survives a page reload.
 from src.data.database import execute
 
-# init_session_state → fills in default session keys before we read them.
-# require_profile    → stops the page if the user hasn't completed Onboarding.
 from src.utils.session import init_session_state, require_profile
 
 
-# ── Page setup ────────────────────────────────────────────────────────────────
+## Section 1: Page setup
 
 init_session_state()
 require_profile()
 page_header("❤️ Wishlist", "All the recipes you've saved.")
 
-# Read the wishlist from session state.
-# session.py loaded this from the database when the app started,
-# so it contains every recipe the user has ever saved.
+# session.py already loaded this from the DB on startup.
 wishlist = st.session_state.get("wishlist", [])
 
 
-# ── Empty state ───────────────────────────────────────────────────────────────
+## Section 2: Empty state
+# st.stop() prevents the rest of the page from running if there's nothing to show.
 
 if not wishlist:
-    # Nothing saved yet — show a helpful message and stop the page here.
-    # st.stop() means the code below this point won't run.
     st.info(
         "Nothing saved yet! "
         "Search for recipes on the **Recipes** page and click ❤️ Save, "
@@ -69,12 +83,11 @@ if not wishlist:
     st.stop()
 
 
-# ── Stats row ─────────────────────────────────────────────────────────────────
+## Section 3: Stats row
+# Show a quick summary at the top: total saved, and how many are feeding the ML model.
+# A recipe "feeds the model" when we have either its local DB ID or its ingredient list —
+# both are enough for the k-NN recommender to learn from it.
 
-# Count how many saved recipes have ingredient data.
-# Those are the ones the ML recommender can actually learn from.
-# A recipe qualifies if it has a local_id (in our own catalogue)
-# OR if we stored its ingredient list as a JSON string.
 feeding_model = sum(
     1 for w in wishlist
     if isinstance(w, dict) and (w.get("local_id") is not None or w.get("ingredients"))
@@ -90,44 +103,35 @@ col_stat2.metric(
 st.divider()
 
 
-# ── Helper: fetch full recipe details from TheMealDB ─────────────────────────
+## Section 4: Helper functions
+# fetch_full_recipe loads the complete meal data from TheMealDB by title.
+# extract_full_ingredients turns TheMealDB's numbered fields into readable strings.
+# Both are defined here and only used in Section 5 (the recipe cards below).
 
 def fetch_full_recipe(title: str) -> dict | None:
-    """Search TheMealDB for a recipe by title and return the first exact match.
-
-    We can't look up by ID because we don't store the TheMealDB ID in the
-    wishlist table — so we search by name and check for an exact title match.
-
-    Returns the meal dict if found, or None if TheMealDB doesn't know it
-    (e.g. the recipe was originally found via Spoonacular).
+    """Search TheMealDB by title and return the exact match.
+    Returns None if not found (e.g. recipe originally came from Spoonacular).
     """
-    # search_recipes_by_name is cached, so calling it twice with the same
-    # title costs nothing after the first network request.
+    # search_recipes_by_name is cached, so calling it again for the same title
+    # costs nothing after the first network request.
     results = search_recipes_by_name(title)
     if not results:
         return None
 
-    # The search can return partial matches, so we check for an exact title.
+    # The search can return partial matches (e.g. "pasta" returns many dishes),
+    # so we look for an exact case-insensitive title match.
     for meal in results:
         if meal.get("strMeal", "").lower() == title.lower():
             return meal
 
-    return None
+    return None  # No exact match found.
 
-
-# ── Helper: build "measure + ingredient" strings from a TheMealDB meal ───────
 
 def extract_full_ingredients(meal: dict) -> list[str]:
-    """Turn TheMealDB's numbered fields into a readable ingredient list.
-
-    TheMealDB stores ingredients and their measures in separate numbered fields:
-        strIngredient1 = "Chicken"   strMeasure1 = "500g"
-        strIngredient2 = "Garlic"    strMeasure2 = "2 cloves"
-        ...up to 20
-
-    We combine them into "500g Chicken", "2 cloves Garlic" etc.
-    Empty slots are skipped.
+    """Build 'measure + name' strings from TheMealDB's numbered fields (strIngredient1..20).
+    Skips empty slots and returns readable strings like "500g Chicken".
     """
+    #/ Begin code generated with Claude Sonnet 4.6
     ingredients = []
     for i in range(1, 21):
         name    = (meal.get(f"strIngredient{i}") or "").strip()
@@ -136,17 +140,18 @@ def extract_full_ingredients(meal: dict) -> list[str]:
             continue
         ingredients.append(f"{measure} {name}" if measure else name)
     return ingredients
+    #/ End code generated with Claude Sonnet 4.6
 
 
-# ── Recipe cards ──────────────────────────────────────────────────────────────
-# One card per saved recipe. Each card always shows the thumbnail image,
-# the title, and a Remove button. The "Show details" expander below the
-# card header loads ingredients and instructions on demand.
+## Section 5: Recipe cards
+# One card per saved recipe. Each card always shows the thumbnail and title.
+# The "Show details" expander below loads ingredients + instructions on demand.
+# The Remove button deletes from both session_state and the database.
 
 for i, item in enumerate(wishlist):
 
     # Support the old format where wishlist items were just an integer ID.
-    # New saves are always dicts, but we keep this check just in case.
+    # All new saves are dicts, but we handle the old format just in case.
     if isinstance(item, int):
         title      = f"Recipe #{item}"
         image      = None
@@ -158,9 +163,9 @@ for i, item in enumerate(wishlist):
         image = item.get("image")
         area  = item.get("area", "")
 
-        # The ingredients field can be a Python list (if it came from a fresh
-        # session) or a JSON string (if it was loaded from the database).
-        # We normalise it to a plain Python list here.
+        # The ingredients field can be a Python list (fresh from session)
+        # or a JSON string (loaded from the database). Normalise to a list.
+        #/ Begin code generated with Claude Sonnet 4.6
         raw_ing = item.get("ingredients", [])
         if isinstance(raw_ing, str):
             try:
@@ -169,41 +174,32 @@ for i, item in enumerate(wishlist):
                 stored_ing = []
         else:
             stored_ing = raw_ing or []
+        #/ End code generated with Claude Sonnet 4.6
 
-        # A recipe feeds the ML model when we have either its local DB ID
-        # or at least a stored ingredient list.
+        # A recipe feeds the ML model if we have its local ID or ingredient list.
         has_signal = item.get("local_id") is not None or bool(stored_ing)
 
-    # Fetch the full recipe from TheMealDB once per card.
-    # We do this OUTSIDE the expander so the image is available
-    # for the card header even when the expander is collapsed.
-    # search_recipes_by_name is cached for 1 hour — so after the first
-    # visit this costs no network requests at all.
+    # Fetch outside the expander so the image is available even when collapsed.
     full_meal = fetch_full_recipe(title)
 
-    # Use the stored image if we have one, otherwise fall back to the
-    # TheMealDB thumbnail. Many old wishlist entries were saved without
-    # an image URL, so the API image is the only way to show something.
+    # Use the stored image if available, otherwise fall back to the TheMealDB thumbnail.
+    #/ Begin code generated with Claude Sonnet 4.6
     display_image = image or (full_meal.get("strMealThumb") if full_meal else None)
+    #/ End code generated with Claude Sonnet 4.6
 
     with st.container(border=True):
 
-        # ── Card header: image always visible ─────────────────────────────
-        # We split the card into two columns:
-        #   col_img  (narrow, left)  → thumbnail, always shown
-        #   col_info (wide, right)   → title, area badge, stats, remove button
+        # Card header: image on the left, title + info + Remove button on the right.
+        # [1, 4] gives the image a narrow column and the info a wide one.
         col_img, col_info = st.columns([1, 4])
 
         with col_img:
-            # We check isinstance(..., str) and startswith("http") to make sure
-            # display_image is a real URL before passing it to st.image.
-            # Without this check, a NaN value or empty string from the database
-            # would cause an AttributeError inside Streamlit's image renderer.
+            # We check isinstance(..., str) and startswith("http") before calling
+            # st.image → a NaN or empty string from the DB would cause an error.
             if isinstance(display_image, str) and display_image.startswith("http"):
                 st.image(display_image, use_container_width=True)
             else:
-                # No valid image URL — show a placeholder emoji.
-                st.markdown("🍽️")
+                st.markdown("🍽️")  # No valid image → placeholder emoji.
 
         with col_info:
             st.subheader(title)
@@ -211,14 +207,13 @@ for i, item in enumerate(wishlist):
             if area:
                 st.caption(f"🌍 {area}")
 
+            # Let the user know whether this recipe is improving their recommendations.
             if has_signal:
                 st.caption("✅ Used by the recommender")
             else:
                 st.caption("ℹ️ No ingredient data — won't influence recommendations")
 
-            # Remove button: deletes from session state AND from the database.
-            # Without the database delete, the recipe would come back on the
-            # next page reload (session.py would reload it from the DB).
+            # Remove from session_state immediately AND from the DB so it doesn't come back.
             if st.button("🗑️ Remove", key=f"remove_{i}"):
                 st.session_state["wishlist"].pop(i)
                 user_id = st.session_state.get("user_id")
@@ -229,22 +224,18 @@ for i, item in enumerate(wishlist):
                     )
                 st.rerun()
 
-        # ── Expandable details ─────────────────────────────────────────────
-        # The expander sits below the card header (outside the two columns).
-        # It only shows ingredients and instructions — the image is already
-        # visible above, so we don't repeat it here.
-        # full_meal was already fetched above, so this is free (cached).
+        # Expandable details: sits below the two columns and spans the full card width.
+        # full_meal was already fetched above, so this triggers no extra API call.
         with st.expander("📖 Show details"):
 
             if full_meal:
-                # ── TheMealDB has this recipe ──────────────────────────────
-                # Show ingredients on the left and instructions on the right.
+                # TheMealDB has this recipe, show ingredients left, instructions right.
                 col_ing, col_inst = st.columns([1, 2])
 
                 with col_ing:
                     st.markdown("**Ingredients**")
-                    # extract_full_ingredients builds "measure + name" strings
-                    # from TheMealDB's numbered strIngredient/strMeasure fields.
+                    # extract_full_ingredients combines measure + name from TheMealDB's
+                    # numbered fields into readable strings like "500g Chicken".
                     for ing in extract_full_ingredients(full_meal):
                         st.caption(f"• {ing}")
 
@@ -257,9 +248,8 @@ for i, item in enumerate(wishlist):
                         st.caption("No instructions available.")
 
             else:
-                # ── TheMealDB doesn't know this recipe ─────────────────────
-                # This happens for recipes found via Spoonacular. We fall back
-                # to the ingredient list we stored at save time.
+                # TheMealDB doesn't know this recipe, it probably came from Spoonacular.
+                # Fall back to the ingredient list we stored in the DB at save time.
                 if stored_ing:
                     col_ing2, col_inst2 = st.columns([1, 2])
                     with col_ing2:
