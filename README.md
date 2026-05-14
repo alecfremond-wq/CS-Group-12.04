@@ -97,7 +97,7 @@ CS-Groupe-Project/
 
 # 8. My Recipes: You can create and save your own personal recipes.
 
-# 9. Friends: Here you can follow other users and see their own recipes and their wishlists.
+# 9. Friends: Here you can follow other users and see their own recipes and their wishlists (interactive).
 
 ```
 
