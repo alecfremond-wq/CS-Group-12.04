@@ -78,6 +78,27 @@ CS-Groupe-Project/
 ├── recipe_data.py
 └── .gitignore
 ```
+## Features overview 
+```
+# 1. Home: This is the first page you land on. It introduces you to the app and makes you sign-up or log-in your profile.
+
+# 2. Pantry: Here you can insert what you currently have in your kitchen. Afterwards the recipe page will tell you if the ingrediants are "Pantry-friendly", "Pantry available" or not.
+
+# 3. Recipes: You can search for new recipes using the search bar or the "Browse by cuisine" function and add them to your whishlist.
+
+# 4. Meal Planner: It helps organize meals for the next week, you can add the recipes from your wishlist.
+
+# 5. Nutrition Analytics: You can set your calorie goal, the chart will show the calorie intake of the week based on the meal planner.
+
+# 6. Recommendations: Based on your wishlist this feature will recommend other recipes through a k-NN model.
+
+# 7. Wishlist: Here you will see the recipes that were saved on the recipes page or from the recommendations function.
+
+# 8. My Recipes: You can create and save your own personal recipes.
+
+# 9. Friends: Here you can follow other users and see their own recipes and their wishlists.
+
+```
 
 ## Mapping features → grading requirements
 
