@@ -921,11 +921,13 @@ def _strip_measures(ingredient: str) -> str:
 
 # Clean ingredient names before passing to the ML model —
 # we strip measures so "500g Chicken" and "Chicken" are treated as the same.
+#/ Begin code generated with Claude Sonnet 4.6
 liked_ingredients = [
     [_strip_measures(i) for i in w["ingredients"] if i.strip()]
     for w in wishlist
     if isinstance(w, dict) and w.get("ingredients")
 ]
+#/ End code generated with Claude Sonnet 4.6
 
 history_df = pd.DataFrame(st.session_state.get("cooking_history", []))
 
