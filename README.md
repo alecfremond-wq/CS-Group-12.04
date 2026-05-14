@@ -32,7 +32,12 @@ pip install -r requirements.txt
 # 6. run the app
 streamlit run app.py
 
-The app will open automatically in your browser at "http://localhost:8051". 
+The app will open automatically in your browser at "http://localhost:8051".
+
+You can also access the deployed app directly here:
+https://cs-group-1204-nwzkoibglkmdtqwbfgwhgd.streamlit.app/
+
+Note: This version is publicly accessible for testing and usage, but changes to the code or local development features are not possible through the deployed app.
 
 ```
 
