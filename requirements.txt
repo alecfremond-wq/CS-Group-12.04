@@ -1,7 +1,7 @@
 # CookTogether — Python dependencies
 # Install everything with: pip install -r requirements.txt
 #
-# Authors: Alec Frémond, Julsroma
+# Authors: Alec Frémond, Giulia De Angelis
 
 # Core
 streamlit>=1.32
