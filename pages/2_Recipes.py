@@ -1302,17 +1302,18 @@ with tab_search:
 
 ## Section 10: Cuisine Tab
 
-"""The fetch_cuisine_recipes() function retrieves fully detailed recipes for a given cusine type using
-TheMealDB API. It takes two parameters:
-- the cuisine name (e.g. "Italian") 
-- optimal limit that defaults to 10 
-It starts by fetching a list of partial recipes objects, called stubs, which contain only basic information
-like the meal ID and name. It then slices the list to respect the given limit, and loops 
-through each stub to retrieve the complete recipe details - such as ingredients, instructions, and images -
-using the meal's ID. Any invalid or missing results are filtered out, and the function finally returns the list 
-of fully populated recipes ready to be used in the application. 
-This function is essential for the "Browse by cuisine" tab, allowing users to explore recipes from 
-different countries by clicking on the map or selecting from a dropdown."""
+#The fetch_cuisine_recipes() function retrieves fully detailed recipes for a given cusine type using
+#TheMealDB API. It takes two parameters:
+#- the cuisine name (e.g. "Italian") 
+#- optimal limit that defaults to 10 
+#It starts by fetching a list of partial recipes objects, called stubs, which contain only basic information
+#like the meal ID and name. It then slices the list to respect the given limit, and loops 
+#through each stub to retrieve the complete recipe details - such as ingredients, instructions, and images -
+#using the meal's ID. Any invalid or missing results are filtered out, and the function finally returns the list 
+#of fully populated recipes ready to be used in the application. 
+#This function is essential for the "Browse by cuisine" tab, allowing users to explore recipes from 
+#different countries by clicking on the map or selecting from a dropdown.
+
 def fetch_cuisine_recipes(cuisine: str, limit: int = 10) -> list[dict]: #define a function that fetches full recipe details for a given cuisine from TheMealDB API with a maximum number of results (default: 10).
     #the filter_by_cuisine returns all recipes for that cuisine, but they are partial objects containing only basic info like the ID and name. 
     #with [:limit] we take only the first "limit" entries to avoid fetching too many details and slowing down the app.
