@@ -1205,6 +1205,19 @@ with tab_search:
                 if has_taste_profile
                 else [None] * len(top_results)
             )
+
+            # Apply a square-root transform so small Jaccard values are visible.
+            # Raw Jaccard is typically 0.03–0.20, which rounds to "0–20%" — hard to read.
+            # sqrt is monotone (ranking order stays the same) and spreads values better:
+            #   0.04 → 20%,  0.09 → 30%,  0.16 → 40%,  0.25 → 50%
+            # Unlike max-normalization, scores are comparable ACROSS different searches:
+            # a curry search yielding 40% truly ranks higher than a pasta search yielding
+            # 20% for a curry-based taste profile. Max-norm would give both 100%.
+            raw_scores = [
+                float(s ** 0.5) if s is not None else None
+                for s in raw_scores
+            ]
+
             # begin code generated with the help of Claude Sonnet 4.6
             # Sort results: scored recipes first (highest score → top), then unscored
             scored_results = sorted(
