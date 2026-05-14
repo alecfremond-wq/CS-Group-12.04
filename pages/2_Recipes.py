@@ -61,6 +61,8 @@ Sources: Claude Sonnet 4.6 (see comments below)
 
 """
 
+import re
+
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -865,8 +867,32 @@ wishlist_ids = [
     if isinstance(w, dict) and w.get("local_id") is not None
 ]
 
+
+def _strip_measures(ingredient: str) -> str:
+    """Remove quantity and unit prefix from an ingredient string.
+
+    e.g. "500g Chicken" → "chicken", "2 cloves Garlic" → "garlic"
+    This is needed so Jaccard similarity compares ingredient NAMES,
+    not the full "measure + name" strings. Without this, "500g Chicken"
+    and "400g Chicken" count as completely different ingredients.
+    """
+    s = ingredient.strip().lower()
+    s = re.sub(r"^[\d\s½¼¾⅓⅔⅛./-]+x?\s*", "", s)
+    s = re.sub(r"^\d+\s*(g|kg|ml|l|oz|lbs?)\s+", "", s, flags=re.IGNORECASE)
+    units = (
+        r"^(cups?|tbsp?|tsp?|tablespoons?|teaspoons?|grams?|g|kg|oz|lbs?|"
+        r"pounds?|ml|liters?|litres?|cloves?|slices?|pieces?|pinch|handful|"
+        r"bunch|cans?|large|medium|small|whole|finely|chopped|shredded|"
+        r"sliced|diced|minced|fresh|dried|ground|packed)\s+"
+    )
+    s = re.sub(units, "", s, flags=re.IGNORECASE)
+    return s.strip()
+
+
+# Clean ingredient names before passing to the ML model —
+# we strip measures so "500g Chicken" and "Chicken" are treated as the same.
 liked_ingredients = [
-    w["ingredients"]
+    [_strip_measures(i) for i in w["ingredients"] if i.strip()]
     for w in wishlist
     if isinstance(w, dict) and w.get("ingredients")
 ]
@@ -923,6 +949,14 @@ def render_meal_card(
     """
     meal_title = meal["strMeal"]
 
+    # Check upfront whether this recipe is already saved — we need it early
+    # to decide whether to show the ML score (saved recipes always score 100%
+    # against themselves, which is misleading, so we hide it for them).
+    already_saved = any(
+        isinstance(w, dict) and w.get("title") == meal_title
+        for w in st.session_state.get("wishlist", [])
+    )
+
     with st.container(border=True):
         col_img, col_meta = st.columns([1, 3])
 
@@ -934,8 +968,10 @@ def render_meal_card(
             st.caption(
                 f"{meal.get('strArea', '—')} · {meal.get('strCategory', '—')}"
             )
-            # ML Recommender score: shown as a labelled progress bar (0% – 100%)
-            if ml_score is not None and not pd.isna(ml_score):
+            # ML Recommender score: only shown for recipes NOT already in the wishlist.
+            # A saved recipe always scores 100% against itself — that's misleading,
+            # so we hide the bar and let the "❤️ Saved to wishlist" caption speak for itself.
+            if ml_score is not None and not pd.isna(ml_score) and not already_saved:
                 st.progress(float(ml_score), text=f"Match score: {ml_score:.0%}")
               
             # Pantry badge: only shown if ≥30% of ingredients are on-hand
@@ -965,28 +1001,48 @@ def render_meal_card(
                     st.markdown("**Instructions**")
                     st.write(meal.get("strInstructions", "No instructions available."))
 
-            # Wishlist  button
-            # Check if this recipe title is already in the wishlist
-            already_saved = any(
-                isinstance(w, dict) and w.get("title") == meal_title
-                for w in st.session_state.get("wishlist", [])
-            )
+            # Wishlist button — already_saved was computed at the top of this function
 
             if already_saved:
                 st.caption("❤️ Saved to wishlist")
             else:
                 if st.button("❤️ Save to wishlist", key=f"{card_key}_wish_{meal_title}"):
                     local_id = local_title_to_id.get(meal_title.lower())
+                    ingredients = extract_ingredients(meal)
+
+                    # 1. Add to session state so other pages see it immediately.
                     st.session_state["wishlist"].append(
                         {
-                            "title": meal_title,
-                            "image": meal.get("strMealThumb"),
-                            "area": meal.get("strArea", ""),
-                            "local_id": local_id,
-                            "ingredients": extract_ingredients(meal),
+                            "title":       meal_title,
+                            "image":       meal.get("strMealThumb"),
+                            "area":        meal.get("strArea", ""),
+                            "local_id":    local_id,
+                            "ingredients": ingredients,
                         }
                     )
-                    st.rerun()  # Refresh so the button changes to "❤️ Saved to wishlist"
+
+                    # 2. Persist to DB so the wishlist survives a page reload.
+                    # INSERT OR IGNORE means saving the same recipe twice is safe.
+                    user_id = st.session_state.get("user_id")
+                    if user_id:
+                        import json as _json
+                        execute(
+                            """
+                            INSERT OR IGNORE INTO wishlist
+                                (user_id, title, image, area, local_id, ingredients)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                user_id,
+                                meal_title,
+                                meal.get("strMealThumb"),
+                                meal.get("strArea", ""),
+                                local_id,
+                                _json.dumps(ingredients),
+                            ),
+                        )
+
+                    st.rerun()
 
             #  Meal Planner button
             user_id  = st.session_state.get("user_id")
@@ -1129,8 +1185,14 @@ with tab_search:
             # Only score the top 10 results (Recommender is O(n) but API results can be large)
             top_results = results[:10]
 
-            # Extract ingredient lists for all top results (needed by the Recommender)
-            ingredient_lists = [extract_ingredients(m) for m in top_results]
+            # Extract ingredient lists for all top results (needed by the Recommender).
+            # We strip measures from both sides so "500g chicken" and "chicken" match —
+            # without this, Jaccard similarity is almost always 0% because the exact
+            # "measure + name" strings rarely match between two different recipes.
+            ingredient_lists = [
+                [_strip_measures(i) for i in extract_ingredients(m) if i.strip()]
+                for m in top_results
+            ]
 
             # Score results IF the user has a taste profile; otherwise use None placeholders
             raw_scores = (
