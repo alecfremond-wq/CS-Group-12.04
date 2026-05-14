@@ -106,7 +106,7 @@ CS-Groupe-Project/
 | API | Usage | Docs |
 |-----|-------|------|
 | [Spoonacular](https://spoonacular.com/food-api) | Recipe search, nutrition info | [Docs](https://spoonacular.com/food-api/docs) |
-| [TheMealDB](https://www.themealdb.com/api.php) | Recipe search, meal categories | [Docs](https://www.themealdb.com/api.php) |
+| [TheMealDB](https://www.themealdb.com/api.php) | Recipe search map | [Docs](https://www.themealdb.com/api.php) |
 
 
 
