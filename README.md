@@ -105,7 +105,7 @@ CS-Groupe-Project/
 
 | API | Usage | Docs |
 |-----|-------|------|
-| [Spoonacular](https://spoonacular.com/food-api) | Recipe search, meal planner, and nutrition info  | [Docs](https://spoonacular.com/food-api/docs) |
+| [Spoonacular](https://spoonacular.com/food-api) | Recipe search, meal planner, and nutrition info. (Spoonacular has a usage key of 50 point per day) | [Docs](https://spoonacular.com/food-api/docs) |
 | [TheMealDB](https://www.themealdb.com/api.php) | Recipe search map, meal planner | [Docs](https://www.themealdb.com/api.php) |
 
 
