@@ -48,7 +48,7 @@ CS-Groupe-Project/
 │   ├── 2_Recipes.py
 │   ├── 3_Meal_Planner.py
 │   ├── 4_Nutrition.py
-│   ├── 5_Reccomendations.py
+│   ├── 5_Recomendations.py
 │   ├── 6_Wishlist.py
 │   ├── 7_My_Recipes.py
     └── 8_Friends.py
