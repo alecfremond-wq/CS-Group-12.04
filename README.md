@@ -34,19 +34,23 @@ The first start creates `data/cooktogether.db` automatically from
 
 ```
 CS-Groupe-Project/
-├── app.py                      # Streamlit entrypoint (home page)
+├── app.py
+├── Home.py                    # Streamlit entrypoint (home page)
 ├── pages/                      # one file per feature — edit freely without conflicts
-│   ├── 1_Onboarding.py
+│   ├── 1_Pantry.py
 │   ├── 2_Recipes.py
-│   ├── 3_Pantry.py
-│   ├── 4_Meal_Planner.py
-│   ├── 5_Nutrition_Analytics.py
-│   ├── 6_World_Map.py
-│   └── 7_Recommendations.py
+│   ├── 3_Meal_Planner.py
+│   ├── 4_Nutrition.py
+│   ├── 5_Reccomendations.py
+│   ├── 6_Wishlist.py
+│   ├── 7_My_Recipes.py
+    └── 8_Friends.py
 ├── src/
 │   ├── data/
 │   │   ├── api_client.py       # TheMealDB API wrapper
-│   │   └── database.py         # SQLite helpers (init_db, query_df, execute)
+│   │   ├── database.py         # SQLite helpers (init_db, query_df, execute)
+│   │   ├── pantry_repo.py
+│       └── user_repo.py
 │   ├── models/
 │   │   └── recommender.py      # ML recommender (scikit-learn)
 │   ├── components/
@@ -55,7 +59,7 @@ CS-Groupe-Project/
 │       └── session.py          # session_state init + require_profile()
 ├── data/
 │   ├── schema.sql              # DB schema — edit here, not in database.py
-│   └── cooktogether.db         # generated at runtime (gitignored)
+│  
 ├── assets/                     # images, logos
 ├── tests/                      # (optional) pytest tests
 ├── docs/
@@ -65,6 +69,7 @@ CS-Groupe-Project/
 │   ├── config.toml
 │   └── secrets.toml.example    # copy to secrets.toml for API keys
 ├── requirements.txt
+├── recipe_data.py
 └── .gitignore
 ```
 
