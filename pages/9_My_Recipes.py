@@ -46,7 +46,7 @@ Database tables used:
 
 Author: Ines Buzel
 
-Sources: Claude Sonnet 4.6 (see comments below)
+Sources: Claude Sonnet 4.6 (planning of the code + see comments below)
 
 """
 
