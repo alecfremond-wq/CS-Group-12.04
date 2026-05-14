@@ -72,9 +72,20 @@ def _clean(ingredients: list[str]) -> list[str]:
     return [i.lower().strip() for i in ingredients if i and i.strip()]
 
 
-# Short words that don't carry meaning for ingredient matching.
-# We skip these so "a pinch of salt" doesn't add "a", "of" to the word set.
-_STOP_WORDS = {"a", "an", "of", "the", "and", "or", "with", "to", "in", "for"}
+# Words we skip when building ingredient word sets for Jaccard similarity.
+# Two groups:
+#   1. Grammatical stop words — "a pinch of salt" should not add "a" or "of".
+#   2. Universal cooking words — appear in almost every cuisine, so they create
+#      false matches. E.g. both "curry paste" and "tomato paste" contain "paste",
+#      which would make pasta score highly against a curry profile. Same for
+#      "oil" (olive oil, sesame oil), "sauce" (soy sauce, fish sauce), etc.
+_STOP_WORDS = {
+    # grammatical
+    "a", "an", "of", "the", "and", "or", "with", "to", "in", "for",
+    # universal cooking words that don't distinguish between cuisines
+    "oil", "salt", "pepper", "water", "butter", "sugar", "flour",
+    "egg", "eggs", "sauce", "paste", "stock", "broth",
+}
 
 
 def _ingredient_words(ingredients: list[str]) -> set[str]:
