@@ -3,6 +3,7 @@
 **Group 12.04 — FCS/BWL · Grundlagen und Methoden der Informatik (HSG, FS26)**
 **Business problem:** 
 Many students perceive cooking as a time-consuming chore. They can't think about what to eat, how to eat healthy or how to meal prep efficiently while balancing busy schedules. Cooking is often not considered an enjoyable activity.
+
 **Our solution:**
 CookTogether is a Streamlit web app designed to help students view cooking as a more pleasent activity. The app helps you find new recipies which are also sorted on an interactive map to explore new flavors. In addition it provides pantry-aware suggestions, a weekly meal planning table, nutrition analytics
 and ML-powered recommendations. Furthermore there is also a social aspect to the app, you can create your profile and also add your friends in order to share personal recipies and wishlists. 
