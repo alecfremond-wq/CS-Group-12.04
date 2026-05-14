@@ -91,7 +91,7 @@ CS-Groupe-Project/
 
 # 5. Nutrition Analytics: You can set your calorie goal, the chart will show the calorie intake of the week based on the meal planner (graph visualization).
 
-# 6. Recommendations: Based on your wishlist this feature will recommend other recipes through a k-NN model (machine learning).
+# 6. Recommendations: Based on your wishlist this feature will recommend other recipes through machine learning (k-NN model, looks for recipes with similar ingredients).
 
 # 7. Wishlist: Here you will see the recipes that were saved on the recipes page or from the recommendations function.
 
